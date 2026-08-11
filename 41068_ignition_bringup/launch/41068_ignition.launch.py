@@ -277,6 +277,13 @@ def generate_launch_description():
     )
     ld.add_action(world_launch_arg)
 
+    headless_launch_arg = DeclareLaunchArgument(
+        'headless',
+        default_value='False',
+        description='Run Gazebo server-only (no GUI window); use RViz for visualization instead',
+    )
+    ld.add_action(headless_launch_arg)
+
     # Load common Gazebo server systems from a shared config file. This keeps
     # required systems such as Sensors out of individual robot and world files,
     # so custom student worlds do not need to copy plugin blocks.
@@ -309,7 +316,10 @@ def generate_launch_description():
                     'worlds',
                     [LaunchConfiguration('world'), '.sdf'],
                 ]),
-                ' -r',
+                PythonExpression([
+                    "' -s -r' if '", LaunchConfiguration('headless'),
+                    "'.lower() in ", "['true', '1', 'yes', 'on']", " else ' -r'",
+                ]),
             ]
         }.items(),
     ))

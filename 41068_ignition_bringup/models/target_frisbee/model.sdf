@@ -1,0 +1,39 @@
+<sdf version="1.7">
+<model name="target_frisbee">
+    <static>false</static>
+    <link name="link">
+        <inertial>
+            <mass>0.175</mass>
+            <inertia>
+                <ixx>0.0015</ixx>
+                <iyy>0.0015</iyy>
+                <izz>0.003</izz>
+                <ixy>0</ixy>
+                <ixz>0</ixz>
+                <iyz>0</iyz>
+            </inertia>
+        </inertial>
+        <collision name="collision">
+            <geometry>
+                <cylinder>
+                    <radius>0.135</radius>
+                    <length>0.03</length>
+                </cylinder>
+            </geometry>
+        </collision>
+        <visual name="visual">
+            <geometry>
+                <cylinder>
+                    <radius>0.135</radius>
+                    <length>0.03</length>
+                </cylinder>
+            </geometry>
+            <material>
+                <ambient>0.1 0.6 0.9 1</ambient>
+                <diffuse>0.1 0.6 0.9 1</diffuse>
+                <specular>0.2 0.2 0.2 1</specular>
+            </material>
+        </visual>
+    </link>
+</model>
+</sdf>
