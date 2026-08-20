@@ -15,6 +15,11 @@ setup(
         # Trained YOLO weights, so the node resolves them from the install
         # share dir rather than a hard-coded per-machine path.
         ('share/' + package_name + '/models', glob('models/*.pt')),
+        # Interchangeable variants (real-photo vs sim-trained). Installed so
+        # they can be swapped at runtime via the node's model_path parameter
+        # without editing or rebuilding anything.
+        ('share/' + package_name + '/models/variants',
+            glob('models/variants/*.pt') + glob('models/variants/*.md')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
