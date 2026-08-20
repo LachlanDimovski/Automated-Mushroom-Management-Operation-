@@ -20,12 +20,14 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 # Object types scattered into the world: (model name, how many, is a YOLO
-# driveable target or just clutter the robot should ignore).
+# driveable target or just clutter the robot should ignore, spawn height).
+# Spawn height depends on where the model's origin sits: the decoy primitives
+# are centred on their own origin so they need lifting clear of the ground,
+# while the mushroom mesh has its base baked to z=0 and spawns flush at 0.
 SCATTER_MODELS = [
-    ('target_ball', 2, True),
-    ('target_frisbee', 2, True),
-    ('decoy_box', 3, False),
-    ('decoy_cylinder', 3, False),
+    ('mushroom_amanita', 4, True, 0.0),
+    ('decoy_box', 3, False, 0.3),
+    ('decoy_cylinder', 3, False, 0.3),
 ]
 # Keep objects out of the husky1 spawn point and spread them over the world.
 SCATTER_RADIUS_MIN_M = 3.0
@@ -40,7 +42,7 @@ def scatter_object_nodes(use_sim_time):
     description build time), so every run gets a different scattered layout.
     """
     nodes = []
-    for model_name, count, _is_target in SCATTER_MODELS:
+    for model_name, count, _is_target, spawn_z in SCATTER_MODELS:
         for i in range(count):
             angle = random.uniform(0.0, 2.0 * math.pi)
             radius = random.uniform(SCATTER_RADIUS_MIN_M, SCATTER_RADIUS_MAX_M)
@@ -59,7 +61,7 @@ def scatter_object_nodes(use_sim_time):
                 arguments=[
                     '-file', model_file,
                     '-name', f'{model_name}_{i}',
-                    '-x', str(x), '-y', str(y), '-z', '0.3',
+                    '-x', str(x), '-y', str(y), '-z', str(spawn_z),
                 ],
             ))
     return nodes
@@ -194,7 +196,7 @@ def generate_launch_description():
         condition=IfCondition(detection_view),
     ))
 
-    # Scatter a random mix of driveable targets (balls/frisbees) and decoy
+    # Scatter a random mix of driveable targets (mushrooms) and decoy
     # clutter (boxes/cylinders) around the world once Gazebo + husky1 are up.
     ld.add_action(TimerAction(
         period=SCATTER_SPAWN_DELAY_S,

@@ -1,4 +1,12 @@
-"""YOLOv8 detection node for the Husky camera feed.
+"""YOLO detection node for the Husky camera feed.
+
+Runs a custom single-class YOLO11n detector for red Amanita muscaria (fly
+agaric) mushrooms. Trained on iNaturalist photographs, then fine-tuned on 400
+frames captured from this simulation with exact projected labels - see
+capture_sim_dataset.py. mAP50 0.972 on sim imagery.
+
+This replaces the stock COCO YOLOv8n model, which had no mushroom class and was
+instead pressed into service detecting 'sports ball' / 'frisbee' sim props.
 
 Adapted from the ImageSubscriber pattern in
 https://github.com/monemati/PX4-ROS2-Gazebo-YOLOv8 (uav_camera_det.py):
@@ -11,12 +19,14 @@ ultralytics YOLO model per frame. Extended here to:
   - publish an annotated image on a ROS topic so it can be viewed
     live in RViz (Image display), instead of a local cv2 window.
 """
+import math
 import os
 
 import cv2
 import numpy as np
 import rclpy
 import torch
+from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -29,20 +39,60 @@ from ultralytics import YOLO
 # it leaves headroom for the rest of the sim stack.
 torch.set_num_threads(2)
 
-MODEL_PATH = os.path.expanduser('~/Documents/Yolo_Cpp/yolov8n.pt')
+# Custom single-class detector trained on ~880 iNaturalist photos of red
+# Amanita muscaria (fly agaric). Ships inside this package, so it resolves for
+# anyone who has colcon-built the workspace - no per-machine copy needed.
+# Override at runtime with the 'model_path' parameter, e.g.
+#   ros2 run skidsteer_perception yolo_detector --ros-args -p model_path:=/tmp/other.pt
+DEFAULT_MODEL_PATH = os.path.join(
+    get_package_share_directory('skidsteer_perception'),
+    'models', 'amanita_muscaria_yolo11n.pt')
 
-# Stop distances [m] depending on whether the target is classified red.
-STOP_DISTANCE_RED_M = 5.0
-STOP_DISTANCE_OTHER_M = 1.0
+# Stop distance [m] for a detected mushroom.
+#
+# This used to be chosen by classify_red() below, a leftover from the COCO-model
+# era when the detector found balls and frisbees of any colour and HSV was the
+# only way to tell red ones apart. That check now does harm: it measures the red
+# fraction over the whole box, and a mushroom box is mostly grey stem and
+# background, so it scores 0.06-0.16 against its 0.15 threshold and usually says
+# "not red". That selected STOP_DISTANCE_OTHER_M = 1.0 m - which is exactly
+# collision_guard's FORWARD_STOP_DIST_M. The servo drove toward 1.0 m while the
+# guard blocked motion at 1.0 m, so the robot oscillated in place and never
+# arrived.
+#
+# The model is single-class and only ever emits red Amanita muscaria, so the
+# class label already carries the colour. classify_red() is kept purely to tint
+# the annotation overlay.
+STOP_DISTANCE_M = 5.0
 
 # A detection's crop is "red" if at least this fraction of its pixels
 # fall in the red hue bands under HSV thresholding.
 RED_PIXEL_FRACTION = 0.15
 
-# Only detections of these COCO classes are reported as a driveable target -
-# other detections (trees, boxes, etc. the stock model mis-labels sim props
-# as) are still drawn/annotated but ignored for driving purposes.
-TARGET_CLASSES = {'sports ball', 'frisbee'}
+# Only detections of these classes are reported as a driveable target - any
+# other detection is still drawn/annotated but ignored for driving purposes.
+# The custom model has exactly one class, so this is a single-entry set; it
+# stays a set so a future multi-class model needs no code change here.
+TARGET_CLASSES = {'amanita_muscaria_red'}
+
+# Value published in target_info[4] for a mushroom. The previous COCO model
+# distinguished sports ball (0.0) from frisbee (1.0); with a single class
+# there is only one id to report.
+CLASS_ID_MUSHROOM = 0.0
+
+# Geometry for the range fallback, from urdf_husky/husky.gazebo.xacro
+# (720x480, 120 deg horizontal FOV) and the 2.5x-scaled mushroom model.
+FY_PIXELS = (720 / 2.0) / math.tan(2.0944 / 2.0)      # 207.85
+MUSHROOM_HEIGHT_M = 1.0
+
+# Detection confidence floor, back at the Ultralytics default now that the model
+# is fine-tuned on Gazebo frames rather than photographs. The old real-photo
+# model scored ~0.08 on a mushroom 3.5 m away and needed a 0.10 floor to detect
+# anything, which is why it also fired on grass and tree trunks. The sim-trained
+# model reaches mAP50 0.972 with precision 0.990, so the floor can be honest.
+# Override without rebuilding:
+#   ros2 run skidsteer_perception yolo_detector --ros-args -p conf_threshold:=0.15
+DEFAULT_CONF_THRESHOLD = 0.25
 
 
 def classify_red(bgr_crop) -> bool:
@@ -63,7 +113,18 @@ class YoloDetector(Node):
     def __init__(self):
         super().__init__('yolo_detector')
 
-        self.model = YOLO(MODEL_PATH)
+        self.declare_parameter('model_path', DEFAULT_MODEL_PATH)
+        self.declare_parameter('conf_threshold', DEFAULT_CONF_THRESHOLD)
+        # Detection-only by default: mushrooms are drawn on
+        # husky1/detections/image but husky1/target_info always reports "no
+        # target", so skidsteer_controller keeps patrolling and never breaks
+        # off to chase one. Set true to re-enable the visual servo.
+        self.declare_parameter('drive_to_target', False)
+        model_path = self.get_parameter('model_path').value
+        self.conf_threshold = self.get_parameter('conf_threshold').value
+        self.drive_to_target = self.get_parameter('drive_to_target').value
+
+        self.model = YOLO(model_path)
         self.bridge = CvBridge()
         self.latest_depth = None
 
@@ -77,27 +138,61 @@ class YoloDetector(Node):
         self.target_pub = self.create_publisher(
             Float32MultiArray, 'husky1/target_info', 10)
 
-        self.get_logger().info(f'Loaded YOLO model from {MODEL_PATH}')
+        self.get_logger().info(
+            f'Loaded YOLO model from {model_path} '
+            f'(classes: {sorted(self.model.names.values())}, '
+            f'conf>={self.conf_threshold}, '
+            f'{"driving to targets" if self.drive_to_target else "detection only"})')
 
     def depth_callback(self, msg: Image):
         self.latest_depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
-    def sample_depth(self, px: int, py: int):
+    def sample_depth(self, x1: int, y1: int, x2: int, y2: int):
+        """Median depth over the detection box, or None.
+
+        Sampling the single centre pixel (the original approach) failed most of
+        the time: a mushroom's box spans cap and stem, so its centre frequently
+        lands on the sky visible between them, which reads as inf. Only ~40% of
+        this depth image's pixels are finite at all. Taking the median of the
+        valid pixels inside the box is robust to that, and to the ragged edges
+        of the cap.
+        """
         if self.latest_depth is None:
             return None
         h, w = self.latest_depth.shape[:2]
-        if not (0 <= px < w and 0 <= py < h):
+        x1, y1 = max(0, min(x1, w - 1)), max(0, min(y1, h - 1))
+        x2, y2 = max(x1 + 1, min(x2, w)), max(y1 + 1, min(y2, h))
+        patch = np.asarray(self.latest_depth[y1:y2, x1:x2], dtype=np.float32)
+        valid = patch[np.isfinite(patch) & (patch > 0.0)]
+        if valid.size < 4:
             return None
-        value = float(self.latest_depth[py, px])
-        if not np.isfinite(value) or value <= 0.0:
+        return float(np.median(valid))
+
+    def estimate_range(self, x1: int, y1: int, x2: int, y2: int, img_w: int, img_h: int):
+        """Fall back to pinhole geometry when the depth camera cannot see it.
+
+        The depth camera's usable range is only ~7 m, so a mushroom spotted
+        further away has no depth at all. Reporting -1.0 for those made the
+        controller refuse to drive, which deadlocked the robot: it would not
+        approach without a range, and could not get a range without approaching.
+
+        The mushrooms are a known 1.0 m tall, so range follows from the box
+        height: distance = real_height * fy / height_px. Skipped when the box
+        touches an image edge, since a clipped box understates the height and
+        would overestimate the range.
+        """
+        if x1 <= 1 or y1 <= 1 or x2 >= img_w - 1 or y2 >= img_h - 1:
             return None
-        return value
+        h_px = y2 - y1
+        if h_px < 8:
+            return None
+        return MUSHROOM_HEIGHT_M * FY_PIXELS / h_px
 
     def image_callback(self, msg: Image):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         img_h, img_w = frame.shape[:2]
 
-        results = self.model.predict(frame, verbose=False)
+        results = self.model.predict(frame, conf=self.conf_threshold, verbose=False)
         result = results[0]
 
         # Among TARGET_CLASSES detections only: (distance, area, cx, cy, x1, y1, x2, y2, is_red, label).
@@ -125,7 +220,10 @@ class YoloDetector(Node):
 
             if not is_target_class:
                 continue
-            candidate_distance = self.sample_depth(cx, cy)
+            candidate_distance = self.sample_depth(x1, y1, x2, y2)
+            if candidate_distance is None:
+                candidate_distance = self.estimate_range(
+                    x1, y1, x2, y2, img_w, img_h)
             # Larger area -> assumed closer, so a bigger negative sort key;
             # only used when depth isn't available yet for this candidate.
             sort_key = candidate_distance if candidate_distance is not None else (1.0 / max(area, 1))
@@ -133,13 +231,13 @@ class YoloDetector(Node):
                 best_target = (sort_key, cx, cy, x1, y1, x2, y2, is_red, label, candidate_distance)
 
         target = Float32MultiArray()
+        if not self.drive_to_target:
+            best_target = None      # detection only - never hand the controller a target
         if best_target is not None:
             _, cx, cy, x1, y1, x2, y2, is_red, label, distance = best_target
-            stop_distance = STOP_DISTANCE_RED_M if is_red else STOP_DISTANCE_OTHER_M
+            stop_distance = STOP_DISTANCE_M
             bearing = (cx - img_w / 2.0) / (img_w / 2.0)  # -1 (left) .. +1 (right)
-            # 0.0 = sports ball, 1.0 = frisbee - lets the controller tally
-            # soccer-ball reaches specifically.
-            class_id = 0.0 if label == 'sports ball' else 1.0
+            class_id = CLASS_ID_MUSHROOM
 
             if distance is not None:
                 target.data = [1.0, bearing, distance, stop_distance, class_id]

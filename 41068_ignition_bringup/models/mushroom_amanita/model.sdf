@@ -1,0 +1,53 @@
+<sdf version="1.7">
+<model name="mushroom_amanita">
+    <!-- Static: the mushroom is a perception target, not something the robot
+         should knock over. Static bodies are also cheaper and cannot tip,
+         drift, or be launched by a physics glitch on spawn. -->
+    <static>true</static>
+    <link name="link">
+
+        <!-- Collision is a coarse cylinder rather than the visual mesh.
+             Mesh collisions are expensive and this only needs to stop the
+             robot driving through the mushroom. Match <radius>/<length> to
+             the real mesh size, and keep <pose> z at half the length so the
+             cylinder sits on the ground. -->
+        <!-- Sized to match the 2.5x visual scale: ~1.0 m tall, 0.75 m wide. -->
+        <collision name="collision">
+            <pose>0 0 0.50 0 0 0</pose>
+            <geometry>
+                <cylinder>
+                    <radius>0.375</radius>
+                    <length>1.00</length>
+                </cylinder>
+            </geometry>
+        </collision>
+
+        <visual name="visual">
+            <geometry>
+                <mesh>
+                    <!-- OBJ, not the original .glb: Gazebo Fortress
+                         (ignition-common4) ships only ColladaLoader,
+                         OBJLoader and STLLoader. It has no glTF loader, so a
+                         .glb spawns as an entity with no visible geometry -
+                         no error, just an invisible model. glTF support
+                         arrived in gz-common5 (Garden).
+                         Converted from amanita_muscaria.glb, which is kept
+                         alongside as the source asset. -->
+                    <uri>model://mushroom_amanita/meshes/mushroom.obj</uri>
+                    <!-- The mesh is baked to 0.30 x 0.30 x 0.40 m with its
+                         base at z=0, so scale here is a pure size multiplier.
+                         2.5x -> ~1.0 m tall. Deliberately far above life size:
+                         at 0.40 m a mushroom 3.5 m away is only ~45 px in a
+                         720x480 frame, and the detector scored 0.08 on it.
+                         The same mushroom filling the frame scores 0.40, so
+                         apparent size is the dominant factor. Detection
+                         matters more than botanical accuracy here. -->
+                    <scale>2.5 2.5 2.5</scale>
+                </mesh>
+            </geometry>
+            <!-- No <material> block: material.mtl supplies the two cap/stem
+                 textures. Adding one here would override them. -->
+        </visual>
+    </link>
+</model>
+</sdf>
