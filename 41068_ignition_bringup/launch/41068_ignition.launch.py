@@ -187,6 +187,39 @@ def add_navigation_instance(
     ))
 
 
+def add_perception(
+    ld,
+    *,
+    use_sim_time,
+    robot_arg,
+    robot_namespace,
+    start_delay,
+):
+    """Run the shared perception stack (YOLO detector) for one robot.
+
+    Publishes <namespace>/detections and <namespace>/detections/image.
+    """
+    perception_include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                FindPackageShare('perception'),
+                'launch',
+                'perception.launch.py',
+            ])
+        ),
+        launch_arguments={
+            'robot': robot_namespace,
+            'use_sim_time': use_sim_time,
+        }.items(),
+    )
+
+    ld.add_action(TimerAction(
+        period=start_delay,
+        actions=[GroupAction(scoped=True, actions=[perception_include])],
+        condition=_if_all_true('yolo', robot_arg),
+    ))
+
+
 def add_rviz_instance(
     ld,
     *,
@@ -268,6 +301,13 @@ def generate_launch_description():
         description='Launch the Parrot drone instance in namespace /parrot1',
     )
     ld.add_action(parrot_launch_arg)
+
+    yolo_launch_arg = DeclareLaunchArgument(
+        'yolo',
+        default_value='True',
+        description='Run the shared YOLO detector for each enabled robot',
+    )
+    ld.add_action(yolo_launch_arg)
 
     world_launch_arg = DeclareLaunchArgument(
         'world',
@@ -388,6 +428,22 @@ def generate_launch_description():
         robot_arg='parrot',
         robot_namespace='parrot1',
         start_delay=10.0,
+    )
+
+    add_perception(
+        ld,
+        use_sim_time=use_sim_time,
+        robot_arg='husky',
+        robot_namespace='husky1',
+        start_delay=8.0,
+    )
+
+    add_perception(
+        ld,
+        use_sim_time=use_sim_time,
+        robot_arg='parrot',
+        robot_namespace='parrot1',
+        start_delay=11.0,
     )
 
     add_rviz_instance(

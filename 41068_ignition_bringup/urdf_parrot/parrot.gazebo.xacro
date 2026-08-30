@@ -98,6 +98,8 @@
       <odom_publish_frequency>20</odom_publish_frequency>
       <odom_frame>${prefix}odom</odom_frame>
       <robot_base_frame>${prefix}base_link</robot_base_frame>
+      <!-- 3D so odometry carries altitude (z); the EKF ignores z either way. -->
+      <dimensions>3</dimensions>
     </plugin>
   </gazebo>
 

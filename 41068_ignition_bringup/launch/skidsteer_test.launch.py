@@ -134,6 +134,8 @@ def generate_launch_description():
             'headless': headless,
             'husky': 'True',
             'parrot': 'False',
+            # Starts perception/yolo_node -> husky1/detections.
+            'yolo': yolo,
         }.items(),
     ))
 
@@ -154,7 +156,7 @@ def generate_launch_description():
     ))
 
     # Default: autonomous waypoint following, switching to visual-servo
-    # chase/stop whenever yolo_detector reports a fresh target.
+    # chase/stop whenever target_selector reports a fresh target.
     ld.add_action(Node(
         package='skidsteer_controller',
         executable='skidsteer_controller_node',
@@ -175,10 +177,13 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}],
     ))
 
+    # yolo_node is started by the 41068_ignition.launch.py include above.
+    # Husky-only: range husky1/detections against the depth camera and publish
+    # the best target on husky1/target_info for skidsteer_controller.
     ld.add_action(Node(
         package='skidsteer_perception',
-        executable='yolo_detector',
-        name='yolo_detector',
+        executable='target_selector',
+        name='target_selector',
         output='screen',
         parameters=[{'use_sim_time': use_sim_time}],
         condition=IfCondition(yolo),

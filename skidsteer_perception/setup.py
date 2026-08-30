@@ -1,5 +1,3 @@
-from glob import glob
-
 from setuptools import find_packages, setup
 
 package_name = 'skidsteer_perception'
@@ -12,25 +10,17 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        # Trained YOLO weights, so the node resolves them from the install
-        # share dir rather than a hard-coded per-machine path.
-        ('share/' + package_name + '/models', glob('models/*.pt')),
-        # Interchangeable variants (real-photo vs sim-trained). Installed so
-        # they can be swapped at runtime via the node's model_path parameter
-        # without editing or rebuilding anything.
-        ('share/' + package_name + '/models/variants',
-            glob('models/variants/*.pt') + glob('models/variants/*.md')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Lachlan Dimovski',
     maintainer_email='lachlan.dimovski02@gmail.com',
-    description='YOLO11 mushroom detection on the Husky skid-steer camera feed',
+    description='Husky mushroom target selection and sim dataset capture',
     license='Apache 2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'yolo_detector = skidsteer_perception.yolo_detector:main',
+            'target_selector = skidsteer_perception.target_selector:main',
             'capture_sim_dataset = skidsteer_perception.capture_sim_dataset:main',
         ],
     },

@@ -24,11 +24,11 @@ run - it starts from those weights and adapts them to rendered imagery.
 
 The node takes the weights path as a ROS parameter:
 
-    ros2 run skidsteer_perception yolo_detector --ros-args \
-        -p model_path:=$(ros2 pkg prefix skidsteer_perception)/share/skidsteer_perception/models/variants/amanita_realphoto_yolo11n.pt
+    ros2 run perception yolo_node --ros-args \
+        -p model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_realphoto_yolo11n.pt
 
 Or make one the default by copying it over `../amanita_muscaria_yolo11n.pt` and
-running `colcon build --packages-select skidsteer_perception`.
+running `colcon build --packages-select perception`.
 
 ## Why both are kept
 

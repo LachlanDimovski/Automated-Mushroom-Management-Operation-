@@ -3,7 +3,7 @@
 <package format="3">
   <name>skidsteer_perception</name>
   <version>0.0.1</version>
-  <description>YOLO11 mushroom detection on the Husky skid-steer camera feed</description>
+  <description>Husky mushroom target selection and sim dataset capture</description>
   <maintainer email="lachlan.dimovski02@gmail.com">Lachlan Dimovski</maintainer>
   <license>Apache 2.0</license>
 
