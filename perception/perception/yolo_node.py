@@ -14,9 +14,14 @@ import torch
 from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 from ultralytics import YOLO
 from vision_msgs.msg import Detection2D, Detection2DArray, ObjectHypothesisWithPose
+
+# Keep only the newest frame: if inference falls behind, drop the backlog
+# rather than working through stale frames (which builds visible latency).
+LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 
 # Single-class fly-agaric detector, fine-tuned on Gazebo frames. Swap via the
 # model_path parameter - see models/variants/README.md.
@@ -60,7 +65,7 @@ class YoloNode(Node):
         self.bridge = CvBridge()
 
         self.image_sub = self.create_subscription(
-            Image, image_topic, self.image_callback, 10)
+            Image, image_topic, self.image_callback, LIVE_QOS)
         # Relative names: resolve under this node's namespace (e.g. /husky1/).
         self.detections_pub = self.create_publisher(
             Detection2DArray, 'detections', 10)

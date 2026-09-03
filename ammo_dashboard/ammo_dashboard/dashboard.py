@@ -8,6 +8,7 @@ quadcopter's altitude, and a top-down minimap of where each one is.
 
 Press q (or close the window) to quit.
 """
+import threading
 import time
 from collections import deque
 
@@ -17,7 +18,11 @@ import rclpy
 from cv_bridge import CvBridge
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
+
+# Newest sample only - a slow render must never work through a backlog.
+LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 
 # Mushroom palette, BGR.
 BG = (26, 22, 18)
@@ -97,6 +102,7 @@ class Dashboard(Node):
         self.parrot_spawn = self.get_parameter('parrot_spawn').value
         self.parrot_ground_z = self.get_parameter('parrot_ground_z').value
         self.map_range = self.get_parameter('map_range_m').value
+        self.fps = self.get_parameter('fps').value
 
         self.bridge = CvBridge()
         self.husky_img = None
@@ -107,14 +113,15 @@ class Dashboard(Node):
         self.husky_trail = deque(maxlen=80)
         self.parrot_trail = deque(maxlen=80)
 
-        self.create_subscription(Image, 'husky1/detections/image', self._husky_img, 5)
-        self.create_subscription(Image, 'parrot1/detections/image', self._parrot_img, 5)
-        self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, 10)
-        self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, 10)
+        self.create_subscription(Image, 'husky1/detections/image', self._husky_img, LIVE_QOS)
+        self.create_subscription(Image, 'parrot1/detections/image', self._parrot_img, LIVE_QOS)
+        self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, LIVE_QOS)
+        self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, LIVE_QOS)
 
         self.window = 'AMMO Field Debug'
         cv2.namedWindow(self.window, cv2.WINDOW_AUTOSIZE)
-        self.create_timer(1.0 / self.get_parameter('fps').value, self._render)
+        # Rendering runs in main() on the wall clock, not a ROS timer, so it
+        # never blocks message intake and never slows with sim time.
 
     def _husky_img(self, msg):
         try:
@@ -145,7 +152,8 @@ class Dashboard(Node):
     def _fresh(self, key):
         return time.monotonic() - self.seen[key] < STALE_S
 
-    def _render(self):
+    def render_once(self, wait_ms):
+        """Draw one frame and pump the GUI. Returns False when the user quits."""
         try:
             c = np.full((H, W, 3), BG, np.uint8)
             self._header(c)
@@ -156,14 +164,12 @@ class Dashboard(Node):
             self._speed_card(c, MARGIN, BOT_TOP)
             self._alt_card(c, MARGIN + CARD_W + GAP, BOT_TOP)
             self._minimap(c, W - MARGIN - MAP_SIZE, BOT_TOP)
-
             cv2.imshow(self.window, c)
-            key = cv2.waitKey(1) & 0xFF
-            closed = cv2.getWindowProperty(self.window, cv2.WND_PROP_VISIBLE) < 1
-            if key == ord('q') or closed:
-                rclpy.shutdown()
         except Exception as exc:
             self.get_logger().warn(f'render error: {exc}', throttle_duration_sec=5.0)
+        key = cv2.waitKey(wait_ms) & 0xFF
+        closed = cv2.getWindowProperty(self.window, cv2.WND_PROP_VISIBLE) < 1
+        return key != ord('q') and not closed
 
     # ------------------------------------------------------------------
     def _header(self, c):
@@ -286,15 +292,25 @@ class Dashboard(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = Dashboard()
+
+    # ROS intake on its own thread; drawing owns the main thread so a slow
+    # cv2 GUI call can never back up the subscriptions (which is what caused
+    # the multi-second display lag).
+    spin = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+    spin.start()
+
+    wait_ms = max(1, int(1000.0 / node.fps))
     try:
-        rclpy.spin(node)
+        while rclpy.ok() and node.render_once(wait_ms):
+            pass
     except KeyboardInterrupt:
         pass
     finally:
         cv2.destroyAllWindows()
-        node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+        spin.join(timeout=1.0)
+        node.destroy_node()
 
 
 if __name__ == '__main__':

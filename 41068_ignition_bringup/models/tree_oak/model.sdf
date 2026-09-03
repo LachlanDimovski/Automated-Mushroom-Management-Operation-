@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <model name="tree_oak">
+    <static>true</static>
+    <link name="link">
+      <!-- Trunk-only cylinder collision. The Fuel model ships a full alpha-card
+           mesh collision; at ~150 trees that is far too heavy for the 3 Hz
+           360-beam lidar and the costmap. The lidar only ever sees the trunk. -->
+      <collision name="trunk">
+        <pose>0 0 3.0 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>0.28</radius><length>6.0</length></cylinder>
+        </geometry>
+      </collision>
+      <visual name="branch">
+        <geometry>
+          <mesh>
+            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+            <submesh><name>Branch</name></submesh>
+          </mesh>
+        </geometry>
+        <material>
+          <double_sided>true</double_sided>
+          <diffuse>1 1 1 1</diffuse>
+          <pbr>
+            <metal>
+              <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+              <metalness>0</metalness>
+              <roughness>1</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+      <visual name="bark">
+        <geometry>
+          <mesh>
+            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+            <submesh><name>Bark</name></submesh>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1 1 1 1</diffuse>
+          <pbr>
+            <metal>
+              <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+              <metalness>0</metalness>
+              <roughness>1</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
