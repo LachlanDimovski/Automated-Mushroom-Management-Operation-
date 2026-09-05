@@ -124,7 +124,11 @@ class Ps4DroneTest(Node):
         cmd = Twist()
         if armed:
             cmd.linear.x = -self._axis(self.p['axis_forward']) * self.p['speed_xy']
-            cmd.linear.y = -self._axis(self.p['axis_strafe']) * self.p['speed_xy']
+            # Not negated like the other axes: the raw SDL2 axis already ran
+            # backwards from stick-right -> drone-right (violates the
+            # obvious "push right, go right" expectation), so flipping the
+            # sign here is what makes it intuitive, not a bug.
+            cmd.linear.y = self._axis(self.p['axis_strafe']) * self.p['speed_xy']
             cmd.linear.z = -self._axis(self.p['axis_climb']) * self.p['speed_climb']
             cmd.angular.z = -self._axis(self.p['axis_yaw']) * self.p['yaw_rate']
         self.pub.publish(cmd)
