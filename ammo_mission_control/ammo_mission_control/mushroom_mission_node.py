@@ -1,5 +1,12 @@
 """Dispatches the skidsteer to a mushroom find.
 
+PENDING REVIEW: this file has one small addition from Danil for the GUI
+Node (ammo_gui_node) - a new 'mushroom_found' publisher, so the GUI has a
+live mushroom count/map-marker source instead of reading this node's
+internal state directly. Marked inline with "ammo_gui_node addition"
+comments; nothing about the existing dispatch logic changes. Please review
+before this lands on main.
+
 Two trigger modes, both live simultaneously:
 
   - auto_trigger (default True right now, for isolating whether the
@@ -54,7 +61,7 @@ your driver maps them differently.
 import math
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PointStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
@@ -176,6 +183,13 @@ class MushroomMissionController(Node):
         self.target_stamp = None  # monotonic seconds
 
         self.cmd_pub = self.create_publisher(Twist, 'husky1/cmd_vel_raw', 10)
+        # --- ammo_gui_node addition (Danil, for review) -------------------
+        # One PointStamped per newly-dispatched mushroom, so the GUI has a
+        # live count/map-marker source instead of reading self.goal off
+        # this node directly. Doesn't change any existing behaviour here -
+        # see _publish_mushroom_found below for the two call sites.
+        self.mushroom_pub = self.create_publisher(PointStamped, 'mushroom_found', 10)
+        # -------------------------------------------------------------------
         self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, LIVE_QOS)
         self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, LIVE_QOS)
         self.create_subscription(
@@ -245,6 +259,7 @@ class MushroomMissionController(Node):
             self.get_logger().info(
                 f'Auto-triggered (no button) at ({self.goal[0]:.2f}, {self.goal[1]:.2f}) - '
                 'dispatching skidsteer.')
+            self._publish_mushroom_found(*self.goal)  # ammo_gui_node addition
 
     def _husky_target(self, msg):
         if len(msg.data) < 4:
@@ -300,6 +315,28 @@ class MushroomMissionController(Node):
         self.get_logger().info(
             f'Mushroom confirmed by YOLO ({age:.1f}s old) and marked at '
             f'({self.goal[0]:.2f}, {self.goal[1]:.2f}) - dispatching skidsteer.')
+        self._publish_mushroom_found(*self.goal)  # ammo_gui_node addition
+
+    # --- ammo_gui_node addition (Danil, for review) -------------------------
+    def _publish_mushroom_found(self, world_x, world_y):
+        """One PointStamped per dispatched goal - same world-frame
+        convention as husky1/odometry and parrot1/odometry (raw, no TF),
+        not a real 'world' TF frame; frame_id is descriptive only. Note
+        this fires every time a goal is set, including a later
+        auto-trigger or R1+Triangle re-confirming/overriding the same
+        physical mushroom mid-drive - deliberately left as the raw event
+        stream rather than deduplicated here, so this method never needs
+        to know what "the same mushroom" means; whether two nearby points
+        are one mushroom or two is left to whatever subscribes to this
+        (currently ammo_gui_node's mushroom count/map markers).
+        """
+        msg = PointStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'world'
+        msg.point.x = world_x
+        msg.point.y = world_y
+        self.mushroom_pub.publish(msg)
+    # -------------------------------------------------------------------------
 
     def _control_step(self):
         if not self.have_husky_odom or self.goal is None:
