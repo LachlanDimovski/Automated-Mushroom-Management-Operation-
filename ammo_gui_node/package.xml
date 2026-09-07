@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ammo_gui_node</name>
+  <version>0.0.1</version>
+  <description>Operator GUI: mission setup (working area, autonomous/manual mode),
+  live mission progress, mushroom count, elapsed time, pause/resume, manual
+  keyboard teleop of the Parrot, and an occupancy-grid map view with robot
+  pose/heading and mushroom markers. Separate from ammo_dashboard's read-only
+  debug HUD - this one is an interactive PySide6 control surface.</description>
+  <maintainer email="danil.vasiliev@gmail.com">Danil Vasiliev</maintainer>
+  <license>Apache 2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
