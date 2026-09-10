@@ -1,3 +1,4 @@
+
 #include "mission.h"
 #include <cmath>
 #include <chrono>
@@ -65,6 +66,11 @@ void Mission::handleLiftoff(
         odom.pose.pose.position.x, odom.pose.pose.position.y, takeoffAltitude_);
     quad_->setGoal(goal);
     quad_->setActive(true);
+ 
+    RCLCPP_INFO(this->get_logger(),
+        "Liftoff commanded (cmd_vel.z published, but this platform's altitude "
+        "isn't tracked/controlled by default per the 41068 README — TAKEOFF "
+        "resolves on horizontal position only).");
  
     state_ = MissionState::TAKEOFF;
     response->success = true;
@@ -193,4 +199,3 @@ geometry_msgs::msg::Pose Mission::makePose(double x, double y, double z) {
     pose.orientation.w = 1.0;  // no particular heading requested
     return pose;
 }
- 

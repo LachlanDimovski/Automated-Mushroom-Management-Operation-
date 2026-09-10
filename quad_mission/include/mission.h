@@ -1,7 +1,7 @@
 // Top level quad state machine
 // Call this for all your quad needs!
 // Made and Upkept by Darcy Moyes - 25280025
-// last patch was 4 September 26
+// last patch was 6 September 26
 // -- Quadcopter States --
 // IDLE          = Motors are idle, here when waiting for a command
 // TAKEOFF       = Start to move to a coasting height

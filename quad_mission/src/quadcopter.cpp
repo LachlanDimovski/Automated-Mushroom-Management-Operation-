@@ -77,8 +77,14 @@ bool Quadcopter::isGoalReached() {
  
     double dx = goal.position.x - odom.pose.pose.position.x;
     double dy = goal.position.y - odom.pose.pose.position.y;
-    double dz = goal.position.z - odom.pose.pose.position.z;
-    double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+    // NOTE: horizontal distance only. This platform doesn't reliably report
+    // (or control) z — the 41068 starter README confirms the Parrot flies
+    // in 2D at a fixed altitude by default. Including dz here would mean
+    // isGoalReached() never returns true for a liftoff/land goal (which only
+    // changes z), hanging the mission indefinitely. cmd.linear.z is still
+    // computed below and published, so if the platform is later extended to
+    // real 3D flight this starts working with no further changes needed here.
+    double dist = std::sqrt(dx * dx + dy * dy);
     return dist < GOAL_TOLERANCE;
 }
  
@@ -110,16 +116,24 @@ geometry_msgs::msg::Twist Quadcopter::computeVelocity() {
     cmd.linear.y = std::clamp(KP * lateral, -MAX_LINEAR_VEL, MAX_LINEAR_VEL);
     cmd.linear.z = std::clamp(KP * dz, -MAX_LINEAR_VEL, MAX_LINEAR_VEL);
  
-    // Yaw control to point towards the goal
-    double angle_to_goal = atan2(dy, dx);
-    double yaw_error = angle_to_goal - yaw;
-    while (yaw_error > M_PI) {
-        yaw_error -= 2 * M_PI;
+    // Yaw control to point towards the goal — but atan2(dy, dx) is
+    // meaningless/noisy when the horizontal distance is near zero (e.g.
+    // liftoff/land goals, which only change z). Skip yaw correction
+    // entirely in that case rather than spinning on garbage angles.
+    double horizontal_dist = std::sqrt(dx * dx + dy * dy);
+    if (horizontal_dist > 0.1) {
+        double angle_to_goal = atan2(dy, dx);
+        double yaw_error = angle_to_goal - yaw;
+        while (yaw_error > M_PI) {
+            yaw_error -= 2 * M_PI;
+        }
+        while (yaw_error < -M_PI) {
+            yaw_error += 2 * M_PI;
+        }
+        cmd.angular.z = std::clamp(KP * yaw_error, -MAX_ANGULAR_VEL, MAX_ANGULAR_VEL);
+    } else {
+        cmd.angular.z = 0.0;
     }
-    while (yaw_error < -M_PI) {
-        yaw_error += 2 * M_PI;
-    }
-    cmd.angular.z = std::clamp(KP * yaw_error, -MAX_ANGULAR_VEL, MAX_ANGULAR_VEL);
     return cmd;
 }
  
