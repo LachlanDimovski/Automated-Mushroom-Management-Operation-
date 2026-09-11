@@ -12,7 +12,7 @@ using namespace std::chrono_literals;
 SkidsteerController::SkidsteerController()
 : Node("skidsteer_controller")
 {
-  cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("husky1/cmd_vel", 10);
+  cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("husky1/cmd_vel_raw", 10);
   odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     "husky1/odometry", 10,
     std::bind(&SkidsteerController::odomCallback, this, std::placeholders::_1));

@@ -20,6 +20,8 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
+from ammo_mission_control.drive_utils import steer_angular, yaw_of
+
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 CONTROL_HZ = 20.0
 
@@ -37,10 +39,6 @@ GOAL_TOLERANCE_M = 0.5
 # How far past delay_s to keep buffered samples around for - only needs to
 # cover one control period of slack, not the whole delay again.
 BUFFER_SLACK_S = 2.0
-
-
-def yaw_of(q):
-    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
 class QuadFollowController(Node):
@@ -92,17 +90,13 @@ class QuadFollowController(Node):
     def _delayed_target(self):
         """World-frame point the quad was at delay_s ago, or None if it
         hasn't been flying (publishing odometry) for that long yet."""
-        if not self.quad_history:
-            return None
         target_t = self._now_s() - self.delay_s
-        if self.quad_history[0][0] > target_t:
-            return None
-        best = self.quad_history[0]
-        for sample in self.quad_history:
-            if sample[0] > target_t:
+        best = None
+        for t, wx, wy in self.quad_history:
+            if t > target_t:
                 break
-            best = sample
-        return best[1], best[2]
+            best = (wx, wy)
+        return best
 
     def _control_step(self):
         if not self.have_odom:
@@ -122,11 +116,7 @@ class QuadFollowController(Node):
             self.cmd_pub.publish(cmd)
             return
 
-        target_angle = math.atan2(dy, dx)
-        angle_diff = math.atan2(
-            math.sin(target_angle - self.yaw), math.cos(target_angle - self.yaw))
-        cmd.angular.z = max(
-            -MAX_ANGULAR_SPEED, min(MAX_ANGULAR_SPEED, angle_diff * ANGULAR_GAIN))
+        angle_diff, cmd.angular.z = steer_angular(dx, dy, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
 
         if abs(angle_diff) < ANGLE_THRESHOLD_RAD:
             if dist < SLOW_ZONE_M:

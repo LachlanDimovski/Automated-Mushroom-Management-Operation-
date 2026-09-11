@@ -62,6 +62,8 @@ from sensor_msgs.msg import Joy
 from std_msgs.msg import Float32MultiArray
 from vision_msgs.msg import Detection2DArray
 
+from ammo_mission_control.drive_utils import steer_angular, yaw_of
+
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 CONTROL_HZ = 20.0
 
@@ -104,10 +106,6 @@ CAM_PITCH_RAD = 0.785398
 # Camera can't see the ground at all above this many degrees off vertical
 # (boresight would be pointing at/above the horizon) - treat as unprojectable.
 MAX_DOWN_ANGLE_RAD = math.radians(89.0)
-
-
-def yaw_of(q):
-    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
 def project_to_ground(quad_x, quad_y, quad_yaw, quad_alt, px, py):
@@ -328,11 +326,7 @@ class MushroomMissionController(Node):
             self.cmd_pub.publish(cmd)
             return
 
-        target_angle = math.atan2(dy, dx)
-        angle_diff = math.atan2(
-            math.sin(target_angle - self.yaw), math.cos(target_angle - self.yaw))
-        cmd.angular.z = max(
-            -MAX_ANGULAR_SPEED, min(MAX_ANGULAR_SPEED, angle_diff * ANGULAR_GAIN))
+        angle_diff, cmd.angular.z = steer_angular(dx, dy, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
 
         if abs(angle_diff) < ANGLE_THRESHOLD_RAD:
             if dist < SLOW_ZONE_M:

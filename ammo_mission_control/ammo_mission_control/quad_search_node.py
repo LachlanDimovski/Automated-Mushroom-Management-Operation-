@@ -41,6 +41,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
 
+from ammo_mission_control.drive_utils import steer_angular, yaw_of
+
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 CONTROL_HZ = 20.0
 
@@ -90,10 +92,6 @@ STUCK_CHECK_PERIOD_S = 4.0
 STUCK_MOVE_THRESHOLD_M = 1.0
 RECOVERY_CLIMB_M = 4.0
 RECOVERY_DURATION_S = 8.0
-
-
-def yaw_of(q):
-    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
 def build_lawnmower_waypoints():
@@ -222,10 +220,7 @@ class QuadSearchController(Node):
             dx, dy = gx - self.x, gy - self.y
             dist = math.hypot(dx, dy)
 
-        target_angle = math.atan2(dy, dx)
-        angle_diff = math.atan2(
-            math.sin(target_angle - self.yaw), math.cos(target_angle - self.yaw))
-        angular = max(-MAX_ANGULAR_SPEED, min(MAX_ANGULAR_SPEED, angle_diff * ANGULAR_GAIN))
+        angle_diff, angular = steer_angular(dx, dy, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
 
         linear = 0.0
         if abs(angle_diff) < ANGLE_THRESHOLD_RAD:

@@ -6,8 +6,19 @@ quadcopter's altitude, and a top-down minimap of where each one is.
 
     ros2 launch ammo_dashboard dashboard.launch.py
 
-Press q (or close the window) to quit.
+Also doubles as the mission mode switcher: the repo has several
+mutually-exclusive "which node drives the husky/quad" launch combinations
+(see the root README's Node topology section) that used to only be
+choosable by typing the right `ros2 launch` command in a spare terminal.
+The mode bar below the header does the same thing as a row of buttons -
+clicking one stops whatever mode is currently running (SIGINT to its whole
+process group, so child nodes shut down cleanly) and launches the next one.
+
+Press q (or close the window) to quit - this also stops any active mode.
 """
+import os
+import signal
+import subprocess
 import threading
 import time
 from collections import deque
@@ -20,6 +31,24 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
+
+# Each mutually-exclusive husky/quad control combination, bundled as its own
+# launch file elsewhere in the repo - the mode bar just runs one of these at
+# a time instead of the user picking by hand. Labels kept short for the bar.
+MODES = [
+    ('teleop', 'TELEOP', ['ros2', 'launch', '41068_ignition_bringup',
+                           'skidsteer_test.launch.py', 'teleop:=True']),
+    ('skid_auto', 'SKID AUTO', ['ros2', 'launch', '41068_ignition_bringup',
+                                 'skidsteer_test.launch.py', 'teleop:=False']),
+    ('follow', 'FOLLOW', ['ros2', 'launch', 'ammo_mission_control', 'quad_follow.launch.py']),
+    ('mushroom', 'MUSHROOM', ['ros2', 'launch', 'ammo_mission_control',
+                               'mushroom_mission.launch.py']),
+    ('full_auto', 'FULL AUTO', ['ros2', 'launch', 'ammo_mission_control',
+                                 'autonomous.launch.py']),
+]
+STOP_LABEL = 'STOP'
+MODE_BAR_Y0 = 50   # just below the header (HEAD_H)
+MODE_BAR_Y1 = 80   # just above the camera panels (CAM_TOP)
 
 # Newest sample only - a slow render must never work through a backlog.
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -118,10 +147,64 @@ class Dashboard(Node):
         self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, LIVE_QOS)
         self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, LIVE_QOS)
 
+        self.active_mode = None  # key from MODES, or None if nothing running
+        self.active_proc = None
+        self._buttons = self._layout_buttons()
+
         self.window = 'AMMO Field Debug'
         cv2.namedWindow(self.window, cv2.WINDOW_AUTOSIZE)
+        cv2.setMouseCallback(self.window, self._on_mouse)
         # Rendering runs in main() on the wall clock, not a ROS timer, so it
         # never blocks message intake and never slows with sim time.
+
+    def _layout_buttons(self):
+        """(x1, y1, x2, y2, key, label) for each mode button plus STOP,
+        evenly spaced across the bar between the header and camera panels."""
+        entries = [(key, label) for key, label, _cmd in MODES] + [('stop', STOP_LABEL)]
+        n = len(entries)
+        slot_w = W // n
+        buttons = []
+        for i, (key, label) in enumerate(entries):
+            x1 = i * slot_w + 4
+            x2 = (i + 1) * slot_w - 4
+            buttons.append((x1, MODE_BAR_Y0 + 3, x2, MODE_BAR_Y1 - 3, key, label))
+        return buttons
+
+    def _on_mouse(self, event, x, y, flags, param):
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        for x1, y1, x2, y2, key, _label in self._buttons:
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                self._select_mode(key)
+                return
+
+    def _select_mode(self, key):
+        self._stop_active()
+        if key == 'stop':
+            return
+        cmd = next(cmd for k, _label, cmd in MODES if k == key)
+        self.get_logger().info(f'Mode bar: starting "{key}" -> {" ".join(cmd)}')
+        # New process group so SIGINT can be sent to it and every child
+        # `ros2 launch` spawns, not just the launch process itself.
+        self.active_proc = subprocess.Popen(cmd, preexec_fn=os.setsid)
+        self.active_mode = key
+
+    def _stop_active(self):
+        if self.active_proc is None or self.active_proc.poll() is not None:
+            self.active_mode = None
+            self.active_proc = None
+            return
+        self.get_logger().info(f'Mode bar: stopping "{self.active_mode}"')
+        try:
+            os.killpg(os.getpgid(self.active_proc.pid), signal.SIGINT)
+            self.active_proc.wait(timeout=5.0)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(os.getpgid(self.active_proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        self.active_mode = None
+        self.active_proc = None
 
     def _husky_img(self, msg):
         try:
@@ -157,6 +240,7 @@ class Dashboard(Node):
         try:
             c = np.full((H, W, 3), BG, np.uint8)
             self._header(c)
+            self._mode_bar(c)
             self._cam_panel(c, MARGIN, CAM_TOP, 'SKIDSTEER - YOLO',
                             self.husky_img, self._fresh('hi'))
             self._cam_panel(c, MARGIN + CAM_W + GAP, CAM_TOP, 'QUADCOPTER - YOLO',
@@ -179,6 +263,22 @@ class Dashboard(Node):
         live = sum(self._fresh(k) for k in self.seen)
         tag = f'{live}/4 feeds live'
         txt(c, tag, (W - 16 - txt_w(tag, 0.55), 33), 0.55, SPOT)
+
+    def _mode_bar(self, c):
+        running = self.active_proc is not None and self.active_proc.poll() is None
+        for x1, y1, x2, y2, key, label in self._buttons:
+            is_stop = key == 'stop'
+            active = running and key == self.active_mode
+            if active:
+                fill = CAP_RED
+            elif is_stop:
+                fill = SOIL
+            else:
+                fill = PANEL
+            cv2.rectangle(c, (x1, y1), (x2, y2), fill, -1)
+            cv2.rectangle(c, (x1, y1), (x2, y2), INK if not active else SPOT, 1)
+            col = SPOT if (active or is_stop) else INK
+            txt(c, label, (x1 + (x2 - x1 - txt_w(label, 0.45)) // 2, y2 - 9), 0.45, col)
 
     def _cam_panel(self, c, x, y, title, frame, ok):
         cv2.rectangle(c, (x, y), (x + CAM_W, y + CAM_H), PANEL, 2)
@@ -306,6 +406,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node._stop_active()  # don't leave a mode's nodes running after the HUD closes
         cv2.destroyAllWindows()
         if rclpy.ok():
             rclpy.shutdown()
