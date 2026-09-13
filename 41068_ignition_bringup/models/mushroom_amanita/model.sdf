@@ -11,13 +11,17 @@
              robot driving through the mushroom. Match <radius>/<length> to
              the real mesh size, and keep <pose> z at half the length so the
              cylinder sits on the ground. -->
-        <!-- Sized to match the 2.5x visual scale: ~1.0 m tall, 0.75 m wide. -->
+        <!-- Sized to match the 0.5x visual scale: 0.20 m tall, 0.15 m wide.
+             These four numbers and the <scale> below all move together - the
+             cylinder must wrap the visual, not the mesh's unscaled size. Left
+             oversized it becomes an invisible obstacle that the local costmap
+             inflates and Nav2 then refuses to drive up to. -->
         <collision name="collision">
-            <pose>0 0 0.50 0 0 0</pose>
+            <pose>0 0 0.10 0 0 0</pose>
             <geometry>
                 <cylinder>
-                    <radius>0.375</radius>
-                    <length>1.00</length>
+                    <radius>0.075</radius>
+                    <length>0.20</length>
                 </cylinder>
             </geometry>
         </collision>
@@ -36,13 +40,14 @@
                     <uri>model://mushroom_amanita/meshes/mushroom.obj</uri>
                     <!-- The mesh is baked to 0.30 x 0.30 x 0.40 m with its
                          base at z=0, so scale here is a pure size multiplier.
-                         2.5x -> ~1.0 m tall. Deliberately far above life size:
-                         at 0.40 m a mushroom 3.5 m away is only ~45 px in a
-                         720x480 frame, and the detector scored 0.08 on it.
-                         The same mushroom filling the frame scores 0.40, so
-                         apparent size is the dominant factor. Detection
-                         matters more than botanical accuracy here. -->
-                    <scale>2.5 2.5 2.5</scale>
+                         0.5x -> 0.20 m tall, roughly life size for a fly
+                         agaric. Note this costs detection range: at 0.40 m a
+                         mushroom 3.5 m away is only ~45 px in a 720x480 frame
+                         and the detector scored 0.08 on it, while the same
+                         mushroom filling the frame scores 0.40. Raise this
+                         back toward 2.5 if recall matters more than realism.
+                         Keep the collision cylinder above in step. -->
+                    <scale>0.5 0.5 0.5</scale>
                 </mesh>
             </geometry>
             <!-- No <material> block: material.mtl supplies the two cap/stem
