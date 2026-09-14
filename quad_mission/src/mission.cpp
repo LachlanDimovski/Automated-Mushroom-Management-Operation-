@@ -68,9 +68,7 @@ void Mission::handleLiftoff(
     quad_->setActive(true);
  
     RCLCPP_INFO(this->get_logger(),
-        "Liftoff commanded (cmd_vel.z published, but this platform's altitude "
-        "isn't tracked/controlled by default per the 41068 README — TAKEOFF "
-        "resolves on horizontal position only).");
+        "Liftoff initiated, climbing to 3m");
  
     state_ = MissionState::TAKEOFF;
     response->success = true;

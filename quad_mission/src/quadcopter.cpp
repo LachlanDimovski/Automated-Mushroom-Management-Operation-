@@ -21,7 +21,7 @@ Quadcopter::Quadcopter() : Node("quadcopter"), active_(false), goalSet_(false) {
  
     // Subscribers
     odom_subscriber_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "/parrot1/odom", 10, std::bind(&Quadcopter::odomCallback, this, std::placeholders::_1));
+        "/parrot1/odometry", 10, std::bind(&Quadcopter::odomCallback, this, std::placeholders::_1));
     // similar to the publisher but has the additional callback binding to tell ROS what
     // function to call when it arrives — so when a new odometry message arrives, call
     // odomCallback and move the message to it.
@@ -77,6 +77,7 @@ bool Quadcopter::isGoalReached() {
  
     double dx = goal.position.x - odom.pose.pose.position.x;
     double dy = goal.position.y - odom.pose.pose.position.y;
+    double dz = goal.position.z - odom.pose.pose.position.z;
     // NOTE: horizontal distance only. This platform doesn't reliably report
     // (or control) z — the 41068 starter README confirms the Parrot flies
     // in 2D at a fixed altitude by default. Including dz here would mean
@@ -84,7 +85,7 @@ bool Quadcopter::isGoalReached() {
     // changes z), hanging the mission indefinitely. cmd.linear.z is still
     // computed below and published, so if the platform is later extended to
     // real 3D flight this starts working with no further changes needed here.
-    double dist = std::sqrt(dx * dx + dy * dy);
+    double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
     return dist < GOAL_TOLERANCE;
 }
  
