@@ -40,6 +40,15 @@
       </inertial>
     </link>
 
+    <!-- Low lateral friction so the skid-steer can pivot in place. The URDF
+         contact_coefficients above are dropped in the SDF conversion, leaving
+         Gazebo's default mu=1: four wheels then refuse to skid and the rover
+         had a ~0.5 rad/s turn dead-band. X2 (the visual body) ships mu=0.1. -->
+    <gazebo reference="${prefix}${wheel_id}_wheel_link">
+      <mu1>0.3</mu1>
+      <mu2>0.1</mu2>
+    </gazebo>
+
     <!-- Add joint to main body -->
     <joint name="${prefix}${wheel_id}_wheel_joint" type="revolute">
       <parent link="${prefix}base_link"/>
