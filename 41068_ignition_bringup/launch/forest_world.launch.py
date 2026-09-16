@@ -62,6 +62,7 @@ def generate_launch_description():
         ('rviz', 'False', 'Flag to launch RViz'),
         ('slam', 'False', 'Flag to launch SLAM Toolbox for each enabled robot'),
         ('nav2', 'False', 'Flag to launch Nav2 for each enabled robot. Nav2 also starts SLAM.'),
+        ('ground_truth_localization', 'False', 'Skip SLAM; map->odom from an external ground-truth localizer'),
         ('husky', 'True', 'Launch the Husky UGV instance in namespace /husky1'),
         ('parrot', 'False', 'Launch the Parrot drone instance in namespace /parrot1'),
         ('yolo', 'True', 'Run the shared YOLO detector for each enabled robot'),

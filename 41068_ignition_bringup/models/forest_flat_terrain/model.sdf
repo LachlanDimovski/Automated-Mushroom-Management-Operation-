@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <model name="forest_flat_terrain">
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <heightmap><uri>model://forest_flat_terrain/heightmap.png</uri><size>84.0000 84.0000 2.1598</size><pos>0 0 0</pos><sampling>2</sampling></heightmap>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <heightmap><uri>model://forest_flat_terrain/heightmap.png</uri><size>84.0000 84.0000 2.1598</size><pos>0 0 0</pos><sampling>2</sampling>
+            <texture>
+              <diffuse>model://forest_flat_terrain/terrain_diffuse.png</diffuse>
+              <normal>model://forest_flat_terrain/flat_normal.png</normal>
+              <size>84.0000</size>
+            </texture>
+          </heightmap>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

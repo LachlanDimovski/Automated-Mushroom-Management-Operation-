@@ -172,6 +172,7 @@ def add_navigation_instance(
             'config_filename_suffix': '_' + robot_namespace,
             'slam': LaunchConfiguration('slam'),
             'nav2': LaunchConfiguration('nav2'),
+            'ground_truth_localization': LaunchConfiguration('ground_truth_localization'),
         }.items(),
     )
 
@@ -287,6 +288,9 @@ def generate_launch_description():
         description='Flag to launch Nav2 for each enabled robot. Nav2 also starts SLAM.',
     )
     ld.add_action(nav2_launch_arg)
+    ld.add_action(DeclareLaunchArgument(
+        'ground_truth_localization', default_value='False',
+        description='Skip SLAM; map->odom comes from an external ground-truth localizer (sim only)'))
 
     husky_launch_arg = DeclareLaunchArgument(
         'husky',

@@ -203,8 +203,8 @@ global_costmap:
       # Rolling lidar window instead of SLAM's static map: the static map is
       # empty at start-up so every goal was "off the global costmap".
       rolling_window: true
-      width: 30
-      height: 30
+      width: 70   # covers the 60 m forest world from anywhere in it
+      height: 70
       track_unknown_space: false
       plugins:
       - obstacle_layer

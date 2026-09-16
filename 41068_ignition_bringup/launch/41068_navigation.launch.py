@@ -27,8 +27,11 @@ def _if_true(name):
 
 
 def _if_slam_needed():
+    # SLAM runs for slam:=true or nav2:=true, unless ground_truth_localization:=true
+    # (sim only: something else publishes map->odom, e.g. ammo_mission_control's truth_localizer)
     return IfCondition(PythonExpression(
-        _is_true_expression('slam') + [' or '] + _is_true_expression('nav2')
+        ['(('] + _is_true_expression('slam') + [') or ('] + _is_true_expression('nav2') + [')) and not ('] +
+        _is_true_expression('ground_truth_localization') + [')']
     ))
 
 
@@ -72,6 +75,12 @@ def generate_launch_description():
         'nav2',
         default_value='False',
         description='Flag to launch Nav2. Nav2 also starts SLAM.'
+    )
+
+    ground_truth_launch_arg = DeclareLaunchArgument(
+        'ground_truth_localization',
+        default_value='False',
+        description='Skip SLAM; map->odom is published by an external ground-truth localizer (sim only)'
     )
 
     slam_params_file = PathJoinSubstitution([
@@ -152,6 +161,7 @@ def generate_launch_description():
     ld.add_action(config_filename_suffix_launch_arg)
     ld.add_action(slam_launch_arg)
     ld.add_action(nav2_launch_arg)
+    ld.add_action(ground_truth_launch_arg)
     ld.add_action(slam)
     ld.add_action(navigation)
 

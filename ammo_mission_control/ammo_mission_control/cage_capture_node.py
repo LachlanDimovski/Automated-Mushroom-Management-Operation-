@@ -13,6 +13,7 @@ done here on husky1/cmd_vel. Requires target_selector for depth samples.
 import math
 import os
 import random
+import re
 import subprocess
 
 import rclpy
@@ -42,24 +43,23 @@ LIFT_SETTLE_S = 5.0
 
 # transit / approach
 NAV_STANDOFF_M = 1.7      # Nav2 brings us here, facing the mushroom
-NAV_TIMEOUT_S = 60.0
+NAV_TIMEOUT_S = 180.0     # 60 m world at 0.45 m/s
 NAV_TRIES = 5             # approach directions tried before giving up
 CLEAR_START_M = 1.1       # move away from anything closer before asking Nav2 (its inflation radius)
 CONFIRM_REACH_M = 0.6     # no detection yet: creep to ~1.55 m, where the whole mushroom is in frame
-CONFIRM_S = 12.0          # no detection for this long at the waypoint = nothing here
+CONFIRM_S = 20.0          # no detection for this long at the waypoint = nothing here (YOLO ~0.5-1 Hz under load)
 TURN_W = 0.8              # in-place turn rate used for all corrections
 
 # vision (720 px, 120 deg camera pitched 25 deg down)
 IMG_W, CAM_HFOV_RAD = 720.0, 2.0944
-MIN_CONF = 0.85
 GATE_RAD = 0.35           # accept boxes within ~20 deg of the odometry bearing to the waypoint
 FRAME_FRESH_S = 2.5       # YOLO is ~1 Hz
 FRAME_STALE_S = 4.0       # older than this cannot set the heading
 VIS_ALIGN_RAD = 0.10      # heading error that triggers a correction (the body coasts ~0.1 rad)
 CAM_BEARING_TOL = 0.12    # of half-width (~7 deg, ~12 cm at the cage)
 # depth range that puts the mushroom under the cage: camera is 0.45 m ahead of base, cage
-# centre 0.95 m, depth lands on the front of the cap (~0.08 m before its centre)
-CAM_RANGE_M = 0.85
+# centre 0.95 m, depth lands on the front of the cap (~0.05 m before its centre)
+CAM_RANGE_M = 0.45
 SETTLE_S = 1.0
 
 # swing envelope (lidar)
@@ -80,9 +80,15 @@ class CageCapture(Node):
         self.declare_parameter('count', 0)        # test: spawn this many random mushrooms as waypoints
         self.declare_parameter('seed', 0)
         self.declare_parameter('exit_on_done', False)
+        # YOLO peaks ~0.93 on the plain world but only ~0.85-0.89 in the forest; with the
+        # bearing gate a 0.7 box is already unambiguous
+        self.declare_parameter('min_conf', 0.7)
+        self.declare_parameter('goals_x', [0.0])  # optional initial waypoints (world frame)
+        self.declare_parameter('goals_y', [0.0])
         # ponytail: trunk list from the world file; should come off the costmap
         self.declare_parameter('trunks', [0.0, 3.0, 5.0, 0.0])
         self.world = self.get_parameter('world').value
+        self.min_conf = self.get_parameter('min_conf').value
         t = self.get_parameter('trunks').value
         self.trunks = list(zip(t[0::2], t[1::2]))
 
@@ -116,8 +122,13 @@ class CageCapture(Node):
             self.create_subscription(PoseStamped, t, lambda m: self._queue(m.pose.position.x, m.pose.position.y), 10)
         self.nav = ActionClient(self, NavigateToPose, 'husky1/navigate_to_pose')
 
+        gx, gy = self.get_parameter('goals_x').value, self.get_parameter('goals_y').value
+        if (gx, gy) != ([0.0], [0.0]):
+            self.targets += list(zip(gx, gy))
         self._sweep_leftovers()
         self._spawn_test_mushrooms()
+        if not self.nav.wait_for_server(timeout_sec=120.0):
+            self.get_logger().error('Nav2 navigate_to_pose never became available (launch with nav2:=true)')
         self._clear_costmaps()
         self.get_logger().info(f'{len(self.targets)} waypoint(s) queued; listening on husky1/cage/waypoints.')
         self.create_timer(1.0 / HZ, self._step)
@@ -159,7 +170,7 @@ class CageCapture(Node):
             score = d.results[0].hypothesis.score
             self.best_score = max(self.best_score, score)
             bx = (d.bbox.center.position.x - IMG_W / 2) / (IMG_W / 2)
-            if score >= MIN_CONF and abs(-math.atan(bx * math.tan(CAM_HFOV_RAD / 2)) - expect) < GATE_RAD:
+            if score >= self.min_conf and abs(-math.atan(bx * math.tan(CAM_HFOV_RAD / 2)) - expect) < GATE_RAD:
                 xs.append(bx)
         if xs and abs(self.yaw_rate) < 0.15:
             b = sum(xs) / len(xs)
@@ -251,7 +262,7 @@ class CageCapture(Node):
             seen = self.frame is not None and now - self.frame[1] < CONFIRM_S
             if not seen and now - self.state_since > CONFIRM_S:
                 self._next_target(f'No mushroom confirmed at ({gx:.1f},{gy:.1f}) '
-                                  f'(best YOLO score {self.best_score:.2f}) - skipping waypoint.')
+                                  f'(best YOLO score {self.best_score:.2f} < {self.min_conf}) - skipping waypoint.')
         elif self.state == 'LOWER':
             self.boom = BOOM_DOWN
             if now - self.state_since > LIFT_SETTLE_S:
@@ -346,17 +357,11 @@ class CageCapture(Node):
         return any(k in name for k in ('mushroom', 'demo_m', 'cage_test', 'amanita'))
 
     def _mushrooms_near(self, cx, cy):
+        # one pose/info message has every model's pose (per-model queries took ~10 s each)
+        out = self._run(['ign', 'topic', '-e', '-t', f'/world/{self.world}/pose/info', '-n', '1'], 15)
         found = []
-        for name in self._models():
-            if not self._is_mushroom(name):
-                continue
-            try:
-                out = self._run(['ign', 'model', '-m', name, '-p'], 8)
-                xyz = [l for l in out.splitlines() if l.strip().startswith('[') and 'Pose' not in l][0]
-                mx, my = [float(v) for v in xyz.strip().strip('[]').split()[:2]]
-            except (IndexError, ValueError):
-                continue
-            if math.hypot(mx - cx, my - cy) < CAGE_HALF_M:
+        for name, mx, my in re.findall(r'name: "([^"]+)"[^}]*?position \{\s*x: (\S+)\s*y: (\S+)', out):
+            if self._is_mushroom(name) and math.hypot(float(mx) - cx, float(my) - cy) < CAGE_HALF_M:
                 found.append(name)
         return found
 
