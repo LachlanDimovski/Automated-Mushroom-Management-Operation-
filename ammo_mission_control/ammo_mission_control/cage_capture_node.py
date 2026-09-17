@@ -26,7 +26,6 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, LaserScan
 from std_msgs.msg import Float32MultiArray, Float64
-from vision_msgs.msg import Detection2DArray
 
 from ammo_mission_control.drive_utils import yaw_of
 
@@ -45,18 +44,25 @@ LIFT_SETTLE_S = 5.0
 NAV_STANDOFF_M = 1.7      # Nav2 brings us here, facing the mushroom
 NAV_TIMEOUT_S = 180.0     # 60 m world at 0.45 m/s
 NAV_TRIES = 5             # approach directions tried before giving up
+MAX_DEFERS = 2            # times a failed waypoint is sent to the back of the queue before being dropped for good
 CLEAR_START_M = 1.1       # move away from anything closer before asking Nav2 (its inflation radius)
 CONFIRM_REACH_M = 0.6     # no detection yet: creep to ~1.55 m, where the whole mushroom is in frame
 CONFIRM_S = 20.0          # no detection for this long at the waypoint = nothing here (YOLO ~0.5-1 Hz under load)
-TURN_W = 0.8              # in-place turn rate used for all corrections
+TURN_W = 1.2              # in-place turn rate used for all corrections
 
-# vision (720 px, 120 deg camera pitched 25 deg down)
-IMG_W, CAM_HFOV_RAD = 720.0, 2.0944
-GATE_RAD = 0.35           # accept boxes within ~20 deg of the odometry bearing to the waypoint
+# vision - final approach is a pure YOLO+depth visual servo on
+# husky1/target_info (target_selector: closest detected mushroom's bearing +
+# depth-camera range), not a comparison against the waypoint's own odometry
+# bearing - that comparison was rejecting the real mushroom whenever the
+# published point's position error became a large angle up close.
 FRAME_FRESH_S = 2.5       # YOLO is ~1 Hz
-FRAME_STALE_S = 4.0       # older than this cannot set the heading
 VIS_ALIGN_RAD = 0.10      # heading error that triggers a correction (the body coasts ~0.1 rad)
 CAM_BEARING_TOL = 0.12    # of half-width (~7 deg, ~12 cm at the cage)
+MIN_CONF = 0.85           # only trust target_selector's pick once YOLO itself is this confident
+# ponytail: 0.90 was requested but live scores plateau around 0.88-0.90 on
+# this model/resolution (confirmed live at 0.8976) - a bar it can barely ever
+# clear reliably means "confirm" never fires. 0.85 still rejects anything
+# genuinely uncertain while actually being reachable.
 # depth range that puts the mushroom under the cage: camera is 0.45 m ahead of base, cage
 # centre 0.95 m, depth lands on the front of the cap (~0.05 m before its centre)
 CAM_RANGE_M = 0.45
@@ -80,15 +86,11 @@ class CageCapture(Node):
         self.declare_parameter('count', 0)        # test: spawn this many random mushrooms as waypoints
         self.declare_parameter('seed', 0)
         self.declare_parameter('exit_on_done', False)
-        # YOLO peaks ~0.93 on the plain world but only ~0.85-0.89 in the forest; with the
-        # bearing gate a 0.7 box is already unambiguous
-        self.declare_parameter('min_conf', 0.7)
         self.declare_parameter('goals_x', [0.0])  # optional initial waypoints (world frame)
         self.declare_parameter('goals_y', [0.0])
         # ponytail: trunk list from the world file; should come off the costmap
         self.declare_parameter('trunks', [0.0, 3.0, 5.0, 0.0])
         self.world = self.get_parameter('world').value
-        self.min_conf = self.get_parameter('min_conf').value
         t = self.get_parameter('trunks').value
         self.trunks = list(zip(t[0::2], t[1::2]))
 
@@ -99,22 +101,31 @@ class CageCapture(Node):
         self.nearest_dir = None
         self.boom = BOOM_UP
         self.targets = []
+        self.defer_count = {}       # (gx,gy) rounded -> times sent to the back of the queue
         self.spawned = []           # (name, x, y) test mushrooms we own
-        self.frame = None           # (bearing, stamp, heading setpoint) from the last steady YOLO frame
-        self.depth = None           # (range_m, stamp) from target_selector
-        self.best_score = 0.0
+        self.target = None          # (bearing, distance_m, stamp) - closest detected mushroom, from target_selector
         self.last_turn = 0.0
         self.nav_handle = self.nav_result = None
         self.nav_tries = self.nav_rejects = 0
         self.state, self.state_since = 'DRIVE', 0.0
 
-        self.cmd_pub = self.create_publisher(Twist, 'husky1/cmd_vel', 10)
+        # cmd_vel_raw routes through collision_guard so fallen-tree/log
+        # obstacles (invisible to Nav2's costmap in forest_random) still get a
+        # forward depth check during blind transit (DRIVE/backing off). But
+        # collision_guard's own depth stop distance (1.0m) is further than the
+        # final approach range the mission actually needs (CAM_RANGE_M=0.45m
+        # to get the mushroom under the cage) - the guard was permanently
+        # vetoing forward motion the moment it saw the very mushroom being
+        # approached. ALIGN's final creep (a deliberate, slow, already-visually
+        # -locked approach onto a known small target) goes straight to cmd_vel
+        # instead, bypassing the guard for just that phase.
+        self.cmd_pub = self.create_publisher(Twist, 'husky1/cmd_vel_raw', 10)
+        self.cmd_pub_unguarded = self.create_publisher(Twist, 'husky1/cmd_vel', 10)
         self.boom_pub = self.create_publisher(Float64, 'husky1/boom/cmd_pos', 10)
         self.cage_pub = self.create_publisher(Float64, 'husky1/cage/cmd_pos', 10)
         self.create_subscription(Odometry, 'husky1/odometry', self._odom, LIVE_QOS)
-        self.create_subscription(Detection2DArray, 'husky1/detections', self._dets, LIVE_QOS)
         self.create_subscription(LaserScan, 'husky1/scan', self._scan, LIVE_QOS)
-        self.create_subscription(Float32MultiArray, 'husky1/target_info', self._depth, 10)
+        self.create_subscription(Float32MultiArray, 'husky1/target_info', self._target, 10)
         self.create_subscription(JointState, 'husky1/joint_states', lambda m: self.joints.update(zip(m.name, m.position)), 10)
         for t in ('husky1/cage/waypoints', 'husky1/clicked_point', '/clicked_point'):
             self.create_subscription(PointStamped, t, lambda m: self._queue(m.point.x, m.point.y), 10)
@@ -156,29 +167,16 @@ class CageCapture(Node):
         self.nearest_rng = best[0] if best else float('inf')
         self.nearest_dir = msg.angle_min + best[1] * msg.angle_increment if best else None
 
-    def _dets(self, msg):
-        # only boxes near where odometry says the waypoint is (other mushrooms are in view too),
-        # and only frames taken while the body is steady (YOLO is ~1 Hz; a turning frame is stale)
-        if not self.targets or not self.have_odom:
-            return
-        gx, gy = self.targets[0]
-        expect = wrap(math.atan2(gy - self.y, gx - self.x) - self.yaw)
-        xs = []
-        for d in msg.detections:
-            if not d.results:
-                continue
-            score = d.results[0].hypothesis.score
-            self.best_score = max(self.best_score, score)
-            bx = (d.bbox.center.position.x - IMG_W / 2) / (IMG_W / 2)
-            if score >= self.min_conf and abs(-math.atan(bx * math.tan(CAM_HFOV_RAD / 2)) - expect) < GATE_RAD:
-                xs.append(bx)
-        if xs and abs(self.yaw_rate) < 0.15:
-            b = sum(xs) / len(xs)
-            self.frame = (b, self._now(), self.yaw - math.atan(b * math.tan(CAM_HFOV_RAD / 2)))
-
-    def _depth(self, msg):  # [detected, bearing, distance_m, ...]
-        if len(msg.data) >= 3 and msg.data[0] > 0.5 and msg.data[2] > 0.0:
-            self.depth = (msg.data[2], self._now())
+    def _target(self, msg):  # [detected, bearing(-1..1), distance_m, stop_distance_m, class_id, confidence]
+        # target_selector already fuses YOLO + the depth camera and picks the
+        # closest detected mushroom - nothing here compares it against the
+        # waypoint's own (approximate) coordinates, so a position error in the
+        # published point can no longer reject a real, visible mushroom.
+        # Confidence gate: only trust it as "the mushroom" once YOLO itself is
+        # confident, not merely "something's there and closest."
+        if (len(msg.data) >= 6 and msg.data[0] > 0.5 and msg.data[2] > 0.0
+                and msg.data[5] >= MIN_CONF):
+            self.target = (msg.data[1], msg.data[2], self._now())
 
     def _now(self):
         return self.get_clock().now().nanoseconds / 1e9
@@ -188,10 +186,23 @@ class CageCapture(Node):
         self.state, self.state_since = s, self._now()
         self.get_logger().info(f'-> {s}')
 
-    def _next_target(self, why):
+    def _next_target(self, why, requeue=False):
+        gx, gy = self.targets.pop(0)
+        if requeue:
+            # Deemed unreachable/unconfirmable for now, not gone for good - send it to
+            # the back so easier mushrooms get collected first; a later attempt starts
+            # DRIVE fresh, so _send_nav picks a new standoff side against the husky's
+            # position at that time rather than repeating the same failed approach.
+            key = (round(gx, 1), round(gy, 1))
+            tries = self.defer_count.get(key, 0) + 1
+            self.defer_count[key] = tries
+            if tries <= MAX_DEFERS:
+                self.targets.append((gx, gy))
+                why += f' Deferring to the back of the queue (attempt {tries}/{MAX_DEFERS}).'
+            else:
+                why += ' Given up after repeated deferrals.'
         self.get_logger().info(why)
-        self.targets.pop(0)
-        self.frame, self.best_score, self.nav_tries = None, 0.0, 0
+        self.target, self.nav_tries = None, 0
         self._set_state('DRIVE')
 
     def _step(self):
@@ -232,37 +243,31 @@ class CageCapture(Node):
                     self.get_logger().warn(f'Nav2 failed toward ({gx:.1f},{gy:.1f}); retry {self.nav_tries}/{NAV_TRIES - 1} from another side.')
                     self._set_state('DRIVE')
                 else:
-                    self._next_target(f'Nav2 could not reach ({gx:.1f},{gy:.1f}) after {NAV_TRIES} tries - abandoning.')
+                    self._next_target(f'Nav2 could not reach ({gx:.1f},{gy:.1f}) after {NAV_TRIES} tries.', requeue=True)
             return  # Nav2 owns cmd_vel
         elif self.state == 'ALIGN':
-            # Each steady YOLO frame sets a heading setpoint; odometry executes it at 20 Hz;
-            # we stop, wait for the next steady frame, and drop only when a frame taken while
-            # stationary is centred. Vision at 1 Hz cannot be the inner loop.
-            usable = self.frame is not None and now - self.frame[1] < FRAME_STALE_S
-            if usable:
-                bearing, stamp, cam_yaw = self.frame
-                err = wrap(cam_yaw - self.yaw)
-                if self.depth and now - self.depth[1] < FRAME_FRESH_S:
-                    reach = self.depth[0] - CAM_RANGE_M  # the mushroom itself, not the clicked point
-                if abs(err) > VIS_ALIGN_RAD:
-                    cmd.angular.z = math.copysign(TURN_W, err)
-                elif abs(reach) > CAGE_TOL_M and abs(odom_err) < 0.5:
-                    cmd.linear.x = max(-0.2, min(0.4, reach * 0.8))
-                elif abs(reach) > CAGE_TOL_M:
-                    self.frame = None  # vision disagrees with the waypoint: re-face on odometry
-                elif (now - stamp < FRAME_FRESH_S and abs(bearing) <= CAM_BEARING_TOL
-                      and abs(self.yaw_rate) < 0.05 and now - self.last_turn > SETTLE_S):
+            # Pure YOLO+depth visual servo (target_selector's closest detected
+            # mushroom) - the waypoint got us here, it plays no further part.
+            fresh = self.target is not None and now - self.target[2] < FRAME_FRESH_S
+            if fresh:
+                bearing, distance, stamp = self.target
+                vis_reach = distance - CAM_RANGE_M
+                if abs(bearing) > CAM_BEARING_TOL:
+                    cmd.angular.z = -math.copysign(TURN_W, bearing)
+                elif abs(vis_reach) > CAGE_TOL_M:
+                    cmd.linear.x = max(-0.3, min(0.8, vis_reach * 1.2))
+                elif abs(self.yaw_rate) < 0.05 and now - self.last_turn > SETTLE_S:
                     self._try_lower()
             else:
-                # nothing seen yet: face the waypoint and creep to confirm range
+                # nothing detected yet: face the waypoint and creep closer so
+                # the mushroom actually enters the camera/depth range
                 if abs(odom_err) > VIS_ALIGN_RAD:
                     cmd.angular.z = math.copysign(TURN_W, odom_err)
                 elif reach > CONFIRM_REACH_M:
-                    cmd.linear.x = min(0.4, (reach - CONFIRM_REACH_M) * 0.8 + 0.1)
-            seen = self.frame is not None and now - self.frame[1] < CONFIRM_S
+                    cmd.linear.x = min(0.8, (reach - CONFIRM_REACH_M) * 1.2 + 0.2)
+            seen = self.target is not None and now - self.target[2] < CONFIRM_S
             if not seen and now - self.state_since > CONFIRM_S:
-                self._next_target(f'No mushroom confirmed at ({gx:.1f},{gy:.1f}) '
-                                  f'(best YOLO score {self.best_score:.2f} < {self.min_conf}) - skipping waypoint.')
+                self._next_target(f'No mushroom confirmed at ({gx:.1f},{gy:.1f}) via YOLO+depth.', requeue=True)
         elif self.state == 'LOWER':
             self.boom = BOOM_DOWN
             if now - self.state_since > LIFT_SETTLE_S:
@@ -272,12 +277,16 @@ class CageCapture(Node):
             self.boom = BOOM_UP
             if now - self.state_since > LIFT_SETTLE_S:
                 self._clear_costmaps()  # the swinging boom crossed the lidar plane
-                self.depth = None
+                self.target = None
             self._next_target(f'{len(self.targets) - 1} waypoint(s) left.')
 
         if abs(cmd.angular.z) > 1e-3:
             self.last_turn = now
-        self.cmd_pub.publish(cmd)
+        if self.state == 'ALIGN':
+            self.cmd_pub_unguarded.publish(cmd)
+            self.cmd_pub.publish(Twist())  # keep the guarded path quiet, not fighting for the topic
+        else:
+            self.cmd_pub.publish(cmd)
 
     def _try_lower(self):
         if self.front_min > SWING_REACH_M and self.rear_min > REAR_CLEAR_M:

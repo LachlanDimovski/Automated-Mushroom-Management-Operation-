@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<!--
+iPad teleop + view page. No build, no ROS package needed.
+
+Run on the robot/sim PC:
+  ros2 run rosbridge_server rosbridge_websocket
+  ros2 run web_video_server web_video_server
+  python3 -m http.server 8000   (serves this file)
+
+On the iPad browser, go to: http://<pc-ip>:8000/ipad_teleop.html
+Edit ROS_HOST below to the PC's IP, and CAMERA_TOPIC to your image topic.
+-->
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Rover Teleop</title>
+<script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
+<style>
+  body { margin:0; background:#111; color:#eee; font-family:sans-serif; touch-action:none; }
+  #cam { width:100%; display:block; background:#000; }
+  #pad { position:relative; width:280px; height:280px; margin:20px auto; border-radius:50%; background:#222; touch-action:none; }
+  #stick { position:absolute; width:80px; height:80px; border-radius:50%; background:#4caf50; left:100px; top:100px; }
+  #status { text-align:center; padding:6px; }
+</style>
+</head>
+<body>
+<img id="cam" src="">
+<div id="status">connecting...</div>
+<div id="pad"><div id="stick"></div></div>
+
+<script>
+const ROS_HOST = "localhost";     // <-- set to robot PC's IP for real iPad use
+const CAMERA_TOPIC = "/camera/image_raw";
+const CMD_VEL_TOPIC = "/cmd_vel";
+const MAX_LINEAR = 0.6, MAX_ANGULAR = 1.5;
+
+document.getElementById('cam').src =
+  `http://${ROS_HOST}:8080/stream?topic=${CAMERA_TOPIC}&type=mjpeg`;
+
+const ros = new ROSLIB.Ros({ url: `ws://${ROS_HOST}:9090` });
+ros.on('connection', () => status.textContent = 'connected');
+ros.on('error', e => status.textContent = 'error: ' + e);
+ros.on('close', () => status.textContent = 'disconnected');
+
+const cmdVel = new ROSLIB.Topic({ ros, name: CMD_VEL_TOPIC, messageType: 'geometry_msgs/msg/Twist' });
+
+const pad = document.getElementById('pad'), stick = document.getElementById('stick');
+const center = 100, radius = 100;
+let dragging = false;
+
+function publish(dx, dy) {
+  const twist = new ROSLIB.Message({
+    linear: { x: -dy / radius * MAX_LINEAR, y: 0, z: 0 },
+    angular: { x: 0, y: 0, z: -dx / radius * MAX_ANGULAR }
+  });
+  cmdVel.publish(twist);
+}
+
+function move(clientX, clientY) {
+  const r = pad.getBoundingClientRect();
+  let dx = clientX - r.left - 140, dy = clientY - r.top - 140;
+  const dist = Math.hypot(dx, dy);
+  if (dist > radius) { dx = dx / dist * radius; dy = dy / dist * radius; }
+  stick.style.left = (center + dx) + 'px';
+  stick.style.top = (center + dy) + 'px';
+  publish(dx, dy);
+}
+
+function reset() {
+  stick.style.left = center + 'px';
+  stick.style.top = center + 'px';
+  publish(0, 0);
+}
+
+pad.addEventListener('touchstart', e => { dragging = true; move(e.touches[0].clientX, e.touches[0].clientY); });
+pad.addEventListener('touchmove', e => { if (dragging) move(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, {passive:false});
+pad.addEventListener('touchend', () => { dragging = false; reset(); });
+
+pad.addEventListener('mousedown', e => { dragging = true; move(e.clientX, e.clientY); });
+window.addEventListener('mousemove', e => { if (dragging) move(e.clientX, e.clientY); });
+window.addEventListener('mouseup', () => { if (dragging) { dragging = false; reset(); } });
+</script>
+</body>
+</html>

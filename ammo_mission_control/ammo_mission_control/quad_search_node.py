@@ -57,7 +57,7 @@ MAX_CLIMB_SPEED = 0.6
 # CPU/real-time tradeoff, not something to fight from this node). Flying
 # slower means more detection frames per metre travelled, since the frame
 # rate itself is fixed - this is the lever available here instead.
-MAX_LINEAR_SPEED = 0.35
+MAX_LINEAR_SPEED = 1.0    # ponytail: raised from 0.35 for faster mission-testing iteration
 MAX_ANGULAR_SPEED = 0.8
 ANGLE_THRESHOLD_RAD = 0.3
 ANGULAR_GAIN = 2.0

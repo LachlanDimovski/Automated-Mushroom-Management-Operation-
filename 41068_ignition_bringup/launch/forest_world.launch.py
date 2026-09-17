@@ -130,9 +130,11 @@ def generate_launch_description():
     _base.add_navigation_instance(
         ld, pkg_path=pkg_path, use_sim_time=use_sim_time,
         robot_arg='husky', robot_namespace='husky1', start_delay=7.0)
-    _base.add_navigation_instance(
-        ld, pkg_path=pkg_path, use_sim_time=use_sim_time,
-        robot_arg='parrot', robot_namespace='parrot1', start_delay=10.0)
+    # ponytail: the quad is flown by direct velocity control (quad_search_node /
+    # ps4_drone_test.py), never NavigateToPose - a Nav2 stack for it is dead
+    # weight with no ground-truth localizer feeding it a map frame, and was
+    # spamming "parrot1_map does not exist" plus adding enough load to disrupt
+    # husky1's own TF timing. Give it none regardless of the shared nav2 flag.
 
     _base.add_perception(
         ld, use_sim_time=use_sim_time,

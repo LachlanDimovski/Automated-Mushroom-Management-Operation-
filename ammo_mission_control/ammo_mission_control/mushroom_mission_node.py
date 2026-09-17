@@ -54,7 +54,7 @@ your driver maps them differently.
 import math
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PointStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
@@ -146,6 +146,11 @@ class MushroomMissionController(Node):
         self.declare_parameter('auto_trigger', True)
         self.declare_parameter('husky_spawn', [0.0, 0.0])
         self.declare_parameter('parrot_spawn', [2.0, 0.0])
+        # True when cage_capture_node is driving the husky instead (e.g. under
+        # cage_mission.launch.py) - this node then only marks/publishes on
+        # husky1/cage/waypoints and never touches husky1/cmd_vel_raw, so the
+        # two nodes don't fight over the same command topic.
+        self.declare_parameter('mark_only', False)
 
         self.triangle_button = self.get_parameter('triangle_button').value
         self.r1_button = self.get_parameter('r1_button').value
@@ -153,6 +158,7 @@ class MushroomMissionController(Node):
         self.auto_trigger = self.get_parameter('auto_trigger').value
         self.husky_spawn = self.get_parameter('husky_spawn').value
         self.parrot_spawn = self.get_parameter('parrot_spawn').value
+        self.mark_only = self.get_parameter('mark_only').value
 
         self.quad_x = self.quad_y = self.quad_alt = self.quad_yaw = 0.0
         self.have_quad_odom = False
@@ -174,6 +180,10 @@ class MushroomMissionController(Node):
         self.target_stamp = None  # monotonic seconds
 
         self.cmd_pub = self.create_publisher(Twist, 'husky1/cmd_vel_raw', 10)
+        # Also feeds cage_capture_node's queue directly (husky1/cage/waypoints) so
+        # an R1+Triangle mark works whether this node's own drive-to-goal is
+        # running, or cage_capture_node's Nav2+cage-drop pipeline is running instead.
+        self.waypoint_pub = self.create_publisher(PointStamped, 'husky1/cage/waypoints', 10)
         self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, LIVE_QOS)
         self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, LIVE_QOS)
         self.create_subscription(
@@ -295,11 +305,18 @@ class MushroomMissionController(Node):
 
         self.goal = self.last_ground_point
         self.locked_on = False
+        m = PointStamped()
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.header.frame_id = 'map'
+        m.point.x, m.point.y = self.goal
+        self.waypoint_pub.publish(m)
         self.get_logger().info(
             f'Mushroom confirmed by YOLO ({age:.1f}s old) and marked at '
             f'({self.goal[0]:.2f}, {self.goal[1]:.2f}) - dispatching skidsteer.')
 
     def _control_step(self):
+        if self.mark_only:
+            return
         if not self.have_husky_odom or self.goal is None:
             self.cmd_pub.publish(Twist())
             return
