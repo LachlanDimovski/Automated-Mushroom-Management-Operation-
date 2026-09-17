@@ -4,14 +4,24 @@
   <xacro:property name="wheel_separation" value="0.5708"/>
   <xacro:property name="wheel_radius" value="0.1651"/>
 
-  <xacro:macro name="wheel" params="prefix wheel_id x_pos y_pos">
+  <xacro:macro name="wheel" params="prefix wheel_id x_pos y_pos side">
     <link name="${prefix}${wheel_id}_wheel_link">
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <mesh filename="file://$(find 41068_ignition_bringup)/urdf_husky/meshes/wheel.dae"/>
-        </geometry>
-      </visual>
+      <xacro:if value="$(arg x2_body)">
+        <visual>
+          <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+          <geometry>
+            <mesh filename="file://$(find 41068_ignition_bringup)/urdf_husky/meshes/x2/x2_wheel_${side}.dae" scale="1.7 1.7 1.7"/>
+          </geometry>
+        </visual>
+      </xacro:if>
+      <xacro:unless value="$(arg x2_body)">
+        <visual>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
+          <geometry>
+            <mesh filename="file://$(find 41068_ignition_bringup)/urdf_husky/meshes/wheel.dae"/>
+          </geometry>
+        </visual>
+      </xacro:unless>
 
       <collision>
         <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/> 
@@ -29,6 +39,15 @@
                 izz="0.02467" />
       </inertial>
     </link>
+
+    <!-- Low lateral friction so the skid-steer can pivot in place. The URDF
+         contact_coefficients above are dropped in the SDF conversion, leaving
+         Gazebo's default mu=1: four wheels then refuse to skid and the rover
+         had a ~0.5 rad/s turn dead-band. X2 (the visual body) ships mu=0.1. -->
+    <gazebo reference="${prefix}${wheel_id}_wheel_link">
+      <mu1>0.3</mu1>
+      <mu2>0.1</mu2>
+    </gazebo>
 
     <!-- Add joint to main body -->
     <joint name="${prefix}${wheel_id}_wheel_joint" type="revolute">

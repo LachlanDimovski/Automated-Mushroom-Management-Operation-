@@ -60,3 +60,14 @@
   ros_type_name: "sensor_msgs/msg/PointCloud2"
   gz_type_name: "ignition.msgs.PointCloudPacked"
   direction: GZ_TO_ROS
+# Lift: boom 0.28 stowed / 3.07 lowered; cage joint = -boom to stay level
+- ros_topic_name: 'boom/cmd_pos'
+  gz_topic_name: '/model/husky1/boom/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ
+- ros_topic_name: 'cage/cmd_pos'
+  gz_topic_name: '/model/husky1/cage/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ
