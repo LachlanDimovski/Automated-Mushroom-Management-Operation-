@@ -220,15 +220,6 @@ global_costmap:
       footprint: '[ [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5], [-0.5, 0.5] ]'
       resolution: 0.1
       track_unknown_space: true
-      # ponytail: rolling window so the quad's global costmap always contains it
-      # regardless of how far frontier exploration flies it from spawn - a
-      # non-rolling costmap only covers whatever SLAM had mapped by the time it
-      # was created, so the planner throws "Robot is out of bounds of the
-      # costmap" the moment the quad crosses that boundary. Widen further if
-      # the world gets bigger than 40m.
-      rolling_window: true
-      width: 40
-      height: 40
       plugins:
       - static_layer
       - obstacle_layer

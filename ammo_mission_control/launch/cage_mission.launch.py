@@ -28,20 +28,15 @@ BRINGUP = get_package_share_directory('41068_ignition_bringup')
 
 def _nodes(context):
     world = LaunchConfiguration('world').perform(context)
-    vision_only = LaunchConfiguration('vision_only').perform(context).lower() in ('true', '1', 'yes', 'on')
     trunks, goals_x, goals_y = [0.0, 3.0, 5.0, 0.0], [0.0], [0.0]  # simple_trees defaults
     meta = os.path.join(BRINGUP, 'worlds', f'{world}.meta.json')
     if os.path.exists(meta):
         d = json.load(open(meta))
         trunks = [v for o in d['objects'] if o['type'] == 'tree' for v in (o['x'], o['y'])]
-        if not vision_only:
-            goals_x = [m['x'] for m in d['mushrooms']] or [0.0]
-            goals_y = [m['y'] for m in d['mushrooms']] or [0.0]
-    # cage_capture_node treats goals_x/y == ([0.0],[0.0]) as "no initial waypoints"
-    # (its own declared defaults) - vision_only leaves them there so
-    # quad_waypoint_bridge is the only source of waypoints.
+        goals_x = [m['x'] for m in d['mushrooms']] or [0.0]
+        goals_y = [m['y'] for m in d['mushrooms']] or [0.0]
     sim = {'use_sim_time': True}
-    nodes = [
+    return [
         Node(package='ammo_mission_control', executable='truth_localizer', output='screen', parameters=[sim],
              remappings=[('/tf', '/husky1/tf'), ('/tf_static', '/husky1/tf_static')]),
         # cage_capture_node now publishes cmd_vel_raw (not cmd_vel directly) so
@@ -54,23 +49,17 @@ def _nodes(context):
              parameters=[{**sim, 'world': world, 'trunks': trunks, 'goals_x': goals_x, 'goals_y': goals_y,
                           'count': ParameterValue(LaunchConfiguration('count'), value_type=int)}]),
     ]
-    if vision_only:
-        nodes.append(Node(package='ammo_mission_control', executable='quad_waypoint_bridge',
-                          output='screen', parameters=[sim]))
-    return nodes
 
 
 def generate_launch_description():
     ld = LaunchDescription()
     for name, default in (('world', 'simple_trees'), ('rviz', 'true'), ('headless', 'false'),
-                          ('count', '0'), ('parrot', 'true'), ('explore', 'false'),
-                          ('vision_only', 'false')):
+                          ('count', '0'), ('parrot', 'true')):
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
     ld.add_action(IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(BRINGUP, 'launch', 'forest_world.launch.py')),
         launch_arguments={'world': LaunchConfiguration('world'), 'nav2': 'true',
                           'parrot': LaunchConfiguration('parrot'),
-                          'explore': LaunchConfiguration('explore'),
                           'ground_truth_localization': 'true', 'rviz': LaunchConfiguration('rviz'),
                           'headless': LaunchConfiguration('headless')}.items()))
     ld.add_action(OpaqueFunction(function=_nodes))
