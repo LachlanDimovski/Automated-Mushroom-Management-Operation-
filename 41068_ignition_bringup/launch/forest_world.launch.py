@@ -24,12 +24,14 @@ import importlib.util
 import os
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import (
+    DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, SetEnvironmentVariable, TimerAction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, PackageNotFoundError
 
 
 def _load_base_launch():
@@ -68,6 +70,9 @@ def generate_launch_description():
         ('yolo', 'True', 'Run the shared YOLO detector for each enabled robot'),
         ('headless', 'False', 'Run Gazebo server-only (no GUI window)'),
         ('world', 'forest_random', 'Generated world name under worlds/ (no .sdf)'),
+        ('explore', 'False', 'Fly the quad with Nav2 + explore_lite frontier exploration '
+                              'instead of the hardcoded quad_search_node lawnmower pattern '
+                              '(requires parrot:=true)'),
     ]
     for name, default, desc in args:
         ld.add_action(DeclareLaunchArgument(name, default_value=default, description=desc))
@@ -134,7 +139,57 @@ def generate_launch_description():
     # ps4_drone_test.py), never NavigateToPose - a Nav2 stack for it is dead
     # weight with no ground-truth localizer feeding it a map frame, and was
     # spamming "parrot1_map does not exist" plus adding enough load to disrupt
-    # husky1's own TF timing. Give it none regardless of the shared nav2 flag.
+    # husky1's own TF timing. Give it none unless explore:=true.
+    #
+    # explore:=true forces real SLAM for parrot1 specifically (never
+    # ground_truth_localization, even though cage_mission.launch.py sets that
+    # true for husky1) because explore_lite needs an actual growing occupancy
+    # map to find frontiers in - truth_localizer only supplies a transform,
+    # not map content, so with ground-truth on the map topic never publishes
+    # and explore_lite waits forever. husky1 is untouched (own scoped include).
+    explore_enabled = _base._if_all_true('explore', 'parrot')
+    ld.add_action(TimerAction(period=9.0, actions=[GroupAction(scoped=True, actions=[
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                pkg_path, 'launch', '41068_navigation.launch.py',
+            ])),
+            launch_arguments={
+                'use_sim_time': use_sim_time,
+                'namespace': 'parrot1',
+                'config_filename_suffix': '_parrot1',
+                'slam': 'true',
+                'nav2': 'true',
+                'ground_truth_localization': 'false',
+            }.items(),
+        ),
+    ], condition=explore_enabled)]))
+    # explore_lite's own launch file only exposes namespace/use_sim_time, and
+    # its default params.yaml assumes plain per-namespace tf frames
+    # (base_link). This project prefixes frame ids instead (parrot1_base_link
+    # etc, see nav2_params_parrot1.yaml), so explore_node otherwise times out
+    # forever looking up a "base_link" that doesn't exist. Launch the node
+    # directly with that one param corrected rather than editing the vendored
+    # submodule.
+    # get_package_share_directory raises immediately if explore_lite isn't
+    # built, which would fail this whole launch file even when explore:=false
+    # (the Node's own `condition` is only checked at runtime, too late to stop
+    # that). Skip adding the node instead of crashing launch-description build.
+    try:
+        explore_lite_config = os.path.join(
+            get_package_share_directory('explore_lite'), 'config', 'params.yaml')
+    except PackageNotFoundError:
+        explore_lite_config = None
+
+    if explore_lite_config is not None:
+        ld.add_action(TimerAction(period=12.0, actions=[Node(
+            package='explore_lite', executable='explore', name='explore_node',
+            namespace='parrot1', output='screen',
+            parameters=[explore_lite_config, {
+                'use_sim_time': use_sim_time, 'robot_base_frame': 'parrot1_base_link',
+            }],
+            remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
+            condition=explore_enabled,
+        )]))
 
     _base.add_perception(
         ld, use_sim_time=use_sim_time,

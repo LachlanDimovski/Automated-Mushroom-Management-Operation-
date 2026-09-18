@@ -1,0 +1,1719 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.8">
+    <world name="forest_world">
+        <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics" />
+        <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands" />
+        <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster" />
+        <physics name="1ms" type="ignored">
+            <max_step_size>0.001</max_step_size>
+            <real_time_factor>1.0</real_time_factor>
+        </physics>
+        <gravity>0 0 -9.8</gravity>
+        <light name="sun" type="directional">
+            <cast_shadows>true</cast_shadows>
+            <pose>0 0 10 0 0 0</pose>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+            <attenuation>
+                <range>1000</range>
+                <constant>0.9</constant>
+                <linear>0.01</linear>
+                <quadratic>0.001</quadratic>
+            </attenuation>
+            <direction>-0.5 0.1 -0.9</direction>
+        </light>
+        <scene>
+            <ambient>0.4 0.4 0.4 1</ambient>
+            <background>0.7 0.8 0.9 1</background>
+        </scene>
+        <light name="ambient" type="directional">
+            <cast_shadows>false</cast_shadows>
+            <pose>0 0 10 0 0 0</pose>
+            <diffuse>0.6 0.6 0.6 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <direction>0.1 0.1 -0.9</direction>
+        </light>
+        <light name="point_light" type="point">
+            <cast_shadows>false</cast_shadows>
+            <pose>0 0 15 0 0 0</pose>
+            <diffuse>0.3 0.3 0.3 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+            <attenuation>
+                <range>50</range>
+                <constant>0.5</constant>
+                <linear>0.01</linear>
+                <quadratic>0.001</quadratic>
+            </attenuation>
+        </light>
+        <include>
+            <uri>model://ground</uri>
+            <name>terrain</name>
+            <pose>0 0 0 0 0 0</pose>
+        </include>
+        <include>
+            <uri>model://rock/rock_a</uri>
+            <name>rock_0</name>
+            <pose>26.8939 24.8555 4.0623 0.0003 -0.1284 1.6867</pose>
+            <scale>0.841 0.841 0.841</scale>
+        </include>
+        <include>
+            <uri>model://rock/rock_a</uri>
+            <name>rock_1</name>
+            <pose>-8.7964 -5.5670 1.3342 0.0517 0.0582 2.1738</pose>
+            <scale>1.292 1.292 1.292</scale>
+        </include>
+        <include>
+            <uri>model://rock/rock_b</uri>
+            <name>rock_2</name>
+            <pose>25.0196 18.2673 4.0713 0.0872 0.1313 2.8201</pose>
+            <scale>1.897 1.897 1.897</scale>
+        </include>
+        <include>
+            <uri>model://rock/rock_a</uri>
+            <name>rock_3</name>
+            <pose>-0.9029 24.4019 3.6912 0.1354 -0.0454 1.7374</pose>
+            <scale>1.626 1.626 1.626</scale>
+        </include>
+        <include>
+            <uri>model://rock/rock_b</uri>
+            <name>rock_4</name>
+            <pose>24.5709 -21.6576 4.0146 -0.0569 -0.0652 5.7868</pose>
+            <scale>1.653 1.653 1.653</scale>
+        </include>
+        <include>
+            <uri>model://rock/rock_a</uri>
+            <name>rock_5</name>
+            <pose>-8.1481 -24.8257 2.9617 0.0012 0.0370 4.1279</pose>
+            <scale>1.579 1.579 1.579</scale>
+        </include>
+        <include>
+            <uri>model://rock/rock_a</uri>
+            <name>rock_6</name>
+            <pose>14.6502 -26.2420 3.3671 0.0710 -0.0032 5.9941</pose>
+            <scale>1.122 1.122 1.122</scale>
+        </include>
+        <include>
+            <uri>model://rock/rock_a</uri>
+            <name>rock_7</name>
+            <pose>-18.5313 27.4741 3.4581 0.0478 0.0485 5.2689</pose>
+            <scale>0.963 0.963 0.963</scale>
+        </include>
+        <include>
+            <uri>model://rock/rock_b</uri>
+            <name>rock_8</name>
+            <pose>-24.8044 -5.0758 2.1695 0.0006 -0.0308 4.9374</pose>
+            <scale>0.963 0.963 0.963</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_stump</uri>
+            <name>tree_0</name>
+            <pose>14.2948 15.4123 3.8412 -0.0039 0.0278 5.5750</pose>
+            <scale>1.090 1.090 1.090</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_stump</uri>
+            <name>tree_1</name>
+            <pose>2.5961 25.6087 3.6888 -0.0324 -0.0101 5.2881</pose>
+            <scale>1.413 1.413 1.413</scale>
+        </include>
+        <include>
+            <uri>model://tree/pine</uri>
+            <name>tree_2</name>
+            <pose>22.4805 26.5017 3.8496 -0.0037 -0.0445 3.4020</pose>
+            <scale>1.261 1.261 1.261</scale>
+        </include>
+        <include>
+            <uri>model://tree/oak</uri>
+            <name>tree_3</name>
+            <pose>-4.9199 13.9026 2.7555 -0.0276 0.0075 1.0651</pose>
+            <scale>1.083 1.083 1.083</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_4</name>
+            <pose>-0.2005 1.2014 0.6764 0.0410 0.0463 3.6763</pose>
+            <scale>1.279 1.279 1.279</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_5</name>
+            <pose>-10.7375 23.0609 3.2430 -0.0393 0.0270 2.2029</pose>
+            <scale>1.265 1.265 1.265</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_6</name>
+            <pose>-21.5315 19.2567 3.1684 -0.0286 -0.0176 4.6489</pose>
+            <scale>1.411 1.411 1.411</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_7</name>
+            <pose>17.0609 -20.4424 3.7305 -0.0267 -0.0049 1.7362</pose>
+            <scale>1.093 1.093 1.093</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_stump</uri>
+            <name>tree_8</name>
+            <pose>23.2063 5.3851 3.5874 0.0172 0.0212 4.1246</pose>
+            <scale>1.374 1.374 1.374</scale>
+        </include>
+        <include>
+            <uri>model://tree/oak</uri>
+            <name>tree_9</name>
+            <pose>-19.0488 5.7545 2.1404 -0.0395 0.0185 5.1327</pose>
+            <scale>0.903 0.903 0.903</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_stump</uri>
+            <name>tree_10</name>
+            <pose>3.3827 -10.2013 2.0617 -0.0185 -0.0462 3.5748</pose>
+            <scale>1.273 1.273 1.273</scale>
+        </include>
+        <include>
+            <uri>model://tree/oak</uri>
+            <name>tree_11</name>
+            <pose>17.5026 -4.4903 3.2864 -0.0205 0.0174 4.5067</pose>
+            <scale>1.393 1.393 1.393</scale>
+        </include>
+        <include>
+            <uri>model://tree/pine</uri>
+            <name>tree_12</name>
+            <pose>9.5248 5.4802 2.4698 0.0129 0.0470 3.2444</pose>
+            <scale>1.312 1.312 1.312</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_13</name>
+            <pose>5.6138 -24.0169 3.2097 -0.0023 -0.0396 1.3320</pose>
+            <scale>1.079 1.079 1.079</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_14</name>
+            <pose>-14.2915 -19.8902 2.4033 -0.0137 0.0380 2.9010</pose>
+            <scale>1.279 1.279 1.279</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_stump</uri>
+            <name>tree_15</name>
+            <pose>-22.5567 -6.2608 1.9134 0.0219 0.0165 4.9952</pose>
+            <scale>1.469 1.469 1.469</scale>
+        </include>
+        <include>
+            <uri>model://tree/pine</uri>
+            <name>tree_16</name>
+            <pose>-22.7234 -22.9991 2.0698 0.0306 -0.0246 2.1470</pose>
+            <scale>0.872 0.872 0.872</scale>
+        </include>
+        <include>
+            <uri>model://tree/pine</uri>
+            <name>tree_17</name>
+            <pose>-6.3102 -13.1207 1.9716 0.0072 0.0268 3.1094</pose>
+            <scale>1.232 1.232 1.232</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_18</name>
+            <pose>-11.7821 -1.0098 1.1471 0.0018 0.0472 3.4079</pose>
+            <scale>0.941 0.941 0.941</scale>
+        </include>
+        <include>
+            <uri>model://tree/pine</uri>
+            <name>tree_19</name>
+            <pose>25.5337 -14.8188 4.2258 0.0267 -0.0260 0.5608</pose>
+            <scale>1.396 1.396 1.396</scale>
+        </include>
+        <include>
+            <uri>model://tree/pine</uri>
+            <name>tree_21</name>
+            <pose>-11.5355 8.0916 1.7980 -0.0145 0.0133 0.7920</pose>
+            <scale>1.026 1.026 1.026</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_22</name>
+            <pose>21.7925 -27.1104 3.7380 -0.0359 0.0461 5.9803</pose>
+            <scale>0.834 0.834 0.834</scale>
+        </include>
+        <include>
+            <uri>model://tree/oak</uri>
+            <name>tree_24</name>
+            <pose>-4.5227 -27.8625 3.1960 0.0169 -0.0327 5.5946</pose>
+            <scale>1.153 1.153 1.153</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_25</name>
+            <pose>-27.5330 8.6567 2.9532 -0.0422 0.0277 0.3035</pose>
+            <scale>1.230 1.230 1.230</scale>
+        </include>
+        <include>
+            <uri>model://tree/oak</uri>
+            <name>tree_26</name>
+            <pose>5.0491 14.2936 3.1834 -0.0162 0.0021 2.1732</pose>
+            <scale>0.987 0.987 0.987</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_stump</uri>
+            <name>tree_28</name>
+            <pose>24.6815 14.0203 4.1153 -0.0426 0.0114 5.6711</pose>
+            <scale>0.813 0.813 0.813</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_halloween</uri>
+            <name>tree_33</name>
+            <pose>11.5283 -12.5371 3.3153 -0.0296 -0.0090 3.9181</pose>
+            <scale>0.805 0.805 0.805</scale>
+        </include>
+        <include>
+            <uri>model://tree/oak</uri>
+            <name>tree_44</name>
+            <pose>-24.4656 -15.6428 1.6460 0.0179 0.0225 2.6597</pose>
+            <scale>0.877 0.877 0.877</scale>
+        </include>
+        <include>
+            <uri>model://tree/deadtree_stump</uri>
+            <name>tree_60</name>
+            <pose>12.7375 24.0608 3.7582 -0.0469 -0.0258 2.3835</pose>
+            <scale>0.970 0.970 0.970</scale>
+        </include>
+        <model name="fallentree_0000_pine">
+            <static>true</static>
+            <pose>-4.3829 -31.8400 3.4129 0 -1.3185 4.2921</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 3.2354 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.1849</radius>
+                            <length>6.4709</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.9244 0.9244 0.9244</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/branch_2_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.9244 0.9244 0.9244</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.1682 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.4807</radius>
+                            <length>0.1109</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0001_pine">
+            <static>true</static>
+            <pose>24.5361 3.8612 3.6520 0 -1.3227 1.1982</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.7466 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.1569</radius>
+                            <length>5.4931</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.7847 0.7847 0.7847</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/branch_2_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.7847 0.7847 0.7847</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.1428 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.4081</radius>
+                            <length>0.0942</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0002_oak">
+            <static>true</static>
+            <pose>8.7051 -23.3998 3.0501 0 -1.4598 2.5223</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.7039 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2556</radius>
+                            <length>5.4079</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.9833 0.9833 0.9833</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.9833 0.9833 0.9833</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2326 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.6647</radius>
+                            <length>0.1534</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0003_oak">
+            <static>true</static>
+            <pose>17.1602 -19.2575 3.9209 0 -1.2203 1.1987</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.0919 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.1978</radius>
+                            <length>4.1837</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.7607 0.7607 0.7607</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.7607 0.7607 0.7607</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.1800 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.5142</radius>
+                            <length>0.1187</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="log_0005">
+            <static>true</static>
+            <pose>17.4981 -9.6201 3.9535 0 1.2962 0.1539</pose>
+            <link name="link">
+                <collision name="log">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2914</radius>
+                            <length>3.0454</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="log_visual">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2914</radius>
+                            <length>3.0454</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.2400 0.1600 0.0900 1.0000</ambient>
+                        <diffuse>0.2400 0.1600 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0006_pine">
+            <static>true</static>
+            <pose>-0.5867 18.4838 3.2922 0 -1.2441 2.8975</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.8720 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.1641</radius>
+                            <length>5.7441</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.8206 0.8206 0.8206</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/branch_2_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.8206 0.8206 0.8206</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.1493 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.4267</radius>
+                            <length>0.0985</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="log_0007">
+            <static>true</static>
+            <pose>18.7140 27.3863 4.0969 0 1.4843 5.9168</pose>
+            <link name="link">
+                <collision name="log">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2954</radius>
+                            <length>4.5541</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="log_visual">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2954</radius>
+                            <length>4.5541</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.2400 0.1600 0.0900 1.0000</ambient>
+                        <diffuse>0.2400 0.1600 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <include>
+            <uri>model://deadtree_fallen</uri>
+            <name>fallentree_0009_mossy</name>
+            <pose>5.5112 17.9539 3.0950 0 0 5.3713</pose>
+        </include>
+        <model name="fallentree_0010_oak">
+            <static>true</static>
+            <pose>14.0790 0.6984 2.8440 0 -1.2920 1.0117</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.6795 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2533</radius>
+                            <length>5.3590</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.9744 0.9744 0.9744</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.9744 0.9744 0.9744</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2305 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.6587</radius>
+                            <length>0.1520</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0011_oak">
+            <static>true</static>
+            <pose>15.0174 -18.4456 3.3570 0 -1.5111 3.1248</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 3.0967 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2928</radius>
+                            <length>6.1934</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>1.1261 1.1261 1.1261</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>1.1261 1.1261 1.1261</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2664 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.7612</radius>
+                            <length>0.1757</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0013_oak">
+            <static>true</static>
+            <pose>-17.4530 7.2555 2.1216 0 -1.1940 0.1249</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 3.2152 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3040</radius>
+                            <length>6.4303</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>1.1691 1.1691 1.1691</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>1.1691 1.1691 1.1691</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2766 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.7903</radius>
+                            <length>0.1824</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0014_pine">
+            <static>true</static>
+            <pose>11.2641 24.4196 3.6839 0 -1.4665 3.3858</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 3.8624 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2207</radius>
+                            <length>7.7247</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>1.1035 1.1035 1.1035</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/branch_2_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>1.1035 1.1035 1.1035</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2008 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.5738</radius>
+                            <length>0.1324</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0015_pine">
+            <static>true</static>
+            <pose>-23.3037 24.0921 3.4969 0 -1.3218 3.6245</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 3.0887 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.1765</radius>
+                            <length>6.1774</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.8825 0.8825 0.8825</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/branch_2_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.8825 0.8825 0.8825</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.1606 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.4589</radius>
+                            <length>0.1059</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0016_oak">
+            <static>true</static>
+            <pose>-3.3780 -24.9139 3.1068 0 -1.2008 2.8413</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.5550 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2416</radius>
+                            <length>5.1100</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.9291 0.9291 0.9291</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.9291 0.9291 0.9291</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2198 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.6281</radius>
+                            <length>0.1449</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0017_pine">
+            <static>true</static>
+            <pose>23.5255 -16.9326 4.1044 0 -1.1868 2.6264</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 3.8067 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2175</radius>
+                            <length>7.6134</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>1.0876 1.0876 1.0876</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/branch_2_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_pine/meshes/pine_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>1.0876 1.0876 1.0876</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.1979 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.5656</radius>
+                            <length>0.1305</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <include>
+            <uri>model://deadtree_fallen</uri>
+            <name>fallentree_0018_mossy</name>
+            <pose>13.9654 -20.7272 3.0585 0 0 2.4280</pose>
+        </include>
+        <include>
+            <uri>model://deadtree_fallen</uri>
+            <name>fallentree_0019_mossy</name>
+            <pose>-25.8521 8.5805 2.3916 0 0 0.2960</pose>
+        </include>
+        <model name="log_0020">
+            <static>true</static>
+            <pose>-16.3914 11.0311 2.6687 0 1.3024 1.0167</pose>
+            <link name="link">
+                <collision name="log">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3063</radius>
+                            <length>2.7046</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="log_visual">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3063</radius>
+                            <length>2.7046</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.2400 0.1600 0.0900 1.0000</ambient>
+                        <diffuse>0.2400 0.1600 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+                <visual name="root_ball">
+                    <pose>0 0 1.3523 0 0 0</pose>
+                    <geometry>
+                        <sphere>
+                            <radius>0.7351</radius>
+                        </sphere>
+                    </geometry>
+                    <material>
+                        <ambient>0.1800 0.1300 0.0800 1.0000</ambient>
+                        <diffuse>0.1800 0.1300 0.0800 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0021_oak">
+            <static>true</static>
+            <pose>21.0662 4.0986 2.9752 0 -1.2428 3.0117</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.6204 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2477</radius>
+                            <length>5.2408</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.9529 0.9529 0.9529</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.9529 0.9529 0.9529</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2254 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.6441</radius>
+                            <length>0.1486</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0022_oak">
+            <static>true</static>
+            <pose>11.5666 -9.1889 3.2256 0 -1.4430 0.7165</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.7528 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2603</radius>
+                            <length>5.5056</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>1.0010 1.0010 1.0010</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>1.0010 1.0010 1.0010</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2368 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.6767</radius>
+                            <length>0.1562</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="fallentree_0023_oak">
+            <static>true</static>
+            <pose>19.0425 -3.7804 2.8168 0 -1.4099 2.8377</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.9727 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.2811</radius>
+                            <length>5.9454</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>1.0810 1.0810 1.0810</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>1.0810 1.0810 1.0810</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.2558 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.7307</radius>
+                            <length>0.1686</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <include>
+            <uri>model://deadtree_fallen</uri>
+            <name>fallentree_0024_mossy</name>
+            <pose>19.1167 -21.3022 3.3178 0 0 3.7464</pose>
+        </include>
+        <model name="fallentree_0025_oak">
+            <static>true</static>
+            <pose>29.0262 -16.0763 3.9586 0 -1.3069 5.1999</pose>
+            <link name="link">
+                <collision name="trunk">
+                    <pose>0 0 2.0738 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.1961</radius>
+                            <length>4.1475</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="branch">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Branch</name>
+                            </submesh>
+                            <scale>0.7541 0.7541 0.7541</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/branch_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="bark">
+                    <geometry>
+                        <mesh>
+                            <uri>model://tree_oak/meshes/oak_tree.dae</uri>
+                            <submesh>
+                                <name>Bark</name>
+                            </submesh>
+                            <scale>0.7541 0.7541 0.7541</scale>
+                        </mesh>
+                    </geometry>
+                    <material>
+                        <diffuse>1 1 1 1</diffuse>
+                        <pbr>
+                            <metal>
+                                <albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map>
+                                <metalness>0</metalness>
+                                <roughness>1</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+                <visual name="rootplate">
+                    <pose>0 0 0.1784 0 0 0</pose>
+                    <geometry>
+                        <cylinder>
+                            <radius>0.5098</radius>
+                            <length>0.1176</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.1900 0.1400 0.0900 1.0000</ambient>
+                        <diffuse>0.1900 0.1400 0.0900 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="stump_0000">
+            <static>true</static>
+            <pose>-16.9123 -27.7196 2.9823 0 0 3.8949</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3940</radius>
+                            <length>0.6253</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3940</radius>
+                            <length>0.6253</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.2600 0.1800 0.1000 1.0000</ambient>
+                        <diffuse>0.2600 0.1800 0.1000 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="stump_0001">
+            <static>true</static>
+            <pose>-0.0526 -24.1652 3.5084 0 0 5.9242</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3098</radius>
+                            <length>0.6152</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3098</radius>
+                            <length>0.6152</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.2600 0.1800 0.1000 1.0000</ambient>
+                        <diffuse>0.2600 0.1800 0.1000 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="stump_0002">
+            <static>true</static>
+            <pose>22.7965 10.6948 3.9862 0 0 5.4526</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3090</radius>
+                            <length>0.3302</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3090</radius>
+                            <length>0.3302</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.2600 0.1800 0.1000 1.0000</ambient>
+                        <diffuse>0.2600 0.1800 0.1000 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="stump_0003">
+            <static>true</static>
+            <pose>-7.4100 19.4692 3.2273 0 0 3.5621</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3630</radius>
+                            <length>0.3812</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3630</radius>
+                            <length>0.3812</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.2600 0.1800 0.1000 1.0000</ambient>
+                        <diffuse>0.2600 0.1800 0.1000 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="stump_0004">
+            <static>true</static>
+            <pose>16.9209 -9.8929 3.8339 0 0 2.1496</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3024</radius>
+                            <length>0.6217</length>
+                        </cylinder>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <cylinder>
+                            <radius>0.3024</radius>
+                            <length>0.6217</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.2600 0.1800 0.1000 1.0000</ambient>
+                        <diffuse>0.2600 0.1800 0.1000 1.0000</diffuse>
+                        <specular>0.05 0.05 0.05 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="pond_00">
+            <static>true</static>
+            <pose>-19.5176 -10.2776 0.9513 0 0 0</pose>
+            <link name="link">
+                <visual name="surface">
+                    <transparency>0.25</transparency>
+                    <geometry>
+                        <cylinder>
+                            <radius>3.1947</radius>
+                            <length>0.06</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.10 0.19 0.27 0.75</ambient>
+                        <diffuse>0.13 0.28 0.40 0.75</diffuse>
+                        <specular>0.6 0.7 0.8 1</specular>
+                        <pbr>
+                            <metal>
+                                <metalness>0.0</metalness>
+                                <roughness>0.08</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+            </link>
+        </model>
+        <model name="pond_01">
+            <static>true</static>
+            <pose>6.7127 10.3493 1.9706 0 0 0</pose>
+            <link name="link">
+                <visual name="surface">
+                    <transparency>0.25</transparency>
+                    <geometry>
+                        <cylinder>
+                            <radius>2.3874</radius>
+                            <length>0.06</length>
+                        </cylinder>
+                    </geometry>
+                    <material>
+                        <ambient>0.10 0.19 0.27 0.75</ambient>
+                        <diffuse>0.13 0.28 0.40 0.75</diffuse>
+                        <specular>0.6 0.7 0.8 1</specular>
+                        <pbr>
+                            <metal>
+                                <metalness>0.0</metalness>
+                                <roughness>0.08</roughness>
+                            </metal>
+                        </pbr>
+                    </material>
+                </visual>
+            </link>
+        </model>
+    </world>
+</sdf>

@@ -1,0 +1,16 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+    <model name="deadtree_halloween">
+        <static>true</static>
+        <link name="link">
+            <collision name="trunk">
+                <pose>0 0 2.2 0 0 0</pose>
+                <geometry><cylinder><radius>0.18</radius><length>4.4</length></cylinder></geometry>
+            </collision>
+            <visual name="visual">
+                <pose>0 0 2.2 0 0 0</pose>
+                <geometry><mesh><uri>meshes/scene.obj</uri><scale>2.2 2.2 2.2</scale></mesh></geometry>
+            </visual>
+        </link>
+    </model>
+</sdf>

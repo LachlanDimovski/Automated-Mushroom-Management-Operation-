@@ -1,10 +1,12 @@
-"""Publishes husky1_map -> husky1_odom so that map -> base_link equals the
-Gazebo ground-truth pose on husky1/odometry. Replaces slam_toolbox for Nav2
+"""Publishes <ns>_map -> <ns>_odom so that map -> base_link equals the
+Gazebo ground-truth pose on <ns>/odometry. Replaces slam_toolbox for Nav2
 in simulation: with two trees in the world SLAM drifted metres within a
 minute, and the EKF odom drifts too.
 
     ros2 run ammo_mission_control truth_localizer --ros-args \\
         -r /tf:=/husky1/tf -r /tf_static:=/husky1/tf_static -p use_sim_time:=true
+    ros2 run ammo_mission_control truth_localizer --ros-args \\
+        -p robot_ns:=parrot1 -r /tf:=/parrot1/tf -r /tf_static:=/parrot1/tf_static -p use_sim_time:=true
 """
 import math
 
@@ -21,15 +23,18 @@ from ammo_mission_control.drive_utils import yaw_of
 class TruthLocalizer(Node):
     def __init__(self):
         super().__init__('truth_localizer')
+        self.declare_parameter('robot_ns', 'husky1')
+        ns = self.get_parameter('robot_ns').value
+        self.map_frame, self.odom_frame, self.base_frame = f'{ns}_map', f'{ns}_odom', f'{ns}_base_link'
         self.buf = Buffer()
         self.listener = TransformListener(self.buf, self)
         self.br = TransformBroadcaster(self)
-        self.create_subscription(Odometry, 'husky1/odometry', self._odom,
+        self.create_subscription(Odometry, f'{ns}/odometry', self._odom,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
 
     def _odom(self, msg):
         try:
-            ob = self.buf.lookup_transform('husky1_odom', 'husky1_base_link', rclpy.time.Time()).transform
+            ob = self.buf.lookup_transform(self.odom_frame, self.base_frame, rclpy.time.Time()).transform
         except Exception:
             return
         p = msg.pose.pose.position
@@ -39,7 +44,7 @@ class TruthLocalizer(Node):
         c, s = math.cos(yaw), math.sin(yaw)
         t = TransformStamped()
         t.header.stamp = msg.header.stamp
-        t.header.frame_id, t.child_frame_id = 'husky1_map', 'husky1_odom'
+        t.header.frame_id, t.child_frame_id = self.map_frame, self.odom_frame
         t.transform.translation.x = p.x - (c * ob.translation.x - s * ob.translation.y)
         t.transform.translation.y = p.y - (s * ob.translation.x + c * ob.translation.y)
         t.transform.rotation.z, t.transform.rotation.w = math.sin(yaw / 2), math.cos(yaw / 2)
