@@ -81,12 +81,13 @@ def generate_launch_description():
                           ('count', '0'), ('parrot', 'true'), ('meta_goals', 'true'), ('yolo', 'true'),
                           ('tool', 'gripper'),
                           # quad flight plan as 'x0,y0,x1,y1,...'; empty = lawnmower over the world
-                          ('quad_waypoints', ''), ('mushrooms', '')):
+                          ('quad_waypoints', ''), ('mushrooms', ''), ('husky_yolo', 'false')):
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
     ld.add_action(IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(BRINGUP, 'launch', 'forest_world.launch.py')),
         launch_arguments={'world': LaunchConfiguration('world'), 'nav2': 'true',
                           'parrot': LaunchConfiguration('parrot'), 'yolo': LaunchConfiguration('yolo'),
+                          'husky_yolo': LaunchConfiguration('husky_yolo'),
                           'ground_truth_localization': 'true', 'rviz': LaunchConfiguration('rviz'),
                           'headless': LaunchConfiguration('headless')}.items()))
     ld.add_action(OpaqueFunction(function=_nodes))

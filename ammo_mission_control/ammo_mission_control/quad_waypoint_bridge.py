@@ -22,7 +22,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 from vision_msgs.msg import Detection2DArray
 
 from ammo_mission_control.drive_utils import yaw_of
-from ammo_mission_control.mushroom_mission_node import project_to_ground
+from ammo_mission_control.ground_projection import project_to_ground
 
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 REPUBLISH_S = 2.0

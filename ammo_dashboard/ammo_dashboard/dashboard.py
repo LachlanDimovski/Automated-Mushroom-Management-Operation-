@@ -157,6 +157,8 @@ class Dashboard(Node):
         self.parrot_trail = deque(maxlen=80)
 
         self.create_subscription(Image, 'husky1/detections/image', self._husky_img, LIVE_QOS)
+        # raw camera fallback: the mission runs the rover without YOLO by default
+        self.create_subscription(Image, 'husky1/camera/image', self._husky_raw, LIVE_QOS)
         self.create_subscription(Image, 'parrot1/detections/image', self._parrot_img, LIVE_QOS)
         self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, LIVE_QOS)
         self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, LIVE_QOS)
@@ -253,6 +255,15 @@ class Dashboard(Node):
         self.extra['costmap'] = cv2.resize(img, (600, 600), interpolation=cv2.INTER_NEAREST)
 
     def _husky_img(self, msg):
+        try:
+            self.husky_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            self.seen['hi'] = time.monotonic()
+        except Exception:
+            pass
+
+    def _husky_raw(self, msg):
+        if self._fresh('hi'):
+            return  # annotated feed is live, prefer it
         try:
             self.husky_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             self.seen['hi'] = time.monotonic()

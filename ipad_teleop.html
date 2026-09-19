@@ -56,7 +56,7 @@ const MAX_LINEAR = 0.6, MAX_ANGULAR = 1.5;
 // same origin as this page: ipad_teleop_server.py proxies /stream to web_video_server
 // YOLO-annotated feeds (boxes drawn); they update at the detector's rate, not the camera's
 const VIEWS = { parrot: '/stream?topic=/parrot1/detections/image&type=mjpeg&quality=80',
-                husky:  '/stream?topic=/husky1/detections/image&type=mjpeg&quality=80',
+                husky:  '/stream?topic=/husky1/camera/image&type=mjpeg&quality=80',   // rover runs without YOLO by default
                 hud:    '/stream?topic=/ammo/dashboard&type=ros_compressed',   // pre-encoded JPEG, passed through
                 map:    '/stream?topic=/ammo/minimap&type=ros_compressed',
                 dparrot:'/stream?topic=/ammo/depth_parrot&type=ros_compressed',

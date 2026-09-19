@@ -43,7 +43,7 @@ from sensor_msgs.msg import LaserScan
 from vision_msgs.msg import Detection2DArray
 
 from ammo_mission_control.drive_utils import steer_angular, yaw_of
-from ammo_mission_control.mushroom_mission_node import project_to_ground
+from ammo_mission_control.ground_projection import project_to_ground
 
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 CONTROL_HZ = 20.0
@@ -81,7 +81,8 @@ APPROACH_TOL_M = 0.5
 CONSISTENT_M = 1.0  # two consecutive frames must project within this of each other before holding
 ROVER_EXCLUDE_M = 2.0  # YOLO boxes the rover itself now and then; never hold for a hit on top of it
 MIN_CONF = 0.5         # real mushrooms score 0.85+; rover/roots/grass false positives sit at 0.3-0.45
-HOLD_TIMEOUT_S = 240.0  # no cage/done in this long (Nav2 timeout is 180 s) - give up and resume search
+HOLD_TIMEOUT_S = 150.0  # rover dispatched but no cage/done in this long - give up and resume search
+HOLD_NO_WP_S = 30.0     # holding but the bridge never sent a waypoint (mushroom out of view / false positive)
 
 # Lawnmower search pattern: rows spaced 6m apart, sweeping the full width on
 # each row, alternating direction - a simple, predictable full-area cover
@@ -171,6 +172,9 @@ class QuadSearchController(Node):
         self.create_subscription(LaserScan, 'parrot1/scan', self._scan_cb, LIVE_QOS)
         self.create_subscription(Detection2DArray, 'parrot1/detections', self._det_cb, LIVE_QOS)
         self.create_subscription(PointStamped, 'husky1/cage/done', self._done_cb, 10)
+        self.wp_seen_at = None  # time the bridge last published a waypoint during this hold
+        self.create_subscription(PointStamped, 'husky1/cage/waypoints',
+                                 lambda m: setattr(self, 'wp_seen_at', self._now_s()), 10)
         self.rover_xy = None
         self.create_subscription(Odometry, 'husky1/odometry',
                                  lambda m: setattr(self, 'rover_xy', (m.pose.pose.position.x, m.pose.pose.position.y)), LIVE_QOS)
@@ -254,6 +258,7 @@ class QuadSearchController(Node):
                 return
             self.holding = True
             self.detour = None
+            self.wp_seen_at = None
             self.hold_since = self._now_s()
             self.hold_target = g
             self.hold_xy = self._hold_point(g)
@@ -290,10 +295,12 @@ class QuadSearchController(Node):
             return
 
         if self.holding:
-            if now - self.hold_since > HOLD_TIMEOUT_S:
+            no_wp = self.wp_seen_at is None and now - self.hold_since > HOLD_NO_WP_S
+            if no_wp or now - self.hold_since > HOLD_TIMEOUT_S:
                 self.holding = False
                 self.ignore_detections_until = now + RESUME_BLIND_S
-                self.get_logger().warn(f'No cage/done in {HOLD_TIMEOUT_S:.0f}s - resuming search.')
+                self.get_logger().warn('Hold produced no waypoint in %.0fs - resuming search.' % HOLD_NO_WP_S if no_wp
+                                       else f'No cage/done in {HOLD_TIMEOUT_S:.0f}s - resuming search.')
             else:
                 hx, hy = self._leg_target(*self.hold_xy)
                 hdx, hdy = hx - self.x, hy - self.y

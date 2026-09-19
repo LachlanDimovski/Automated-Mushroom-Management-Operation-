@@ -196,6 +196,7 @@ def add_perception(
     robot_namespace,
     start_delay,
     core='',
+    yolo_arg='yolo',
 ):
     """Run the shared perception stack (YOLO detector) for one robot.
 
@@ -219,7 +220,7 @@ def add_perception(
     ld.add_action(TimerAction(
         period=start_delay,
         actions=[GroupAction(scoped=True, actions=[perception_include])],
-        condition=_if_all_true('yolo', robot_arg),
+        condition=_if_all_true(yolo_arg, robot_arg),
     ))
 
 
