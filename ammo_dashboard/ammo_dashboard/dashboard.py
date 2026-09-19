@@ -163,8 +163,7 @@ class Dashboard(Node):
         self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, LIVE_QOS)
         self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, LIVE_QOS)
         self.waypoints, self.done = [], []   # quad-projected targets, rover-collected points
-        self.create_subscription(PointStamped, 'husky1/cage/waypoints',
-                                 lambda m: self.waypoints.append((m.point.x, m.point.y)), 10)
+        self.create_subscription(PointStamped, 'husky1/cage/waypoints', self._waypoint, 10)
         self.create_subscription(PointStamped, 'husky1/cage/done',
                                  lambda m: self.done.append((m.point.x, m.point.y)), 10)
 
@@ -233,6 +232,15 @@ class Dashboard(Node):
                 pass
         self.active_mode = None
         self.active_proc = None
+
+    def _waypoint(self, m):
+        # the bridge re-publishes refined estimates: keep one entry per distinct target (within 1 m)
+        x, y = m.point.x, m.point.y
+        for i, (wx, wy) in enumerate(self.waypoints):
+            if np.hypot(x - wx, y - wy) < 1.0:
+                self.waypoints[i] = (x, y)
+                return
+        self.waypoints.append((x, y))
 
     def _depth(self, msg, key):
         try:
