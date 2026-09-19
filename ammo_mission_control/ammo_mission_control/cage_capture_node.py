@@ -1,14 +1,16 @@
-"""Drive the skidsteer to mushroom waypoints, confirm each with its own
-YOLO + depth, and drop the containment cage over it.
+"""Drives the skidsteer to mushroom waypoints and collects them with the front gripper.
 
-Waypoints (world frame): husky1/cage/waypoints (PointStamped, e.g. the
-quad's projected finds), or RViz's Publish Point / 2D Goal Pose
-(husky1/clicked_point, husky1/goal_pose). Transit is Nav2 (launch the sim
-with nav2:=true and run truth_localizer); the last ~1.7 m and the drop are
-done here on husky1/cmd_vel. Requires target_selector for depth samples.
+Waypoints (world frame) arrive on husky1/cage/waypoints (the quad's projected
+sightings), or from RViz's Publish Point / 2D Goal Pose. For each: Nav2 to a
+standoff NAV_STANDOFF_M from the point on the side clearest of trunks, then an
+odometry-only creep until the point is GRIP_AHEAD_M ahead, gripper down/close,
+collect (the model is removed from Gazebo - the sim stand-in for a physical
+grab), gripper up, publish husky1/cage/done, next. Localisation is ground truth
+(truth_localizer), which is why the final approach can be odometry-only.
+tool:=cage keeps the older boom cage (launch the sim with cage:=true).
 
     ros2 topic pub --once /husky1/cage/waypoints geometry_msgs/msg/PointStamped \\
-        "{header: {frame_id: world}, point: {x: 3.0, y: -2.0}}"
+        "{header: {frame_id: map}, point: {x: 3.0, y: -2.0}}"
 """
 import math
 import os
@@ -25,7 +27,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, LaserScan
-from std_msgs.msg import Float32MultiArray, Float64
+from std_msgs.msg import Float64
 
 from ammo_mission_control.drive_utils import yaw_of
 
@@ -43,7 +45,7 @@ CLAW_OPEN, CLAW_CLOSE = 0.35, -0.6
 PITCH_UP, PITCH_DOWN = -1.5, 0.0   # bar folded up (driving) / level, claws ~0.08 m off the ground
 GRIP_AHEAD_M = 0.85       # where the closed claw tips meet, ahead of base_link
 CLAW_MOVE_S = 1.5
-CAGE_TOL_M = 0.05
+CAGE_TOL_M = 0.05         # creep stops when the tool centre is this close to the point
 CAGE_HALF_M = 0.30        # counts as 'under the cage' (45 cm cage + slack)
 LIFT_SETTLE_S = 5.0
 
@@ -53,28 +55,12 @@ NAV_TIMEOUT_S = 180.0     # 60 m world at 0.45 m/s
 NAV_TRIES = 5             # approach directions tried before giving up
 MAX_DEFERS = 2            # times a failed waypoint is sent to the back of the queue before being dropped for good
 CLEAR_START_M = 1.1       # move away from anything closer before asking Nav2 (its inflation radius)
-CONFIRM_REACH_M = 0.6     # no detection yet: creep to ~1.55 m, where the whole mushroom is in frame
-CONFIRM_S = 20.0          # no detection for this long at the waypoint = nothing here (YOLO ~0.5-1 Hz under load)
+ALIGN_TIMEOUT_S = 20.0    # could not line up on the point in this long -> defer it
 TURN_W = 1.2              # in-place turn rate used for all corrections
 
-# vision - final approach is a pure YOLO+depth visual servo on
-# husky1/target_info (target_selector: closest detected mushroom's bearing +
-# depth-camera range), not a comparison against the waypoint's own odometry
-# bearing - that comparison was rejecting the real mushroom whenever the
-# published point's position error became a large angle up close.
-FRAME_FRESH_S = 2.5       # YOLO is ~1 Hz
 VIS_ALIGN_RAD = 0.10      # heading error that triggers a correction (the body coasts ~0.1 rad)
-CAM_BEARING_TOL = 0.12    # of half-width (~7 deg, ~12 cm at the cage)
-MIN_CONF = 0.85           # only trust target_selector's pick once YOLO itself is this confident
-# ponytail: 0.90 was requested but live scores plateau around 0.88-0.90 on
-# this model/resolution (confirmed live at 0.8976) - a bar it can barely ever
-# clear reliably means "confirm" never fires. 0.85 still rejects anything
-# genuinely uncertain while actually being reachable.
-# depth range that puts the mushroom under the cage: camera is 0.45 m ahead of base, cage
-# centre 0.95 m, depth lands on the front of the cap (~0.05 m before its centre)
-CAM_RANGE_M = 0.45
 SETTLE_S = 1.0
-MERGE_M = 3.0             # a new waypoint this close to a queued one replaces it (newer estimate wins)
+MERGE_M = 1.0             # a new waypoint this close to a queued one replaces it (the bridge's points are +-5 cm)
 
 # swing envelope (lidar)
 SWING_REACH_M = 1.3       # trunk closer than this ahead would be hit by the cage
@@ -115,22 +101,14 @@ class CageCapture(Node):
         self.targets = []
         self.defer_count = {}       # (gx,gy) rounded -> times sent to the back of the queue
         self.spawned = []           # (name, x, y) test mushrooms we own
-        self.target = None          # (bearing, distance_m, stamp) - closest detected mushroom, from target_selector
         self.last_turn = 0.0
         self.nav_handle = self.nav_result = None
         self.nav_tries = self.nav_rejects = 0
         self.state, self.state_since = 'DRIVE', 0.0
 
-        # cmd_vel_raw routes through collision_guard so fallen-tree/log
-        # obstacles (invisible to Nav2's costmap in forest_random) still get a
-        # forward depth check during blind transit (DRIVE/backing off). But
-        # collision_guard's own depth stop distance (1.0m) is further than the
-        # final approach range the mission actually needs (CAM_RANGE_M=0.45m
-        # to get the mushroom under the cage) - the guard was permanently
-        # vetoing forward motion the moment it saw the very mushroom being
-        # approached. ALIGN's final creep (a deliberate, slow, already-visually
-        # -locked approach onto a known small target) goes straight to cmd_vel
-        # instead, bypassing the guard for just that phase.
+        # Transit nudges go through collision_guard (cmd_vel_raw); the final creep
+        # writes cmd_vel directly - the guard's 1 m stop would veto approaching the
+        # very mushroom being collected.
         self.cmd_pub = self.create_publisher(Twist, 'husky1/cmd_vel_raw', 10)
         self.cmd_pub_unguarded = self.create_publisher(Twist, 'husky1/cmd_vel', 10)
         self.boom_pub = self.create_publisher(Float64, 'husky1/boom/cmd_pos', 10)
@@ -140,7 +118,6 @@ class CageCapture(Node):
         self.done_pub = self.create_publisher(PointStamped, 'husky1/cage/done', 10)  # collected or given up
         self.create_subscription(Odometry, 'husky1/odometry', self._odom, LIVE_QOS)
         self.create_subscription(LaserScan, 'husky1/scan', self._scan, LIVE_QOS)
-        self.create_subscription(Float32MultiArray, 'husky1/target_info', self._target, 10)
         self.create_subscription(JointState, 'husky1/joint_states', lambda m: self.joints.update(zip(m.name, m.position)), 10)
         for t in ('husky1/cage/waypoints', 'husky1/clicked_point', '/clicked_point'):
             self.create_subscription(PointStamped, t, lambda m: self._queue(m.point.x, m.point.y), 10)
@@ -196,17 +173,6 @@ class CageCapture(Node):
         self.nearest_rng = best[0] if best else float('inf')
         self.nearest_dir = msg.angle_min + best[1] * msg.angle_increment if best else None
 
-    def _target(self, msg):  # [detected, bearing(-1..1), distance_m, stop_distance_m, class_id, confidence]
-        # target_selector already fuses YOLO + the depth camera and picks the
-        # closest detected mushroom - nothing here compares it against the
-        # waypoint's own (approximate) coordinates, so a position error in the
-        # published point can no longer reject a real, visible mushroom.
-        # Confidence gate: only trust it as "the mushroom" once YOLO itself is
-        # confident, not merely "something's there and closest."
-        if (len(msg.data) >= 6 and msg.data[0] > 0.5 and msg.data[2] > 0.0
-                and msg.data[5] >= MIN_CONF):
-            self.target = (msg.data[1], msg.data[2], self._now())
-
     def _now(self):
         return self.get_clock().now().nanoseconds / 1e9
 
@@ -232,7 +198,7 @@ class CageCapture(Node):
                 why += ' Given up after repeated deferrals.'
                 self._done(gx, gy)
         self.get_logger().info(why)
-        self.target, self.nav_tries = None, 0
+        self.nav_tries = 0
         self._set_state('DRIVE')
 
     def _step(self):
@@ -290,8 +256,8 @@ class CageCapture(Node):
                 cmd.linear.x = max(-0.3, min(0.4, reach * 1.0 + math.copysign(0.03, reach)))
             elif abs(self.yaw_rate) < 0.05 and now - self.last_turn > SETTLE_S:
                 self._try_lower()
-            if now - self.state_since > CONFIRM_S:
-                self._next_target(f'Could not line up on ({gx:.1f},{gy:.1f}) in {CONFIRM_S:.0f}s.', requeue=True)
+            if now - self.state_since > ALIGN_TIMEOUT_S:
+                self._next_target(f'Could not line up on ({gx:.1f},{gy:.1f}) in {ALIGN_TIMEOUT_S:.0f}s.', requeue=True)
         elif self.state == 'LOWER' and self.tool == 'gripper':
             t = now - self.state_since
             self.pitch = PITCH_DOWN                                # 1: bar down, claws open
@@ -325,7 +291,6 @@ class CageCapture(Node):
             if now - self.state_since > (CLAW_MOVE_S if self.tool == 'gripper' else LIFT_SETTLE_S):
                 if self.tool == 'cage':
                     self._clear_costmaps()  # the swinging boom crossed the lidar plane
-                self.target = None
                 self._next_target(f'{len(self.targets) - 1} waypoint(s) left.')
 
         if abs(cmd.angular.z) > 1e-3:

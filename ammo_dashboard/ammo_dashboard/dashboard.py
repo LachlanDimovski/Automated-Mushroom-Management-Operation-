@@ -153,6 +153,7 @@ class Dashboard(Node):
         self.husky_odom = None
         self.parrot_odom = None
         self.seen = {'hi': 0.0, 'pi': 0.0, 'ho': 0.0, 'po': 0.0}
+        self.husky_annotated_at = 0.0  # last YOLO-annotated rover frame; raw camera fills in when that is stale
         self.husky_trail = deque(maxlen=80)
         self.parrot_trail = deque(maxlen=80)
 
@@ -265,12 +266,12 @@ class Dashboard(Node):
     def _husky_img(self, msg):
         try:
             self.husky_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
-            self.seen['hi'] = time.monotonic()
+            self.seen['hi'] = self.husky_annotated_at = time.monotonic()
         except Exception:
             pass
 
     def _husky_raw(self, msg):
-        if self._fresh('hi'):
+        if time.monotonic() - self.husky_annotated_at < STALE_S:
             return  # annotated feed is live, prefer it
         try:
             self.husky_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')

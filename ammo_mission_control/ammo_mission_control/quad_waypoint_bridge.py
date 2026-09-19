@@ -1,16 +1,13 @@
-"""Feeds the quad's live mushroom detections to cage_capture_node.
+"""Publishes the quad's mushroom sightings as rover waypoints.
 
-Ground-projects parrot1/detections (reusing mushroom_mission_node's
-project_to_ground) and publishes PointStamped on husky1/cage/waypoints,
-which cage_capture_node queues and drives to. Only publishes while the quad
-is stationary (quad_search_node holds on detection) - a moving/turning quad
-gave 5-8 m errors live, a hovering one 0.02 m - and re-publishes every
-REPUBLISH_S so a newer estimate supersedes the older one (cage_capture_node
-replaces any queued point within its merge radius). Run alongside cage_mission.launch.py instead of
-seeding waypoints from a world's meta.json:
-
-    ros2 launch ammo_mission_control cage_mission.launch.py
-    ros2 run ammo_mission_control quad_waypoint_bridge
+Ground-projects parrot1/detections (ground_projection.project_to_ground) and
+publishes PointStamped on husky1/cage/waypoints, which cage_capture_node
+queues and drives to. Gates, all learned live: only while the quad has been
+still for SETTLE_S (a moving/turning frame read 5-8 m off, a still one 2 cm);
+only boxes above MIN_CONF; never a point within ROVER_EXCLUDE_M of the rover
+(YOLO boxes the rover now and then); only when two projections in a row
+agree. Re-publishes every REPUBLISH_S so a refined estimate replaces the
+earlier one (cage_capture_node merges nearby points).
 """
 import math
 
@@ -31,6 +28,7 @@ ROVER_EXCLUDE_M = 2.0  # the quad's YOLO boxes the rover's red cage as a mushroo
 STATIONARY_V = 0.1   # m/s, from position deltas (the bridge odometry twist reads ~0 while moving)
 STATIONARY_W = 0.05  # rad/s
 CONSISTENT_M = 1.0   # two consecutive projections must agree this closely - one false/edge frame must never dispatch
+CONSISTENT_S = 4.0   # ...and be this close in time
 SETTLE_S = 2.0       # this long still before a projection is trusted - the frame that triggers the hold is still a moving one
 
 
@@ -99,8 +97,8 @@ class QuadWaypointBridge(Node):
                 continue
             ground = g
             break
-        prev, self.prev_ground = self.prev_ground, ground
-        if ground is None or prev is None or math.hypot(ground[0] - prev[0], ground[1] - prev[1]) > CONSISTENT_M:
+        prev, self.prev_ground = self.prev_ground, ((now,) + ground if ground else None)
+        if ground is None or prev is None or now - prev[0] > CONSISTENT_S or math.hypot(ground[0] - prev[1], ground[1] - prev[2]) > CONSISTENT_M:
             return
 
         m = PointStamped()

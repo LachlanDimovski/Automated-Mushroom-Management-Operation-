@@ -66,8 +66,6 @@ def _nodes(context):
         # this guard can still stop it for low obstacles (fallen trees/logs)
         # that forest_random's terrain puts below Nav2's costmap.
         Node(package='skidsteer_controller', executable='collision_guard_node', output='screen', parameters=[sim]),
-        Node(package='skidsteer_perception', executable='target_selector', output='screen',
-             parameters=[{**sim, 'drive_to_target': True}]),
         Node(package='ammo_mission_control', executable='cage_capture_node', output='screen',
              parameters=[{**sim, 'world': world, 'trunks': trunks, 'goals_x': goals_x, 'goals_y': goals_y,
                           'count': ParameterValue(LaunchConfiguration('count'), value_type=int),

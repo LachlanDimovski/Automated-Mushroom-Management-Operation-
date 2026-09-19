@@ -1,36 +1,20 @@
-"""Autonomous search-and-rescue flight for the quadcopter - no controller.
+"""Autonomous search flight for the quadcopter.
 
-Replaces ps4_drone_test.py entirely: climbs to a cruise altitude, then flies
-a fixed lawnmower (boustrophedon) pattern over the field looking for
-mushrooms, reactively avoiding obstacles using its own lidar. Combined with
-mushroom_mission_node's auto_trigger (already fires on YOLO detections with
-no button) and the R1+Triangle path being irrelevant when nothing's holding
-a controller, this makes the whole find -> mark -> dispatch -> confirm loop
-run with nobody touching a joystick:
+Climbs to CRUISE_ALT_M, then flies its legs (the `waypoints` parameter, or a
+lawnmower over `search_area`) looking for mushrooms with its own YOLO feed.
+Legs detour around known trunks (`trunks` parameter, from the world meta) and
+around whatever the lidar sees (nearest return per 15 deg sector); a reactive
+front-cone slow/turn and a climb-over stuck recovery are the fallbacks.
 
-    ros2 run ammo_mission_control quad_search_node
+On a confident, consistent detection it closes to an observation point
+APPROACH_M from the mushroom (chosen clear of canopies), turns to face it and
+holds still. quad_waypoint_bridge publishes the ground point once the quad has
+been still for a moment; the rover collects it and reports on
+husky1/cage/done, and the search resumes. Holds time out on their own if the
+bridge never publishes or the rover never reports.
 
-CONFIRMED LIVE (not assumed) before writing this: parrot1/cmd_vel is
-body-frame - commanding pure linear.x after rotating ~226 deg moved the
-quad along that exact heading in world coordinates, not world +X regardless
-of orientation (this was flagged as an open question in ps4_drone_test.py's
-own docstring). Also confirmed the sim keeps the quad level (no roll/pitch)
-during horizontal motion, which is what mushroom_mission_node's ground
-projection already assumed.
-
-Altitude and heading/speed are controlled independently: a P-controller
-holds cruise altitude every tick regardless of what the xy-motion is doing,
-and forward/turn commands only engage once the quad is first within
-altitude tolerance (a one-shot latch - it doesn't re-gate on minor altitude
-noise after that).
-
-Obstacle avoidance is reactive and horizontal only (no climb-over strategy -
-canopy height varies too much to trust that): if the lidar's forward cone
-reads a hard-stop distance, forward motion is zeroed and it turns towards
-whichever side (left/right half of the front cone) has more clearance.
-This does not replace a real planner - it's the same reactive-only shape as
-skidsteer_controller's own patrol obstacle avoidance, and can get stuck
-against a wide obstacle it can't out-turn.
+Verified live: parrot1/cmd_vel is body-frame, the sim keeps the quad level in
+horizontal flight, and parrot1/odometry equals Gazebo ground truth.
 """
 import math
 
@@ -79,6 +63,7 @@ RESUME_BLIND_S = 5.0
 APPROACH_M = 3.0
 APPROACH_TOL_M = 0.5
 CONSISTENT_M = 1.0  # two consecutive frames must project within this of each other before holding
+CONSISTENT_S = 4.0  # ...and within this long of each other (an estimate from minutes ago proves nothing)
 ROVER_EXCLUDE_M = 2.0  # YOLO boxes the rover itself now and then; never hold for a hit on top of it
 MIN_CONF = 0.5         # real mushrooms score 0.85+; rover/roots/grass false positives sit at 0.3-0.45
 HOLD_TIMEOUT_S = 150.0  # rover dispatched but no cage/done in this long - give up and resume search
@@ -160,7 +145,7 @@ class QuadSearchController(Node):
         self.hold_since = 0.0
         self.hold_xy = (0.0, 0.0)
         self.hold_target = (0.0, 0.0)
-        self.prev_ground = None
+        self.prev_ground = None  # (t, x, y) of the last confident projection
         self.ignore_detections_until = 0.0
 
         self.progress_x = self.progress_y = None
@@ -181,10 +166,10 @@ class QuadSearchController(Node):
         self.create_timer(1.0 / CONTROL_HZ, self._control_step)
         self.create_timer(HEARTBEAT_PERIOD_S, self._heartbeat)
 
+        xs, ys = [w[0] for w in self.waypoints], [w[1] for w in self.waypoints]
         self.get_logger().info(
-            f'Autonomous search flight - no controller. Climbing to {CRUISE_ALT_M}m, '
-            f'then {len(self.waypoints)}-point lawnmower pattern over '
-            f'x:[{X_MIN},{X_MAX}] y:{ROW_YS}.')
+            f'Climbing to {CRUISE_ALT_M} m, then {len(self.waypoints)} legs over '
+            f'x:[{min(xs):.0f},{max(xs):.0f}] y:[{min(ys):.0f},{max(ys):.0f}], {len(self.trunks)} known trunks.')
 
     def _heartbeat(self):
         """Prints current status every few seconds, regardless of whether
@@ -253,8 +238,9 @@ class QuadSearchController(Node):
                                   best.bbox.center.position.x, best.bbox.center.position.y, self.ground_z)
             if g is not None and self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < ROVER_EXCLUDE_M:
                 g = None
-            prev, self.prev_ground = self.prev_ground, g
-            if g is None or prev is None or math.hypot(g[0] - prev[0], g[1] - prev[1]) > CONSISTENT_M:
+            now = self._now_s()
+            prev, self.prev_ground = self.prev_ground, ((now,) + g if g else None)
+            if g is None or prev is None or now - prev[0] > CONSISTENT_S or math.hypot(g[0] - prev[1], g[1] - prev[2]) > CONSISTENT_M:
                 return
             self.holding = True
             self.detour = None
@@ -308,6 +294,7 @@ class QuadSearchController(Node):
                     angle_diff, cmd.angular.z = steer_angular(hdx, hdy, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
                     if abs(angle_diff) < ANGLE_THRESHOLD_RAD:
                         cmd.linear.x = min(0.5, math.hypot(hdx, hdy))
+                    cmd.linear.x, cmd.angular.z = self._apply_avoidance(cmd.linear.x, cmd.angular.z)
                 else:
                     # at the hold point: face the mushroom (arriving heading is the travel
                     # direction, which can point away from it), then freeze
