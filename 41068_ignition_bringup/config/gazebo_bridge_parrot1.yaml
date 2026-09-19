@@ -34,11 +34,6 @@
   direction: GZ_TO_ROS
 
 # Lidar: pointcloud
-- ros_topic_name: "scan/points"
-  gz_topic_name: "/model/parrot1/scan/points"
-  ros_type_name: "sensor_msgs/msg/PointCloud2"
-  gz_type_name: "gz.msgs.PointCloudPacked"
-  direction: GZ_TO_ROS
 
 # Camera: RGB
 - ros_topic_name: "camera/image"

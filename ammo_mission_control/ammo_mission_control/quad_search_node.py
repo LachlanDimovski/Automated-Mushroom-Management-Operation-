@@ -80,6 +80,7 @@ APPROACH_M = 3.0
 APPROACH_TOL_M = 0.5
 CONSISTENT_M = 1.0  # two consecutive frames must project within this of each other before holding
 ROVER_EXCLUDE_M = 2.0  # YOLO boxes the rover itself now and then; never hold for a hit on top of it
+MIN_CONF = 0.5         # real mushrooms score 0.85+; rover/roots/grass false positives sit at 0.3-0.45
 HOLD_TIMEOUT_S = 240.0  # no cage/done in this long (Nav2 timeout is 180 s) - give up and resume search
 
 # Lawnmower search pattern: rows spaced 6m apart, sweeping the full width on
@@ -97,6 +98,7 @@ AVOID_STOP_DIST_M = 3.0       # start slowing within this range
 AVOID_HARD_STOP_DIST_M = 1.5  # zero forward motion, turn to clear
 AVOID_TURN_RATE = 0.6
 TRUNK_CLEAR_M = 3.0           # legs keep at least this far from a known trunk
+SCAN_OBST_M = 8.0             # lidar returns closer than this join the detour planner as pseudo-trunks
 CANOPY_M = 4.0                # a hold point closer than this to a trunk is inside the foliage: camera sees leaves
 
 # Stuck-recovery: a purely reactive left/right turn can deadlock against an
@@ -151,10 +153,12 @@ class QuadSearchController(Node):
         self.front_left_min = math.inf
         self.front_right_min = math.inf
         self.have_scan = False
+        self.scan_pts = []  # world (x, y) of the nearest lidar return per 15 deg sector within SCAN_OBST_M
 
         self.holding = False
         self.hold_since = 0.0
         self.hold_xy = (0.0, 0.0)
+        self.hold_target = (0.0, 0.0)
         self.prev_ground = None
         self.ignore_detections_until = 0.0
 
@@ -213,10 +217,15 @@ class QuadSearchController(Node):
     def _scan_cb(self, msg):
         left_min = math.inf
         right_min = math.inf
+        sectors = {}  # 15 deg sector -> (range, angle) of its nearest return
         for i, r in enumerate(msg.ranges):
             if not math.isfinite(r) or r <= 0.0:
                 continue
             angle = math.remainder(msg.angle_min + i * msg.angle_increment, 2.0 * math.pi)
+            if r < SCAN_OBST_M:
+                k = int((angle + math.pi) / (math.pi / 12))
+                if k not in sectors or r < sectors[k][0]:
+                    sectors[k] = (r, angle)
             if abs(angle) > FRONT_HALF_ARC_RAD:
                 continue
             if angle >= 0.0:
@@ -225,11 +234,17 @@ class QuadSearchController(Node):
                 right_min = min(right_min, r)
         self.front_left_min = left_min
         self.front_right_min = right_min
+        # world-frame obstacle points for the detour / hold-point planners: unknown
+        # trees and canopies get routed around proactively, not just bumped into
+        self.scan_pts = [(self.x + r * math.cos(self.yaw + a), self.y + r * math.sin(self.yaw + a))
+                         for r, a in sectors.values()]
         self.have_scan = True
 
     def _det_cb(self, msg):
         if msg.detections and self.taken_off and not self.holding and self._now_s() > self.ignore_detections_until:
             best = max(msg.detections, key=lambda d: d.results[0].hypothesis.score if d.results else 0.0)
+            if not best.results or best.results[0].hypothesis.score < MIN_CONF:
+                return
             g = project_to_ground(self.x, self.y, self.yaw, self.z,
                                   best.bbox.center.position.x, best.bbox.center.position.y, self.ground_z)
             if g is not None and self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < ROVER_EXCLUDE_M:
@@ -240,6 +255,7 @@ class QuadSearchController(Node):
             self.holding = True
             self.detour = None
             self.hold_since = self._now_s()
+            self.hold_target = g
             self.hold_xy = self._hold_point(g)
             self.get_logger().info(f'Mushroom in view near ({g[0]:.1f},{g[1]:.1f}) - closing to {APPROACH_M:.0f} m, then holding for the rover.')
 
@@ -285,7 +301,14 @@ class QuadSearchController(Node):
                     angle_diff, cmd.angular.z = steer_angular(hdx, hdy, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
                     if abs(angle_diff) < ANGLE_THRESHOLD_RAD:
                         cmd.linear.x = min(0.5, math.hypot(hdx, hdy))
-                self.cmd_pub.publish(cmd)  # else: altitude hold only, xy/yaw frozen
+                else:
+                    # at the hold point: face the mushroom (arriving heading is the travel
+                    # direction, which can point away from it), then freeze
+                    tx, ty = self.hold_target
+                    angle_diff, w = steer_angular(tx - self.x, ty - self.y, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
+                    if abs(angle_diff) > 0.1:
+                        cmd.angular.z = w
+                self.cmd_pub.publish(cmd)
                 return
 
         self._check_stuck(now)
@@ -328,7 +351,7 @@ class QuadSearchController(Node):
         for k in range(12):
             a = a0 + k * math.pi / 6
             hx, hy = g[0] + APPROACH_M * math.cos(a), g[1] + APPROACH_M * math.sin(a)
-            clear = min((math.hypot(hx - tx, hy - ty) for tx, ty in self.trunks), default=99.0)
+            clear = min((math.hypot(hx - tx, hy - ty) for tx, ty in self.trunks + self.scan_pts), default=99.0)
             key = (clear >= CANOPY_M, -abs(math.atan2(math.sin(a - a0), math.cos(a - a0))), clear)
             if best is None or key > best[0]:
                 best = (key, (hx, hy))
@@ -346,7 +369,7 @@ class QuadSearchController(Node):
         ux, uy = dx / L, dy / L          # along the leg
         nx, ny = -uy, ux                 # left of the leg
         hit = None
-        for tx, ty in self.trunks:
+        for tx, ty in self.trunks + self.scan_pts:
             along = (tx - self.x) * ux + (ty - self.y) * uy
             side = (tx - self.x) * nx + (ty - self.y) * ny
             if 0.5 < along < L - 0.5 and abs(side) < TRUNK_CLEAR_M and (hit is None or along < hit[0]):

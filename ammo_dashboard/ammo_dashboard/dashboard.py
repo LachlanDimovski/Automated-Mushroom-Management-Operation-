@@ -28,10 +28,11 @@ import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import PointStamped
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.qos import DurabilityPolicy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 
 # Each mutually-exclusive husky/quad control combination, bundled as its own
 # launch file elsewhere in the repo - the mode bar just runs one of these at
@@ -67,12 +68,13 @@ W, H = 1280, 800
 HEAD_H = 50
 MARGIN = 14
 GAP = 14
-CAM_TOP = 110
-CAM_H = 380
+CAM_TOP = 120
+CAM_H = 460
 CAM_W = (W - 2 * MARGIN - GAP) // 2
 BOT_TOP = CAM_TOP + CAM_H + 28
 BOT_H = H - BOT_TOP - MARGIN
 MAP_SIZE = BOT_H
+MAP_STREAM_PX = 900   # size of the standalone minimap stream (ammo/minimap/compressed)
 CARD_W = (W - 2 * MARGIN - 2 * GAP - MAP_SIZE) // 2
 
 
@@ -122,7 +124,10 @@ class Dashboard(Node):
         self.declare_parameter('parrot_spawn', [2.0, 0.0])
         self.declare_parameter('parrot_ground_z', 0.8)
         self.declare_parameter('map_range_m', 16.0)
-        self.declare_parameter('fps', 12.0)
+        self.declare_parameter('fps', 10.0)
+        # also publish the rendered HUD as an image so web_video_server can stream it
+        # (iPad: http://<pc>:8080/stream?topic=/ammo/dashboard&type=mjpeg)
+        self.declare_parameter('publish_hud', True)
 
         self.husky_spawn = self.get_parameter('husky_spawn').value
         self.parrot_spawn = self.get_parameter('parrot_spawn').value
@@ -131,6 +136,18 @@ class Dashboard(Node):
         self.fps = self.get_parameter('fps').value
 
         self.bridge = CvBridge()
+        # JPEG-compressed so web_video_server streams it as-is (type=ros_compressed):
+        # a raw 1280x800 frame is 3 MB and mostly got dropped by DDS at 5 Hz
+        self.hud_pub = self.create_publisher(CompressedImage, 'ammo/dashboard/compressed', 1) if self.get_parameter('publish_hud').value else None
+        self.map_pub = self.create_publisher(CompressedImage, 'ammo/minimap/compressed', 1) if self.hud_pub else None
+        # extra iPad views: colour-mapped depth per robot, Nav2 local costmap
+        self.extra = {}   # name -> latest bgr image
+        self.extra_pubs = {k: self.create_publisher(CompressedImage, f'ammo/{k}/compressed', 1)
+                           for k in ('depth_husky', 'depth_parrot', 'costmap')} if self.hud_pub else {}
+        self.create_subscription(Image, 'husky1/camera/depth/image', lambda m: self._depth(m, 'depth_husky'), LIVE_QOS)
+        self.create_subscription(Image, 'parrot1/camera/depth/image', lambda m: self._depth(m, 'depth_parrot'), LIVE_QOS)
+        self.create_subscription(OccupancyGrid, 'husky1/local_costmap/costmap', self._costmap,
+                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.husky_img = None
         self.parrot_img = None
         self.husky_odom = None
@@ -215,6 +232,26 @@ class Dashboard(Node):
         self.active_mode = None
         self.active_proc = None
 
+    def _depth(self, msg, key):
+        try:
+            d = self.bridge.imgmsg_to_cv2(msg, 'passthrough').astype(np.float32)
+            d = np.nan_to_num(d, nan=0.0, posinf=0.0)
+            v = (np.clip(d / 8.0, 0, 1) * 255).astype(np.uint8)   # near = dark, far = bright (monotone, like Gazebo's)
+            img = cv2.merge([v, (v * 0.6).astype(np.uint8), (v * 0.3).astype(np.uint8)])  # blue-tinted BGR
+            img[d <= 0.0] = 0
+            self.extra[key] = img
+        except Exception:
+            pass
+
+    def _costmap(self, msg):
+        g = np.array(msg.data, dtype=np.int16).reshape(msg.info.height, msg.info.width)
+        img = np.full((msg.info.height, msg.info.width, 3), SOIL, np.uint8)
+        img[(g > 0) & (g < 99)] = (40, 140, 220)   # inflation
+        img[g >= 99] = CAP_RED                      # lethal
+        img[g < 0] = (60, 60, 60)                   # unknown
+        img = cv2.flip(img, 0)                      # grid y-up -> image y-down
+        self.extra['costmap'] = cv2.resize(img, (600, 600), interpolation=cv2.INTER_NEAREST)
+
     def _husky_img(self, msg):
         try:
             self.husky_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
@@ -258,6 +295,15 @@ class Dashboard(Node):
             self._alt_card(c, MARGIN + CARD_W + GAP, BOT_TOP)
             self._minimap(c, W - MARGIN - MAP_SIZE, BOT_TOP)
             cv2.imshow(self.window, c)
+            self.frame_n = getattr(self, 'frame_n', 0) + 1
+            if self.hud_pub is not None and self.frame_n % 2 == 0:  # ~5 Hz at native size for the browser stream
+                # minimap rendered fresh at stream size (not cropped from the HUD) so it stays sharp full-screen
+                big = np.full((MAP_STREAM_PX + 24, MAP_STREAM_PX, 3), BG, np.uint8)
+                self._minimap(big, 0, 24, MAP_STREAM_PX)
+                for pub, img in [(self.hud_pub, c), (self.map_pub, big)] + [(self.extra_pubs[k], v) for k, v in self.extra.items()]:
+                    m = CompressedImage(format='jpeg')
+                    m.data = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+                    pub.publish(m)
         except Exception as exc:
             self.get_logger().warn(f'render error: {exc}', throttle_duration_sec=5.0)
         key = cv2.waitKey(wait_ms) & 0xFF
@@ -312,8 +358,9 @@ class Dashboard(Node):
         txt(c, label, (x + 16, y + 30), 0.55, INK)
         col = CAP_RED if ok else DIM
         vs = value if (ok and value) else '--'
-        txt(c, vs, (x + (CARD_W - txt_w(vs, 3.0, 6)) // 2, y + BOT_H // 2 + 42), 3.0, col, 6)
-        txt(c, unit, (x + (CARD_W - txt_w(unit, 0.7)) // 2, y + BOT_H - 40), 0.7, INK)
+        sc, th = 3.0 * BOT_H / 268, max(2, int(6 * BOT_H / 268))
+        txt(c, vs, (x + (CARD_W - txt_w(vs, sc, th)) // 2, y + BOT_H // 2 + int(14 * sc)), sc, col, th)
+        txt(c, unit, (x + (CARD_W - txt_w(unit, 0.6)) // 2, y + BOT_H - 30), 0.6, INK)
         if sub:
             txt(c, sub, (x + 16, y + BOT_H - 14), 0.45, FAINT)
 
@@ -336,8 +383,7 @@ class Dashboard(Node):
             sub = f'climb rate {vz:+.2f} m/s'
         self._card(c, x, y, 'QUADCOPTER - ALTITUDE', val, 'm', sub, ok)
 
-    def _minimap(self, c, x, y):
-        s = MAP_SIZE
+    def _minimap(self, c, x, y, s=MAP_SIZE):
         cv2.rectangle(c, (x, y), (x + s, y + s), SOIL, -1)
         cv2.rectangle(c, (x, y), (x + s, y + s), PANEL, 2)
         tab(c, x, y, 'MINIMAP - ODOM')
@@ -376,7 +422,8 @@ class Dashboard(Node):
         txt(c, 'skidsteer', (x + 32, y + s - 24), 0.4, PANEL)
         cv2.circle(c, (x + 18, y + s - 14), 5, PANEL, 1)
         txt(c, 'quadcopter', (x + 32, y + s - 10), 0.4, PANEL)
-        txt(c, f'targets {len(self.waypoints)}  collected {len(self.done)}', (x + s - 190, y + s - 10), 0.4, PANEL)
+        t_ = f'targets {len(self.waypoints)}  collected {len(self.done)}'
+        txt(c, t_, (x + s - txt_w(t_, 0.4) - 8, y + 20), 0.4, PANEL)
 
     def _trail(self, c, trail, to_px, color):
         pts = list(trail)

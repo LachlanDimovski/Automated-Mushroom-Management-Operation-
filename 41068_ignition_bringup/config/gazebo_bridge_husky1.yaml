@@ -34,11 +34,6 @@
   direction: GZ_TO_ROS
 
 # Lidar: pointcloud
-- ros_topic_name: "scan/points"
-  gz_topic_name: "/model/husky1/scan/points"
-  ros_type_name: "sensor_msgs/msg/PointCloud2"
-  gz_type_name: "gz.msgs.PointCloudPacked"
-  direction: GZ_TO_ROS
 
 # Camera: RGB
 - ros_topic_name: "camera/image"
@@ -55,11 +50,6 @@
   direction: GZ_TO_ROS
 
 # Camera: depth pointcloud
-- ros_topic_name: "camera/depth/points"
-  gz_topic_name: "/model/husky1/camera/points"
-  ros_type_name: "sensor_msgs/msg/PointCloud2"
-  gz_type_name: "ignition.msgs.PointCloudPacked"
-  direction: GZ_TO_ROS
 # Lift: boom 0.28 stowed / 3.07 lowered; cage joint = -boom to stay level
 - ros_topic_name: 'boom/cmd_pos'
   gz_topic_name: '/model/husky1/boom/cmd_pos'

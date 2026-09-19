@@ -26,6 +26,7 @@ from ammo_mission_control.mushroom_mission_node import project_to_ground
 
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 REPUBLISH_S = 2.0
+MIN_CONF = 0.5       # real mushrooms score 0.85+; the rover/roots/grass come in at 0.3-0.45
 ROVER_EXCLUDE_M = 2.0  # the quad's YOLO boxes the rover's red cage as a mushroom - never project onto the rover
 STATIONARY_V = 0.1   # m/s, from position deltas (the bridge odometry twist reads ~0 while moving)
 STATIONARY_W = 0.05  # rad/s
@@ -87,6 +88,8 @@ class QuadWaypointBridge(Node):
         # mushroom but boxes bigger), and skip anything projecting onto the rover
         ground = None
         for det in sorted(msg.detections, key=lambda d: -d.results[0].hypothesis.score if d.results else 0.0):
+            if not det.results or det.results[0].hypothesis.score < MIN_CONF:
+                continue
             g = project_to_ground(
                 self.quad_x, self.quad_y, self.quad_yaw, self.quad_alt,
                 det.bbox.center.position.x, det.bbox.center.position.y, self.ground_z)

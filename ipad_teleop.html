@@ -3,59 +3,100 @@
 iPad teleop + view page. No build, no ROS package needed.
 
 Run on the robot/sim PC:
-  ros2 run rosbridge_server rosbridge_websocket
-  ros2 run web_video_server web_video_server
-  python3 -m http.server 8000   (serves this file)
+  ros2 run rosbridge_server rosbridge_websocket   (port 9090)
+  ros2 run web_video_server web_video_server      (port 8080)
+  python3 ipad_teleop_server.py                   (serves this page and proxies the video on port 8000)
 
-On the iPad browser, go to: http://<pc-ip>:8000/ipad_teleop.html
-Edit ROS_HOST below to the PC's IP, and CAMERA_TOPIC to your image topic.
+On the iPad browser, go to: http://<pc-ip>:8000/   (type the http:// - Safari likes to force https)
+Sidebar picks the view: PARROT camera, SKIDSTEER camera, or the AMMO HUD
+(needs ammo_dashboard running). Speed/altitude chips come from odometry
+over rosbridge. Drag the stick to drive the skidsteer.
 -->
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>Rover Teleop</title>
+<title>AMMO Teleop</title>
 <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
 <style>
-  body { margin:0; background:#111; color:#eee; font-family:sans-serif; touch-action:none; }
-  #cam { width:100%; display:block; background:#000; }
-  #pad { position:relative; width:280px; height:280px; margin:20px auto; border-radius:50%; background:#222; touch-action:none; }
+  body { margin:0; background:#111; color:#eee; font-family:sans-serif; touch-action:pan-y; }
+  #top { display:flex; }
+  #view { flex:1; min-width:0; display:block; background:#000; object-fit:contain; height:calc(100vh - 60px); }
+  body.map #pad, body.map #status { display:none; }  /* minimap view: give it the whole screen */
+  body.map #view { height:100vh; }
+  #side { width:110px; display:flex; flex-direction:column; gap:6px; padding:6px; }
+  #side button { padding:10px 4px; font-size:14px; border:0; border-radius:8px; background:#333; color:#eee; }
+  #side button.on { background:#4caf50; color:#fff; }
+  .chip { background:#222; border-radius:8px; padding:8px 4px; text-align:center; font-size:13px; color:#aaa; }
+  .chip b { display:block; font-size:22px; color:#eee; }
+  #pad { position:relative; width:280px; height:280px; margin:16px auto; border-radius:50%; background:#222; touch-action:none; }
   #stick { position:absolute; width:80px; height:80px; border-radius:50%; background:#4caf50; left:100px; top:100px; }
-  #status { text-align:center; padding:6px; }
+  #status { text-align:center; padding:6px; color:#aaa; }
 </style>
 </head>
 <body>
-<img id="cam" src="">
+<div id="top">
+  <img id="view" src="">
+  <div id="side">
+    <button data-view="parrot">PARROT</button>
+    <button data-view="husky">SKIDSTEER</button>
+    <button data-view="hud">HUD</button>
+    <button data-view="map">MINIMAP</button>
+    <button data-view="dparrot">DEPTH P</button>
+    <button data-view="dhusky">DEPTH S</button>
+    <button data-view="costmap">COSTMAP</button>
+    <div class="chip">speed<b id="speed">--</b>m/s</div>
+    <div class="chip">altitude<b id="alt">--</b>m</div>
+  </div>
+</div>
 <div id="status">connecting...</div>
 <div id="pad"><div id="stick"></div></div>
-
 <script>
-const ROS_HOST = "localhost";     // <-- set to robot PC's IP for real iPad use
-const CAMERA_TOPIC = "/camera/image_raw";
-const CMD_VEL_TOPIC = "/cmd_vel";
+const CMD_VEL_TOPIC = "/husky1/cmd_vel_raw";   // through collision_guard_node -> husky1/cmd_vel
 const MAX_LINEAR = 0.6, MAX_ANGULAR = 1.5;
+// same origin as this page: ipad_teleop_server.py proxies /stream to web_video_server
+// YOLO-annotated feeds (boxes drawn); they update at the detector's rate, not the camera's
+const VIEWS = { parrot: '/stream?topic=/parrot1/detections/image&type=mjpeg&quality=80',
+                husky:  '/stream?topic=/husky1/detections/image&type=mjpeg&quality=80',
+                hud:    '/stream?topic=/ammo/dashboard&type=ros_compressed',   // pre-encoded JPEG, passed through
+                map:    '/stream?topic=/ammo/minimap&type=ros_compressed',
+                dparrot:'/stream?topic=/ammo/depth_parrot&type=ros_compressed',
+                dhusky: '/stream?topic=/ammo/depth_husky&type=ros_compressed',
+                costmap:'/stream?topic=/ammo/costmap&type=ros_compressed' };
 
-document.getElementById('cam').src =
-  `http://${ROS_HOST}:8080/stream?topic=${CAMERA_TOPIC}&type=mjpeg`;
+const view = document.getElementById('view'), status = document.getElementById('status');
+function show(which) {
+  view.src = VIEWS[which];
+  document.body.classList.toggle('map', which === 'map');
+  document.querySelectorAll('#side button').forEach(b => b.classList.toggle('on', b.dataset.view === which));
+}
+document.querySelectorAll('#side button').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
+show('hud');
 
-const ros = new ROSLIB.Ros({ url: `ws://${ROS_HOST}:9090` });
-ros.on('connection', () => status.textContent = 'connected');
-ros.on('error', e => status.textContent = 'error: ' + e);
-ros.on('close', () => status.textContent = 'disconnected');
-
-const cmdVel = new ROSLIB.Topic({ ros, name: CMD_VEL_TOPIC, messageType: 'geometry_msgs/msg/Twist' });
+// rosbridge, with reconnect (roslib gives up after one drop)
+let ros, cmdVel;
+function connect() {
+  ros = new ROSLIB.Ros({ url: `ws://${location.hostname}:9090` });
+  ros.on('connection', () => status.textContent = 'connected');
+  ros.on('error', () => status.textContent = 'error - retrying');
+  ros.on('close', () => { status.textContent = 'disconnected - retrying'; setTimeout(connect, 2000); });
+  cmdVel = new ROSLIB.Topic({ ros, name: CMD_VEL_TOPIC, messageType: 'geometry_msgs/msg/Twist' });
+  new ROSLIB.Topic({ ros, name: '/husky1/odometry', messageType: 'nav_msgs/msg/Odometry', throttle_rate: 200 })
+    .subscribe(m => document.getElementById('speed').textContent = Math.hypot(m.twist.twist.linear.x, m.twist.twist.linear.y).toFixed(2));
+  new ROSLIB.Topic({ ros, name: '/parrot1/odometry', messageType: 'nav_msgs/msg/Odometry', throttle_rate: 200 })
+    .subscribe(m => document.getElementById('alt').textContent = m.pose.pose.position.z.toFixed(2));
+}
+connect();
 
 const pad = document.getElementById('pad'), stick = document.getElementById('stick');
 const center = 100, radius = 100;
 let dragging = false;
 
 function publish(dx, dy) {
-  const twist = new ROSLIB.Message({
+  cmdVel.publish(new ROSLIB.Message({
     linear: { x: -dy / radius * MAX_LINEAR, y: 0, z: 0 },
     angular: { x: 0, y: 0, z: -dx / radius * MAX_ANGULAR }
-  });
-  cmdVel.publish(twist);
+  }));
 }
-
 function move(clientX, clientY) {
   const r = pad.getBoundingClientRect();
   let dx = clientX - r.left - 140, dy = clientY - r.top - 140;
@@ -65,17 +106,11 @@ function move(clientX, clientY) {
   stick.style.top = (center + dy) + 'px';
   publish(dx, dy);
 }
-
-function reset() {
-  stick.style.left = center + 'px';
-  stick.style.top = center + 'px';
-  publish(0, 0);
-}
+function reset() { stick.style.left = center + 'px'; stick.style.top = center + 'px'; publish(0, 0); }
 
 pad.addEventListener('touchstart', e => { dragging = true; move(e.touches[0].clientX, e.touches[0].clientY); });
 pad.addEventListener('touchmove', e => { if (dragging) move(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, {passive:false});
 pad.addEventListener('touchend', () => { dragging = false; reset(); });
-
 pad.addEventListener('mousedown', e => { dragging = true; move(e.clientX, e.clientY); });
 window.addEventListener('mousemove', e => { if (dragging) move(e.clientX, e.clientY); });
 window.addEventListener('mouseup', () => { if (dragging) { dragging = false; reset(); } });
