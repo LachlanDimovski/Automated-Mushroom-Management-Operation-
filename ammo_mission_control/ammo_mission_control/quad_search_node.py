@@ -35,11 +35,12 @@ against a wide obstacle it can't out-turn.
 import math
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PointStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
+from vision_msgs.msg import Detection2DArray
 
 from ammo_mission_control.drive_utils import steer_angular, yaw_of
 
@@ -66,6 +67,12 @@ SPEED_RAMP_DIST_M = 6.0
 WAYPOINT_TOLERANCE_M = 1.5
 
 HEARTBEAT_PERIOD_S = 5.0
+
+# Standby: a detection freezes the quad in place (level, stationary = the
+# geometry quad_waypoint_bridge's projection is good at) until the rover
+# reports on husky1/cage/done, then search resumes after a short blind spell.
+RESUME_BLIND_S = 5.0
+HOLD_TIMEOUT_S = 240.0  # no cage/done in this long (Nav2 timeout is 180 s) - give up and resume search
 
 # Lawnmower search pattern: rows spaced 6m apart, sweeping the full width on
 # each row, alternating direction - a simple, predictable full-area cover
@@ -111,7 +118,10 @@ class QuadSearchController(Node):
     def __init__(self):
         super().__init__('quad_search_controller')
 
-        self.waypoints = build_lawnmower_waypoints()
+        # flat [x0, y0, x1, y1, ...]; empty = default lawnmower over the field
+        self.declare_parameter('waypoints', [0.0])
+        wp = self.get_parameter('waypoints').value
+        self.waypoints = list(zip(wp[0::2], wp[1::2])) if len(wp) >= 2 else build_lawnmower_waypoints()
         self.wp_idx = 0
 
         self.x = self.y = self.z = self.yaw = 0.0
@@ -122,6 +132,10 @@ class QuadSearchController(Node):
         self.front_right_min = math.inf
         self.have_scan = False
 
+        self.holding = False
+        self.hold_since = 0.0
+        self.ignore_detections_until = 0.0
+
         self.progress_x = self.progress_y = None
         self.progress_time = None  # monotonic seconds
         self.recovery_until = None  # monotonic seconds, or None if not recovering
@@ -129,6 +143,8 @@ class QuadSearchController(Node):
         self.cmd_pub = self.create_publisher(Twist, 'parrot1/cmd_vel', 10)
         self.create_subscription(Odometry, 'parrot1/odometry', self._odom_cb, LIVE_QOS)
         self.create_subscription(LaserScan, 'parrot1/scan', self._scan_cb, LIVE_QOS)
+        self.create_subscription(Detection2DArray, 'parrot1/detections', self._det_cb, LIVE_QOS)
+        self.create_subscription(PointStamped, 'husky1/cage/done', self._done_cb, 10)
         self.create_timer(1.0 / CONTROL_HZ, self._control_step)
         self.create_timer(HEARTBEAT_PERIOD_S, self._heartbeat)
 
@@ -157,7 +173,7 @@ class QuadSearchController(Node):
         avoiding = self.have_scan and min(self.front_left_min, self.front_right_min) < AVOID_STOP_DIST_M
         recovering = self.recovery_until is not None
         self.get_logger().info(
-            f'SEARCHING - pos=({self.x:.1f},{self.y:.1f}) alt={self.z:.2f}m '
+            f'{"HOLDING" if self.holding else "SEARCHING"} - pos=({self.x:.1f},{self.y:.1f}) alt={self.z:.2f}m '
             f'wp={self.wp_idx}/{len(self.waypoints)} target=({gx:.1f},{gy:.1f}) '
             f'dist={dist:.1f}m avoiding={avoiding} recovering={recovering}')
 
@@ -186,6 +202,18 @@ class QuadSearchController(Node):
         self.front_right_min = right_min
         self.have_scan = True
 
+    def _det_cb(self, msg):
+        if msg.detections and self.taken_off and not self.holding and self._now_s() > self.ignore_detections_until:
+            self.holding = True
+            self.hold_since = self._now_s()
+            self.get_logger().info('Mushroom in view - holding position for the rover.')
+
+    def _done_cb(self, msg):
+        if self.holding:
+            self.holding = False
+            self.ignore_detections_until = self._now_s() + RESUME_BLIND_S
+            self.get_logger().info(f'Rover done at ({msg.point.x:.1f},{msg.point.y:.1f}) - resuming search.')
+
     def _control_step(self):
         cmd = Twist()
 
@@ -209,6 +237,15 @@ class QuadSearchController(Node):
             self.cmd_pub.publish(cmd)  # climbing in place - hold xy still until near cruise alt
             return
 
+        if self.holding:
+            if now - self.hold_since > HOLD_TIMEOUT_S:
+                self.holding = False
+                self.ignore_detections_until = now + RESUME_BLIND_S
+                self.get_logger().warn(f'No cage/done in {HOLD_TIMEOUT_S:.0f}s - resuming search.')
+            else:
+                self.cmd_pub.publish(cmd)  # altitude hold only; xy/yaw frozen
+                return
+
         self._check_stuck(now)
 
         gx, gy = self.waypoints[self.wp_idx]
@@ -219,6 +256,9 @@ class QuadSearchController(Node):
             gx, gy = self.waypoints[self.wp_idx]
             dx, dy = gx - self.x, gy - self.y
             dist = math.hypot(dx, dy)
+            if dist <= WAYPOINT_TOLERANCE_M:
+                self.cmd_pub.publish(cmd)  # single/last waypoint reached: hover, don't chase a point underneath
+                return
 
         angle_diff, angular = steer_angular(dx, dy, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
 

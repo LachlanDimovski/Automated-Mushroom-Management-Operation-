@@ -33,8 +33,9 @@ def _nodes(context):
     if os.path.exists(meta):
         d = json.load(open(meta))
         trunks = [v for o in d['objects'] if o['type'] == 'tree' for v in (o['x'], o['y'])]
-        goals_x = [m['x'] for m in d['mushrooms']] or [0.0]
-        goals_y = [m['y'] for m in d['mushrooms']] or [0.0]
+        if LaunchConfiguration('meta_goals').perform(context).lower() == 'true':  # false = quad dispatches only
+            goals_x = [m['x'] for m in d['mushrooms']] or [0.0]
+            goals_y = [m['y'] for m in d['mushrooms']] or [0.0]
     sim = {'use_sim_time': True}
     return [
         Node(package='ammo_mission_control', executable='truth_localizer', output='screen', parameters=[sim],
@@ -47,19 +48,21 @@ def _nodes(context):
              parameters=[{**sim, 'drive_to_target': True}]),
         Node(package='ammo_mission_control', executable='cage_capture_node', output='screen',
              parameters=[{**sim, 'world': world, 'trunks': trunks, 'goals_x': goals_x, 'goals_y': goals_y,
-                          'count': ParameterValue(LaunchConfiguration('count'), value_type=int)}]),
+                          'count': ParameterValue(LaunchConfiguration('count'), value_type=int),
+                          'tool': LaunchConfiguration('tool')}]),
     ]
 
 
 def generate_launch_description():
     ld = LaunchDescription()
     for name, default in (('world', 'simple_trees'), ('rviz', 'true'), ('headless', 'false'),
-                          ('count', '0'), ('parrot', 'true')):
+                          ('count', '0'), ('parrot', 'true'), ('meta_goals', 'true'), ('yolo', 'true'),
+                          ('tool', 'gripper')):
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
     ld.add_action(IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(BRINGUP, 'launch', 'forest_world.launch.py')),
         launch_arguments={'world': LaunchConfiguration('world'), 'nav2': 'true',
-                          'parrot': LaunchConfiguration('parrot'),
+                          'parrot': LaunchConfiguration('parrot'), 'yolo': LaunchConfiguration('yolo'),
                           'ground_truth_localization': 'true', 'rviz': LaunchConfiguration('rviz'),
                           'headless': LaunchConfiguration('headless')}.items()))
     ld.add_action(OpaqueFunction(function=_nodes))

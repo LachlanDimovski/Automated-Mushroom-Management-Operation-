@@ -121,8 +121,8 @@ controller_server:
     general_goal_checker:
       stateful: true
       plugin: nav2_controller::SimpleGoalChecker
-      xy_goal_tolerance: 0.4
-      yaw_goal_tolerance: 0.4
+      xy_goal_tolerance: 0.6   # ALIGN creeps the rest by odometry
+      yaw_goal_tolerance: 0.8
     FollowPath:
       # Regulated Pure Pursuit instead of DWB: with the long cage footprint and
       # the sim skid-steer's turn dead-band, DWB's sampled trajectories kept
@@ -164,20 +164,20 @@ local_costmap:
       width: 10
       height: 10
       resolution: 0.05
-      footprint: '[ [0.6, 0.35], [0.6, -0.35], [-1.1, -0.35], [-1.1, 0.35] ]'  # includes the stowed cage trailing behind
+      footprint: '[ [0.7, 0.35], [0.7, -0.35], [-0.55, -0.35], [-0.55, 0.35] ]'  # chassis + folded front gripper (cage:=true adds a -1.1 m tail)
       plugins:
       - obstacle_layer
       - inflation_layer
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
         cost_scaling_factor: 3.0
-        inflation_radius: 1.0
+        inflation_radius: 1.5  # forest: give trunks room (original template used 2.0 on a 1 m square footprint)
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
         observation_sources: scan
         scan:
-          topic: scan
+          topic: /husky1/scan  # costmap nodes sit in /husky1/<costmap>/, so a relative "scan" resolved to a topic nobody publishes
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -198,7 +198,7 @@ global_costmap:
       global_frame: husky1_map
       robot_base_frame: husky1_base_link
       use_sim_time: true
-      footprint: '[ [0.6, 0.35], [0.6, -0.35], [-1.1, -0.35], [-1.1, 0.35] ]'  # includes the stowed cage trailing behind
+      footprint: '[ [0.7, 0.35], [0.7, -0.35], [-0.55, -0.35], [-0.55, 0.35] ]'  # chassis + folded front gripper (cage:=true adds a -1.1 m tail)
       resolution: 0.1
       # Rolling lidar window instead of SLAM's static map: the static map is
       # empty at start-up so every goal was "off the global costmap".
@@ -214,7 +214,7 @@ global_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: scan
+          topic: /husky1/scan  # costmap nodes sit in /husky1/<costmap>/, so a relative "scan" resolved to a topic nobody publishes
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -229,7 +229,7 @@ global_costmap:
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
         cost_scaling_factor: 3.0
-        inflation_radius: 1.0
+        inflation_radius: 1.5  # forest: give trunks room (original template used 2.0 on a 1 m square footprint)
       always_send_full_costmap: true
 map_server:
   ros__parameters:

@@ -71,3 +71,19 @@
   ros_type_name: 'std_msgs/msg/Float64'
   gz_type_name: 'ignition.msgs.Double'
   direction: ROS_TO_GZ
+# Front gripper claws: +-1.57 stowed / +-0.35 open / -+0.6 closed
+- ros_topic_name: 'claw_left/cmd_pos'
+  gz_topic_name: '/model/husky1/claw_left/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ
+- ros_topic_name: 'claw_right/cmd_pos'
+  gz_topic_name: '/model/husky1/claw_right/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ
+- ros_topic_name: 'gripper_pitch/cmd_pos'
+  gz_topic_name: '/model/husky1/gripper_pitch/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ

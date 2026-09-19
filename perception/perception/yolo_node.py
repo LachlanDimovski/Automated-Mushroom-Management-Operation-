@@ -7,7 +7,14 @@ robots detect identically.
 """
 import os
 
+# Before torch/cv2 import: torch.set_num_threads only caps PyTorch; OpenCV and
+# BLAS spawn their own pools and were pegging 350 % CPU with num_threads=1.
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+
 import cv2
+cv2.setNumThreads(1)
 import numpy as np
 import rclpy
 import torch

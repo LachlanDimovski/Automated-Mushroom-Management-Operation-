@@ -103,6 +103,10 @@ IMG_W, IMG_H = 720, 480
 CAM_HFOV_RAD = 2.0944
 FOCAL_PX = (IMG_W / 2.0) / math.tan(CAM_HFOV_RAD / 2.0)
 CAM_PITCH_RAD = 0.785398
+# camera_joint sits 0.25 m ahead of and 0.25 m above parrot base_link; the
+# bbox centre is on the cap (~0.12 m up), not the ground. Ignoring these read
+# 0.43 m short live.
+CAM_FWD_M, CAM_UP_M, TARGET_HEIGHT_M = 0.25, 0.25, 0.12
 # Camera can't see the ground at all above this many degrees off vertical
 # (boresight would be pointing at/above the horizon) - treat as unprojectable.
 MAX_DOWN_ANGLE_RAD = math.radians(89.0)
@@ -114,6 +118,9 @@ def project_to_ground(quad_x, quad_y, quad_yaw, quad_alt, px, py):
     at/above the horizon). Assumes level flight (roll/pitch ~ 0) and flat
     ground at world z=0.
     """
+    quad_x += CAM_FWD_M * math.cos(quad_yaw)
+    quad_y += CAM_FWD_M * math.sin(quad_yaw)
+    quad_alt += CAM_UP_M - TARGET_HEIGHT_M
     if quad_alt <= 0.0:
         return None
 
