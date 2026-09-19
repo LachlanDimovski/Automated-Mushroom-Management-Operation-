@@ -25,7 +25,6 @@ setup(
         'console_scripts': [
             'quad_search_node = ammo_mission_control.quad_search_node:main',
             'cage_capture_node = ammo_mission_control.cage_capture_node:main',
-            'quad_waypoint_bridge = ammo_mission_control.quad_waypoint_bridge:main',
             'truth_localizer = ammo_mission_control.truth_localizer:main',
         ],
     },

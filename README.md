@@ -20,7 +20,7 @@ flight and detection bridge:
 
 Flow: quad flies its legs (lawnmower over the world, or `quad_waypoints:=x,y,...`),
 detouring round known trunks and lidar returns -> YOLO hit -> quad holds at a
-canopy-clear point facing it -> `quad_waypoint_bridge` ray-casts the pixel to a
+canopy-clear point facing it -> ray-casts the pixel to a
 ground point once the quad is still -> `husky1/cage/waypoints` -> rover Nav2 to a
 trunk-clear standoff, odometry creep, front gripper -> `husky1/cage/done` -> quad
 resumes.

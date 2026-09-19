@@ -8,9 +8,9 @@ YOLO/depth target selector and the cage capture node.
     ros2 launch ammo_mission_control cage_mission.launch.py parrot:=false count:=6  # husky-only, isolate capture debugging
     ros2 launch ammo_mission_control cage_mission.launch.py quad_waypoints:=4,-3,-3,-3.5   # quad flies these legs instead of the lawnmower
 
-With parrot:=true this also runs quad_search_node + quad_waypoint_bridge: the
-quad flies its legs (detouring round known trunks), holds on a YOLO hit and
-publishes the projected ground point, the rover collects it, the quad resumes.
+With parrot:=true this also runs quad_search_node: the quad flies its legs
+(detouring round known trunks), holds on a YOLO hit, publishes the projected
+ground point once still, the rover collects it, the quad resumes.
 
 Give it waypoints with RViz Publish Point / 2D Goal Pose, or on
 husky1/cage/waypoints. In forest_random the world's own mushrooms (from
@@ -56,8 +56,6 @@ def _nodes(context):
         Node(package='ammo_mission_control', executable='quad_search_node', output='screen',
              parameters=[{**sim, 'trunks': trunks, 'waypoints': qwp or [0.0], 'ground_z': ground_z,
                           'search_area': [-half, half, -half, half, 4.0 if half < 10 else 6.0]}]),
-        Node(package='ammo_mission_control', executable='quad_waypoint_bridge', output='screen',
-             parameters=[{**sim, 'ground_z': ground_z}]),
     ]
     return ([TimerAction(period=12.0, actions=spawns)] if spawns else []) + quad + [
         Node(package='ammo_mission_control', executable='truth_localizer', output='screen', parameters=[sim],

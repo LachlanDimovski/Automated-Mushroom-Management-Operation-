@@ -17,11 +17,13 @@ import os
 import random
 import re
 import subprocess
+import threading
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PointStamped, PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
+from nav2_msgs.srv import ClearEntireCostmap
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
 from rclpy.node import Node
@@ -124,6 +126,9 @@ class CageCapture(Node):
         for t in ('husky1/goal_pose', '/goal_pose'):
             self.create_subscription(PoseStamped, t, lambda m: self._queue(m.pose.position.x, m.pose.position.y), 10)
         self.nav = ActionClient(self, NavigateToPose, 'husky1/navigate_to_pose')
+        self.clear_clients = [self.create_client(ClearEntireCostmap, f'husky1/{cm}_costmap/clear_entirely_{cm}_costmap')
+                              for cm in ('local', 'global')]
+        self.collector = None  # worker thread for the Gazebo collect (ign CLI calls take seconds)
 
         gx, gy = self.get_parameter('goals_x').value, self.get_parameter('goals_y').value
         if (gx, gy) != ([0.0], [0.0]):
@@ -263,14 +268,12 @@ class CageCapture(Node):
             self.pitch = PITCH_DOWN                                # 1: bar down, claws open
             self.claw = CLAW_OPEN if t < CLAW_MOVE_S else CLAW_CLOSE  # 2: close around it
             if t > 2 * CLAW_MOVE_S:
-                self._collect()
-                self._set_state('RAISE')
+                self._start_collect()
         elif self.state == 'LOWER':
             self.boom = BOOM_DOWN
             if now - self.state_since > LIFT_SETTLE_S:
                 if abs(self.joints.get('husky1_boom_joint', BOOM_DOWN) - BOOM_DOWN) < 0.15:
-                    self._collect()
-                    self._set_state('RAISE')
+                    self._start_collect()
                 else:
                     # cage hit something above the lidar plane (low branches) - raise and
                     # come back from the next-ranked standoff side; DRIVE re-plans via nav_tries
@@ -278,6 +281,10 @@ class CageCapture(Node):
                     self.nav_tries += 1
                     self.boom = BOOM_UP
                     self._set_state('RETRACT')
+        elif self.state == 'COLLECT':
+            if not self.collector.is_alive():  # Gazebo query/removal finished (see _collect)
+                self.collector = None
+                self._set_state('RAISE')
         elif self.state == 'RETRACT':
             if now - self.state_since > LIFT_SETTLE_S:
                 self._clear_costmaps()
@@ -311,19 +318,22 @@ class CageCapture(Node):
             self.nav_tries += 1
             self._set_state('DRIVE')
 
-    def _collect(self):
+    def _start_collect(self):
+        # the ign CLI calls in _collect take seconds; run them off the 20 Hz loop
         cx, cy = self.x + self.ahead * math.cos(self.yaw), self.y + self.ahead * math.sin(self.yaw)
+        self.collector = threading.Thread(target=self._collect, args=(cx, cy), daemon=True)
+        self.collector.start()
+        self._set_state('COLLECT')
+
+    def _collect(self, cx, cy):
+        """Sim stand-in for a physical grab: remove every mushroom model within CAGE_HALF_M
+        of the tool centre, then report done. Runs on a worker thread."""
         under = self._mushrooms_near(cx, cy)
         for name in under:
             self._remove(name)
         self.spawned = [m for m in self.spawned if m[0] not in under]
         self._done(cx, cy)
-        b = self.joints.get('husky1_boom_joint', float('nan'))
-        if self.tool == 'gripper':
-            self.get_logger().info(f'Collected {len(under)} mushroom(s) with the gripper.')
-            return
-        self.get_logger().info(f'Collected {len(under)} mushroom(s). boom={b:.2f} '
-                               + ('(full drop)' if abs(b - BOOM_DOWN) < 0.15 else '<-- DROP BLOCKED'))
+        self.get_logger().info(f'Collected {len(under)} mushroom(s) with the {self.tool}.')
 
     # -- Nav2 -----------------------------------------------------------------
     def _send_nav(self, gx, gy):
@@ -374,8 +384,9 @@ class CageCapture(Node):
             self.nav_handle = None
 
     def _clear_costmaps(self):
-        for cm in ('local_costmap/clear_entirely_local_costmap', 'global_costmap/clear_entirely_global_costmap'):
-            self._run(['ros2', 'service', 'call', f'/husky1/{cm}', 'nav2_msgs/srv/ClearEntireCostmap', '{}'], 8)
+        for c in self.clear_clients:  # fire and forget: a clear that arrives late is still fine
+            if c.service_is_ready():
+                c.call_async(ClearEntireCostmap.Request())
 
     # -- Gazebo world ---------------------------------------------------------
     def _run(self, args, timeout):

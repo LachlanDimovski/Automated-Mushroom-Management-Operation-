@@ -8,10 +8,16 @@ front-cone slow/turn and a climb-over stuck recovery are the fallbacks.
 
 On a confident, consistent detection it closes to an observation point
 APPROACH_M from the mushroom (chosen clear of canopies), turns to face it and
-holds still. quad_waypoint_bridge publishes the ground point once the quad has
-been still for a moment; the rover collects it and reports on
-husky1/cage/done, and the search resumes. Holds time out on their own if the
-bridge never publishes or the rover never reports.
+holds still. Once it has been still for SETTLE_S it publishes the projected
+ground point on husky1/cage/waypoints (re-published every REPUBLISH_S so a
+refined estimate replaces the earlier one); the rover collects it and reports
+on husky1/cage/done, and the search resumes. Holds time out on their own if
+no waypoint could be published or the rover never reports.
+
+Dispatch gates, all learned live: still for SETTLE_S (a moving/turning frame
+read 5-8 m off, a still one 2 cm), box confidence >= MIN_CONF, never a point
+within ROVER_EXCLUDE_M of the rover (YOLO boxes the rover now and then), and
+two projections in a row that agree.
 
 Verified live: parrot1/cmd_vel is body-frame, the sim keeps the quad level in
 horizontal flight, and parrot1/odometry equals Gazebo ground truth.
@@ -53,13 +59,11 @@ WAYPOINT_TOLERANCE_M = 1.5
 
 HEARTBEAT_PERIOD_S = 5.0
 
-# Standby: a detection freezes the quad in place (level, stationary = the
-# geometry quad_waypoint_bridge's projection is good at) until the rover
-# reports on husky1/cage/done, then search resumes after a short blind spell.
+# Hold: on detection the quad closes to APPROACH_M short of the projected point
+# (where the 45 deg camera has the mushroom centred, ~= cruise altitude), faces
+# it and freezes - the projection is only exact when level and still. After the
+# rover reports on husky1/cage/done the search resumes after a short blind spell.
 RESUME_BLIND_S = 5.0
-# On detection the quad first closes to APPROACH_M short of the projected point
-# (where the 45 deg camera has the mushroom centred, ~= cruise altitude), then
-# freezes; the bridge only publishes once it has been still for a while.
 APPROACH_M = 3.0
 APPROACH_TOL_M = 0.5
 CONSISTENT_M = 1.0  # two consecutive frames must project within this of each other before holding
@@ -67,7 +71,11 @@ CONSISTENT_S = 4.0  # ...and within this long of each other (an estimate from mi
 ROVER_EXCLUDE_M = 2.0  # YOLO boxes the rover itself now and then; never hold for a hit on top of it
 MIN_CONF = 0.5         # real mushrooms score 0.85+; rover/roots/grass false positives sit at 0.3-0.45
 HOLD_TIMEOUT_S = 150.0  # rover dispatched but no cage/done in this long - give up and resume search
-HOLD_NO_WP_S = 30.0     # holding but the bridge never sent a waypoint (mushroom out of view / false positive)
+HOLD_NO_WP_S = 30.0     # holding but never able to publish a waypoint (mushroom out of view / false positive)
+SETTLE_S = 2.0          # still this long before a projection is trusted
+STATIONARY_V = 0.1      # m/s and rad/s, from odometry position deltas
+STATIONARY_W = 0.05
+REPUBLISH_S = 2.0       # while holding, re-publish the refined point this often
 
 # Lawnmower search pattern: rows spaced 6m apart, sweeping the full width on
 # each row, alternating direction - a simple, predictable full-area cover
@@ -146,20 +154,23 @@ class QuadSearchController(Node):
         self.hold_xy = (0.0, 0.0)
         self.hold_target = (0.0, 0.0)
         self.prev_ground = None  # (t, x, y) of the last confident projection
+        self.latest_ground = None  # (t, x, y) of the latest gated projection while holding
         self.ignore_detections_until = 0.0
+        self.stationary_since = None  # odometry-based: when the quad last became still
+        self.prev_odom = None  # (t, x, y, yaw) for the stationary check
+        self.last_publish = -1e9
 
         self.progress_x = self.progress_y = None
         self.progress_time = None  # monotonic seconds
         self.recovery_until = None  # monotonic seconds, or None if not recovering
 
         self.cmd_pub = self.create_publisher(Twist, 'parrot1/cmd_vel', 10)
+        self.waypoint_pub = self.create_publisher(PointStamped, 'husky1/cage/waypoints', 10)
         self.create_subscription(Odometry, 'parrot1/odometry', self._odom_cb, LIVE_QOS)
         self.create_subscription(LaserScan, 'parrot1/scan', self._scan_cb, LIVE_QOS)
         self.create_subscription(Detection2DArray, 'parrot1/detections', self._det_cb, LIVE_QOS)
         self.create_subscription(PointStamped, 'husky1/cage/done', self._done_cb, 10)
-        self.wp_seen_at = None  # time the bridge last published a waypoint during this hold
-        self.create_subscription(PointStamped, 'husky1/cage/waypoints',
-                                 lambda m: setattr(self, 'wp_seen_at', self._now_s()), 10)
+        self.wp_seen_at = None  # time a waypoint was last published during this hold
         self.rover_xy = None
         self.create_subscription(Odometry, 'husky1/odometry',
                                  lambda m: setattr(self, 'rover_xy', (m.pose.pose.position.x, m.pose.pose.position.y)), LIVE_QOS)
@@ -202,6 +213,17 @@ class QuadSearchController(Node):
         self.x, self.y, self.z = p.x, p.y, p.z
         self.yaw = yaw_of(msg.pose.pose.orientation)
         self.have_odom = True
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        if self.prev_odom is not None and t - self.prev_odom[0] > 0.05:
+            pt, px, py, pyaw = self.prev_odom
+            v = math.hypot(self.x - px, self.y - py) / (t - pt)
+            w = abs(math.remainder(self.yaw - pyaw, 2.0 * math.pi)) / (t - pt)
+            if v < STATIONARY_V and w < STATIONARY_W:
+                self.stationary_since = t if self.stationary_since is None else self.stationary_since
+            else:
+                self.stationary_since = None
+        if self.prev_odom is None or t - self.prev_odom[0] > 0.05:
+            self.prev_odom = (t, self.x, self.y, self.yaw)
 
     def _scan_cb(self, msg):
         left_min = math.inf
@@ -229,26 +251,58 @@ class QuadSearchController(Node):
                          for r, a in sectors.values()]
         self.have_scan = True
 
-    def _det_cb(self, msg):
-        if msg.detections and self.taken_off and not self.holding and self._now_s() > self.ignore_detections_until:
-            best = max(msg.detections, key=lambda d: d.results[0].hypothesis.score if d.results else 0.0)
-            if not best.results or best.results[0].hypothesis.score < MIN_CONF:
-                return
+    def _gated_projection(self, msg):
+        """Ground point of the most confident box, or None if no box passes the
+        confidence gate, projects on the ground, and is clear of the rover."""
+        for det in sorted(msg.detections, key=lambda d: -d.results[0].hypothesis.score if d.results else 0.0):
+            if not det.results or det.results[0].hypothesis.score < MIN_CONF:
+                continue
             g = project_to_ground(self.x, self.y, self.yaw, self.z,
-                                  best.bbox.center.position.x, best.bbox.center.position.y, self.ground_z)
-            if g is not None and self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < ROVER_EXCLUDE_M:
-                g = None
-            now = self._now_s()
-            prev, self.prev_ground = self.prev_ground, ((now,) + g if g else None)
-            if g is None or prev is None or now - prev[0] > CONSISTENT_S or math.hypot(g[0] - prev[1], g[1] - prev[2]) > CONSISTENT_M:
-                return
-            self.holding = True
-            self.detour = None
-            self.wp_seen_at = None
-            self.hold_since = self._now_s()
-            self.hold_target = g
-            self.hold_xy = self._hold_point(g)
-            self.get_logger().info(f'Mushroom in view near ({g[0]:.1f},{g[1]:.1f}) - closing to {APPROACH_M:.0f} m, then holding for the rover.')
+                                  det.bbox.center.position.x, det.bbox.center.position.y, self.ground_z)
+            if g is None:
+                continue
+            if self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < ROVER_EXCLUDE_M:
+                continue
+            return g
+        return None
+
+    def _det_cb(self, msg):
+        if not msg.detections or not self.taken_off:
+            return
+        now = self._now_s()
+        g = self._gated_projection(msg)
+        if self.holding:
+            if g is not None:
+                self.latest_ground = (now, g[0], g[1])
+            return
+        if now < self.ignore_detections_until:
+            return
+        prev, self.prev_ground = self.prev_ground, ((now,) + g if g else None)
+        if g is None or prev is None or now - prev[0] > CONSISTENT_S or math.hypot(g[0] - prev[1], g[1] - prev[2]) > CONSISTENT_M:
+            return
+        self.holding = True
+        self.detour = None
+        self.wp_seen_at = None
+        self.latest_ground = None
+        self.hold_since = now
+        self.hold_target = g
+        self.hold_xy = self._hold_point(g)
+        self.get_logger().info(f'Mushroom in view near ({g[0]:.1f},{g[1]:.1f}) - closing to {APPROACH_M:.0f} m, then holding for the rover.')
+
+    def _publish_waypoint_if_settled(self, now):
+        """While holding: once still for SETTLE_S, publish the latest gated
+        projection, and re-publish every REPUBLISH_S so it keeps refining."""
+        settled = self.stationary_since is not None and now - self.stationary_since > SETTLE_S
+        fresh = self.latest_ground is not None and now - self.latest_ground[0] < CONSISTENT_S
+        if not settled or not fresh or now - self.last_publish < REPUBLISH_S:
+            return
+        m = PointStamped()
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.header.frame_id = 'map'
+        m.point.x, m.point.y = self.latest_ground[1], self.latest_ground[2]
+        self.waypoint_pub.publish(m)
+        self.last_publish = self.wp_seen_at = now
+        self.get_logger().info(f'Mushroom waypoint ({m.point.x:.2f}, {m.point.y:.2f}).')
 
     def _done_cb(self, msg):
         if self.holding:
@@ -302,6 +356,8 @@ class QuadSearchController(Node):
                     angle_diff, w = steer_angular(tx - self.x, ty - self.y, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
                     if abs(angle_diff) > 0.1:
                         cmd.angular.z = w
+                    else:
+                        self._publish_waypoint_if_settled(now)
                 self.cmd_pub.publish(cmd)
                 return
 
