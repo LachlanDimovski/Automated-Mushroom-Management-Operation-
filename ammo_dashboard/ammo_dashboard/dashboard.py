@@ -27,6 +27,7 @@ import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
+from geometry_msgs.msg import PointStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
@@ -36,19 +37,15 @@ from sensor_msgs.msg import Image
 # launch file elsewhere in the repo - the mode bar just runs one of these at
 # a time instead of the user picking by hand. Labels kept short for the bar.
 MODES = [
-    ('teleop', 'TELEOP', ['ros2', 'launch', '41068_ignition_bringup',
-                           'skidsteer_test.launch.py', 'teleop:=True']),
-    ('skid_auto', 'SKID AUTO', ['ros2', 'launch', '41068_ignition_bringup',
-                                 'skidsteer_test.launch.py', 'teleop:=False']),
-    ('follow', 'FOLLOW', ['ros2', 'launch', 'ammo_mission_control', 'quad_follow.launch.py']),
-    ('mushroom', 'MUSHROOM', ['ros2', 'launch', 'ammo_mission_control',
-                               'mushroom_mission.launch.py']),
-    ('full_auto', 'FULL AUTO', ['ros2', 'launch', 'ammo_mission_control',
-                                 'autonomous.launch.py']),
+    ('mission', 'MISSION  (simple_trees)', ['ros2', 'launch', 'ammo_mission_control', 'cage_mission.launch.py',
+                                            'world:=simple_trees', 'headless:=true', 'rviz:=false', 'meta_goals:=false',
+                                            'mushrooms:=6,-5,-5,-5.5,-2,6.5']),
+    ('forest', 'MISSION  (forest_flat)', ['ros2', 'launch', 'ammo_mission_control', 'cage_mission.launch.py',
+                                          'world:=forest_flat', 'headless:=true', 'rviz:=false']),
 ]
 STOP_LABEL = 'STOP'
 MODE_BAR_Y0 = 50   # just below the header (HEAD_H)
-MODE_BAR_Y1 = 80   # just above the camera panels (CAM_TOP)
+MODE_BAR_Y1 = 100
 
 # Newest sample only - a slow render must never work through a backlog.
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -70,7 +67,7 @@ W, H = 1280, 800
 HEAD_H = 50
 MARGIN = 14
 GAP = 14
-CAM_TOP = 80
+CAM_TOP = 110
 CAM_H = 380
 CAM_W = (W - 2 * MARGIN - GAP) // 2
 BOT_TOP = CAM_TOP + CAM_H + 28
@@ -124,7 +121,7 @@ class Dashboard(Node):
         self.declare_parameter('husky_spawn', [0.0, 0.0])
         self.declare_parameter('parrot_spawn', [2.0, 0.0])
         self.declare_parameter('parrot_ground_z', 0.8)
-        self.declare_parameter('map_range_m', 12.0)
+        self.declare_parameter('map_range_m', 16.0)
         self.declare_parameter('fps', 12.0)
 
         self.husky_spawn = self.get_parameter('husky_spawn').value
@@ -146,13 +143,19 @@ class Dashboard(Node):
         self.create_subscription(Image, 'parrot1/detections/image', self._parrot_img, LIVE_QOS)
         self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, LIVE_QOS)
         self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, LIVE_QOS)
+        self.waypoints, self.done = [], []   # quad-projected targets, rover-collected points
+        self.create_subscription(PointStamped, 'husky1/cage/waypoints',
+                                 lambda m: self.waypoints.append((m.point.x, m.point.y)), 10)
+        self.create_subscription(PointStamped, 'husky1/cage/done',
+                                 lambda m: self.done.append((m.point.x, m.point.y)), 10)
 
         self.active_mode = None  # key from MODES, or None if nothing running
         self.active_proc = None
         self._buttons = self._layout_buttons()
 
         self.window = 'AMMO Field Debug'
-        cv2.namedWindow(self.window, cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(self.window, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # resizable: canvas scales with the window
+        cv2.resizeWindow(self.window, W, H)
         cv2.setMouseCallback(self.window, self._on_mouse)
         # Rendering runs in main() on the wall clock, not a ROS timer, so it
         # never blocks message intake and never slows with sim time.
@@ -173,6 +176,12 @@ class Dashboard(Node):
     def _on_mouse(self, event, x, y, flags, param):
         if event != cv2.EVENT_LBUTTONDOWN:
             return
+        try:  # window may be scaled: map the click back onto the W x H canvas
+            _, _, rw, rh = cv2.getWindowImageRect(self.window)
+            if rw > 0 and rh > 0:
+                x, y = int(x * W / rw), int(y * H / rh)
+        except cv2.error:
+            pass
         for x1, y1, x2, y2, key, _label in self._buttons:
             if x1 <= x <= x2 and y1 <= y <= y2:
                 self._select_mode(key)
@@ -224,13 +233,13 @@ class Dashboard(Node):
         self.husky_odom = msg
         self.seen['ho'] = time.monotonic()
         p = msg.pose.pose.position
-        self.husky_trail.append((self.husky_spawn[0] + p.x, self.husky_spawn[1] + p.y))
+        self.husky_trail.append((p.x, p.y))
 
     def _parrot_odom(self, msg):
         self.parrot_odom = msg
         self.seen['po'] = time.monotonic()
         p = msg.pose.pose.position
-        self.parrot_trail.append((self.parrot_spawn[0] + p.x, self.parrot_spawn[1] + p.y))
+        self.parrot_trail.append((p.x, p.y))
 
     def _fresh(self, key):
         return time.monotonic() - self.seen[key] < STALE_S
@@ -323,7 +332,7 @@ class Dashboard(Node):
         if self.parrot_odom is not None:
             p = self.parrot_odom.pose.pose.position
             vz = self.parrot_odom.twist.twist.linear.z
-            val = f'{self.parrot_ground_z + p.z:.2f}'
+            val = f'{p.z:.2f}'
             sub = f'climb rate {vz:+.2f} m/s'
         self._card(c, x, y, 'QUADCOPTER - ALTITUDE', val, 'm', sub, ok)
 
@@ -351,6 +360,10 @@ class Dashboard(Node):
         def to_px(wx, wy):
             return int(cx - wy * ppm), int(cy - wx * ppm)
 
+        for wx, wy in self.waypoints[-20:]:
+            draw_mushroom(c, *to_px(wx, wy), 6, CAP_RED)
+        for wx, wy in self.done[-20:]:
+            cv2.drawMarker(c, to_px(wx, wy), PANEL, cv2.MARKER_TILTED_CROSS, 12, 2)
         self._trail(c, self.husky_trail, to_px, CAP_RED)
         self._trail(c, self.parrot_trail, to_px, PANEL)
         self._robot(c, to_px, self.husky_odom, self.husky_spawn, self._fresh('ho'),
@@ -363,6 +376,7 @@ class Dashboard(Node):
         txt(c, 'skidsteer', (x + 32, y + s - 24), 0.4, PANEL)
         cv2.circle(c, (x + 18, y + s - 14), 5, PANEL, 1)
         txt(c, 'quadcopter', (x + 32, y + s - 10), 0.4, PANEL)
+        txt(c, f'targets {len(self.waypoints)}  collected {len(self.done)}', (x + s - 190, y + s - 10), 0.4, PANEL)
 
     def _trail(self, c, trail, to_px, color):
         pts = list(trail)
@@ -375,7 +389,7 @@ class Dashboard(Node):
         if odom is None:
             return
         p = odom.pose.pose.position
-        px, py = to_px(spawn[0] + p.x, spawn[1] + p.y)
+        px, py = to_px(p.x, p.y)
         yaw = yaw_of(odom.pose.pose.orientation)
         col = color if ok else DIM
         cv2.line(c, (px, py), (int(px - 16 * np.sin(yaw)), int(py - 16 * np.cos(yaw))), col, 2)
@@ -383,7 +397,7 @@ class Dashboard(Node):
             cv2.circle(c, (px, py), 7, col, 2)
             cv2.line(c, (px - 5, py), (px + 5, py), col, 1)
             cv2.line(c, (px, py - 5), (px, py + 5), col, 1)
-            txt(c, f'{self.parrot_ground_z + p.z:.1f}m', (px + 11, py + 4), 0.4, col)
+            txt(c, f'{p.z:.1f}m', (px + 11, py + 4), 0.4, col)
         else:
             draw_mushroom(c, px, py, 8, col)
         txt(c, label, (px - 3, py - 12), 0.4, col)

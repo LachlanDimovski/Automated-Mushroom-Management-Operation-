@@ -107,39 +107,37 @@ CAM_PITCH_RAD = 0.785398
 # bbox centre is on the cap (~0.12 m up), not the ground. Ignoring these read
 # 0.43 m short live.
 CAM_FWD_M, CAM_UP_M, TARGET_HEIGHT_M = 0.25, 0.25, 0.12
-# Camera can't see the ground at all above this many degrees off vertical
-# (boresight would be pointing at/above the horizon) - treat as unprojectable.
-MAX_DOWN_ANGLE_RAD = math.radians(89.0)
+# Beyond this a mushroom is a few pixels and a one-row bbox error near the
+# horizon swings the range by tens of metres (a single such frame sent both
+# robots off the map live).
+MAX_PROJECT_RANGE_M = 8.0
 
 
-def project_to_ground(quad_x, quad_y, quad_yaw, quad_alt, px, py):
-    """Ground-plane (world x, y) a detection's bbox centre corresponds to,
-    or None if the ray from there doesn't hit the ground (camera pointing
-    at/above the horizon). Assumes level flight (roll/pitch ~ 0) and flat
-    ground at world z=0.
+def project_to_ground(quad_x, quad_y, quad_yaw, quad_alt, px, py, ground_z=0.0):
+    """World (x, y) where the camera ray through pixel (px, py) meets the
+    mushroom-cap plane, or None if it never does. Full ray-cast through the
+    camera's pitch, not separate yaw/pitch pixel angles: with the camera
+    tilted 45 deg, a pixel's horizontal angle maps to a larger ground bearing
+    (tan(a)/cos(pitch)), which read 0.4 m lateral error at 3 m live. Assumes
+    level flight (roll/pitch ~ 0) and flat ground.
     """
-    quad_x += CAM_FWD_M * math.cos(quad_yaw)
-    quad_y += CAM_FWD_M * math.sin(quad_yaw)
-    quad_alt += CAM_UP_M - TARGET_HEIGHT_M
-    if quad_alt <= 0.0:
+    # camera pose: CAM_FWD_M ahead of and CAM_UP_M above base_link
+    cx = quad_x + CAM_FWD_M * math.cos(quad_yaw)
+    cy = quad_y + CAM_FWD_M * math.sin(quad_yaw)
+    cz = quad_alt + CAM_UP_M
+    # ray in camera frame (x forward, y left, z up), pinhole
+    rx, ry, rz = FOCAL_PX, -(px - IMG_W / 2.0), -(py - IMG_H / 2.0)
+    # pitch the camera frame down by CAM_PITCH_RAD (about +y), then yaw into world
+    cp, sp = math.cos(CAM_PITCH_RAD), math.sin(CAM_PITCH_RAD)
+    bx, by, bz = rx * cp + rz * sp, ry, -rx * sp + rz * cp
+    cy_, sy_ = math.cos(quad_yaw), math.sin(quad_yaw)
+    wx, wy, wz = bx * cy_ - by * sy_, bx * sy_ + by * cy_, bz
+    if wz >= -1e-6:
+        return None  # ray at/above the horizon
+    t = (ground_z + TARGET_HEIGHT_M - cz) / wz
+    if t <= 0.0 or math.hypot(t * wx, t * wy) > MAX_PROJECT_RANGE_M:
         return None
-
-    # Angular offset of the pixel from the image centre (boresight).
-    # Camera optical convention: +x_px = right, +y_px = down.
-    yaw_px_offset = math.atan2(px - IMG_W / 2.0, FOCAL_PX)
-    pitch_px_offset = math.atan2(py - IMG_H / 2.0, FOCAL_PX)
-
-    # More downward-tilted the further below image-centre the pixel is.
-    down_angle = CAM_PITCH_RAD + pitch_px_offset
-    if down_angle <= 0.0 or down_angle >= MAX_DOWN_ANGLE_RAD:
-        return None
-
-    # "Right of centre in-frame" is a negative body-yaw offset in a
-    # right-handed, Z-up, counterclockwise-positive yaw convention.
-    target_yaw = quad_yaw - yaw_px_offset
-    ground_dist = quad_alt / math.tan(down_angle)
-
-    return quad_x + ground_dist * math.cos(target_yaw), quad_y + ground_dist * math.sin(target_yaw)
+    return cx + t * wx, cy + t * wy
 
 
 class MushroomMissionController(Node):

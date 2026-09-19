@@ -195,6 +195,7 @@ def add_perception(
     robot_arg,
     robot_namespace,
     start_delay,
+    core='',
 ):
     """Run the shared perception stack (YOLO detector) for one robot.
 
@@ -211,6 +212,7 @@ def add_perception(
         launch_arguments={
             'robot': robot_namespace,
             'use_sim_time': use_sim_time,
+            'core': core,
         }.items(),
     )
 

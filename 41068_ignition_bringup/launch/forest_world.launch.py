@@ -138,10 +138,10 @@ def generate_launch_description():
 
     _base.add_perception(
         ld, use_sim_time=use_sim_time,
-        robot_arg='husky', robot_namespace='husky1', start_delay=8.0)
+        robot_arg='husky', robot_namespace='husky1', start_delay=8.0, core='6')
     _base.add_perception(
         ld, use_sim_time=use_sim_time,
-        robot_arg='parrot', robot_namespace='parrot1', start_delay=11.0)
+        robot_arg='parrot', robot_namespace='parrot1', start_delay=11.0, core='7')
 
     _base.add_rviz_instance(
         ld, config_path=config_path, use_sim_time=use_sim_time,

@@ -12,6 +12,8 @@ seeding waypoints from a world's meta.json:
     ros2 launch ammo_mission_control cage_mission.launch.py
     ros2 run ammo_mission_control quad_waypoint_bridge
 """
+import math
+
 import rclpy
 from geometry_msgs.msg import PointStamped
 from nav_msgs.msg import Odometry
@@ -25,17 +27,23 @@ from ammo_mission_control.mushroom_mission_node import project_to_ground
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 REPUBLISH_S = 2.0
 ROVER_EXCLUDE_M = 2.0  # the quad's YOLO boxes the rover's red cage as a mushroom - never project onto the rover
-STATIONARY_V = 0.1   # m/s
+STATIONARY_V = 0.1   # m/s, from position deltas (the bridge odometry twist reads ~0 while moving)
 STATIONARY_W = 0.05  # rad/s
+CONSISTENT_M = 1.0   # two consecutive projections must agree this closely - one false/edge frame must never dispatch
+SETTLE_S = 2.0       # this long still before a projection is trusted - the frame that triggers the hold is still a moving one
 
 
 class QuadWaypointBridge(Node):
 
     def __init__(self):
         super().__init__('quad_waypoint_bridge')
+        self.declare_parameter('ground_z', 0.0)  # terrain height under the mushrooms (meta.json spawn_clearing.ground_z)
+        self.ground_z = self.get_parameter('ground_z').value
         self.quad_x = self.quad_y = self.quad_alt = self.quad_yaw = 0.0
         self.have_quad_odom = False
-        self.stationary = False
+        self.stationary_since = None
+        self.prev_odom = None  # (t, x, y, yaw)
+        self.prev_ground = None
         self.last_publish = -1e9
 
         self.waypoint_pub = self.create_publisher(PointStamped, 'husky1/cage/waypoints', 10)
@@ -49,8 +57,18 @@ class QuadWaypointBridge(Node):
         p = msg.pose.pose.position
         self.quad_x, self.quad_y, self.quad_alt = p.x, p.y, p.z
         self.quad_yaw = yaw_of(msg.pose.pose.orientation)
-        v, w = msg.twist.twist.linear, msg.twist.twist.angular
-        self.stationary = (v.x ** 2 + v.y ** 2) ** 0.5 < STATIONARY_V and abs(w.z) < STATIONARY_W
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        if self.prev_odom is not None and t - self.prev_odom[0] > 0.05:
+            pt, px, py, pyaw = self.prev_odom
+            dt = t - pt
+            v = ((self.quad_x - px) ** 2 + (self.quad_y - py) ** 2) ** 0.5 / dt
+            w = abs(math.atan2(math.sin(self.quad_yaw - pyaw), math.cos(self.quad_yaw - pyaw))) / dt
+            if v < STATIONARY_V and w < STATIONARY_W:
+                self.stationary_since = self.stationary_since if self.stationary_since is not None else t
+            else:
+                self.stationary_since = None
+        if self.prev_odom is None or t - self.prev_odom[0] > 0.05:
+            self.prev_odom = (t, self.quad_x, self.quad_y, self.quad_yaw)
         self.have_quad_odom = True
 
     def _rover_odom(self, msg):
@@ -61,7 +79,8 @@ class QuadWaypointBridge(Node):
             return
 
         now = self.get_clock().now().nanoseconds / 1e9
-        if not self.stationary or now - self.last_publish < REPUBLISH_S:
+        settled = self.stationary_since is not None and now - self.stationary_since > SETTLE_S
+        if not settled or now - self.last_publish < REPUBLISH_S:
             return
 
         # highest confidence first (the rover's cage scores lower than a real
@@ -70,14 +89,15 @@ class QuadWaypointBridge(Node):
         for det in sorted(msg.detections, key=lambda d: -d.results[0].hypothesis.score if d.results else 0.0):
             g = project_to_ground(
                 self.quad_x, self.quad_y, self.quad_yaw, self.quad_alt,
-                det.bbox.center.position.x, det.bbox.center.position.y)
+                det.bbox.center.position.x, det.bbox.center.position.y, self.ground_z)
             if g is None:
                 continue
             if self.rover_xy and ((g[0] - self.rover_xy[0]) ** 2 + (g[1] - self.rover_xy[1]) ** 2) ** 0.5 < ROVER_EXCLUDE_M:
                 continue
             ground = g
             break
-        if ground is None:
+        prev, self.prev_ground = self.prev_ground, ground
+        if ground is None or prev is None or math.hypot(ground[0] - prev[0], ground[1] - prev[1]) > CONSISTENT_M:
             return
 
         m = PointStamped()

@@ -7,8 +7,11 @@ robots detect identically.
 """
 import os
 
-# Before torch/cv2 import: torch.set_num_threads only caps PyTorch; OpenCV and
-# BLAS spawn their own pools and were pegging 350 % CPU with num_threads=1.
+# Before torch/cv2 import. Thread caps alone did not hold (oneDNN/interop pools
+# ignored them: 3.2 s/frame on 3.5 cores, thrashing); pinning the whole process
+# to one core before any pool spawns measured 0.3 s/frame on 1.0 core.
+if os.environ.get('YOLO_CORE'):
+    os.sched_setaffinity(0, {int(os.environ['YOLO_CORE'])})
 os.environ.setdefault('OMP_NUM_THREADS', '1')
 os.environ.setdefault('MKL_NUM_THREADS', '1')
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
