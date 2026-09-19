@@ -24,7 +24,7 @@ import importlib.util
 import os
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable, SetLaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
@@ -66,6 +66,7 @@ def generate_launch_description():
         ('husky', 'True', 'Launch the Husky UGV instance in namespace /husky1'),
         ('parrot', 'False', 'Launch the Parrot drone instance in namespace /parrot1'),
         ('yolo', 'True', 'Run the shared YOLO detector for each enabled robot'),
+        ('husky_yolo', 'True', 'Also require this for the husky detector (the odometry approach does not need it)'),
         ('headless', 'False', 'Run Gazebo server-only (no GUI window)'),
         ('world', 'forest_random', 'Generated world name under worlds/ (no .sdf)'),
     ]
@@ -136,12 +137,16 @@ def generate_launch_description():
     # spamming "parrot1_map does not exist" plus adding enough load to disrupt
     # husky1's own TF timing. Give it none regardless of the shared nav2 flag.
 
+    # husky detector only when both yolo and husky_yolo are true: the gripper
+    # approach is odometry-only, so on a loaded CPU this core is better spent elsewhere
+    ld.add_action(SetLaunchConfiguration('husky_yolo_on', PythonExpression(
+        _base._is_true_expression('yolo') + [' and '] + _base._is_true_expression('husky_yolo'))))
     _base.add_perception(
         ld, use_sim_time=use_sim_time,
-        robot_arg='husky', robot_namespace='husky1', start_delay=8.0)
+        robot_arg='husky', robot_namespace='husky1', start_delay=8.0, core='6', yolo_arg='husky_yolo_on')
     _base.add_perception(
         ld, use_sim_time=use_sim_time,
-        robot_arg='parrot', robot_namespace='parrot1', start_delay=11.0)
+        robot_arg='parrot', robot_namespace='parrot1', start_delay=11.0, core='7')
 
     _base.add_rviz_instance(
         ld, config_path=config_path, use_sim_time=use_sim_time,

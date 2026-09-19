@@ -7,7 +7,12 @@
   <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/husky.gazebo.xacro"/>
   <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/wheel.urdf.xacro"/>
   <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/cage.urdf.xacro"/>
-  <xacro:arg name="cage" default="true"/>
+  <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/gripper.urdf.xacro"/>
+  <xacro:arg name="gripper" default="true"/>
+  <xacro:if value="$(arg gripper)">
+    <xacro:front_gripper prefix="${prefix}" gz_model_name="$(arg gz_model_name)"/>
+  </xacro:if>
+  <xacro:arg name="cage" default="false"/>  <!-- boom cage superseded by the front gripper; cage:=true restores it -->
   <xacro:if value="$(arg cage)">
     <xacro:cage_arm prefix="${prefix}" gz_model_name="$(arg gz_model_name)"/>
   </xacro:if>

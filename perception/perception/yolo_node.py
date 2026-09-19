@@ -7,7 +7,17 @@ robots detect identically.
 """
 import os
 
+# Before torch/cv2 import. Thread caps alone did not hold (oneDNN/interop pools
+# ignored them: 3.2 s/frame on 3.5 cores, thrashing); pinning the whole process
+# to one core before any pool spawns measured 0.3 s/frame on 1.0 core.
+if os.environ.get('YOLO_CORE'):
+    os.sched_setaffinity(0, {int(os.environ['YOLO_CORE'])})
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+
 import cv2
+cv2.setNumThreads(1)
 import numpy as np
 import rclpy
 import torch
@@ -79,6 +89,7 @@ class YoloNode(Node):
         max_rate_hz = self.get_parameter('max_rate_hz').value
         self.min_interval_s = 1.0 / max_rate_hz if max_rate_hz > 0 else 0.0
         self.last_infer_s = 0.0
+        self.last_boxes = []  # (x1, y1, x2, y2, label, score) - redrawn on frames we skip inference for
         torch.set_num_threads(self.get_parameter('num_threads').value)
 
         self.model = YOLO(model_path)
@@ -97,9 +108,25 @@ class YoloNode(Node):
             f'(classes: {sorted(self.model.names.values())}, '
             f'conf>={self.conf_threshold}) on {image_topic}')
 
+    def _draw(self, frame, x1, y1, x2, y2, label, score):
+        crop = frame[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)]
+        colour = (0, 0, 255) if classify_red(crop) else (0, 255, 0)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
+        cv2.putText(frame, f'{label} {score:.2f}', (x1, max(y1 - 8, 0)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
+
     def image_callback(self, msg: Image):
         now = self.get_clock().now().nanoseconds / 1e9
         if now - self.last_infer_s < self.min_interval_s:
+            # rate-limited: no inference, but keep the annotated feed at camera rate
+            # with the last boxes so viewers get a smooth picture
+            if self.publish_annotated and self.annotated_pub.get_subscription_count():
+                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                for x1, y1, x2, y2, label, score in self.last_boxes:
+                    self._draw(frame, x1, y1, x2, y2, label, score)
+                annotated_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+                annotated_msg.header = msg.header
+                self.annotated_pub.publish(annotated_msg)
             return
         self.last_infer_s = now
 
@@ -109,11 +136,13 @@ class YoloNode(Node):
 
         detections = Detection2DArray()
         detections.header = msg.header
+        self.last_boxes = []
 
         for box in result.boxes:
             x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
             label = result.names[int(box.cls[0])]
             score = float(box.conf[0])
+            self.last_boxes.append((x1, y1, x2, y2, label, score))
 
             det = Detection2D()
             det.header = msg.header
@@ -128,12 +157,7 @@ class YoloNode(Node):
             detections.detections.append(det)
 
             if self.publish_annotated:
-                crop = frame[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)]
-                colour = (0, 0, 255) if classify_red(crop) else (0, 255, 0)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
-                cv2.putText(
-                    frame, f'{label} {score:.2f}', (x1, max(y1 - 8, 0)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
+                self._draw(frame, x1, y1, x2, y2, label, score)
 
         self.detections_pub.publish(detections)
 

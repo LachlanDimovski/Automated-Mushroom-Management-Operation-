@@ -26,6 +26,8 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument('yolo', default_value='True'))
     ld.add_action(DeclareLaunchArgument('model_path', default_value=''))
     ld.add_action(DeclareLaunchArgument('conf_threshold', default_value='0.25'))
+    # one core per detector (see yolo_node.py); '' = unpinned
+    ld.add_action(DeclareLaunchArgument('core', default_value=''))
 
     ld.add_action(Node(
         package='perception',
@@ -40,6 +42,7 @@ def generate_launch_description():
             'conf_threshold': ParameterValue(conf_threshold, value_type=float),
         }],
         condition=IfCondition(yolo),
+        additional_env={'YOLO_CORE': LaunchConfiguration('core')},
     ))
 
     return ld
