@@ -1,213 +1,295 @@
-"""ROS2 <-> Qt bridge for the operator GUI.
+"""The ROS side of both windows, wrapped so Qt can use it safely.
 
-Same "intake on its own thread, GUI owns the main thread" split
-ammo_dashboard uses (see its main(), which spins rclpy on a daemon thread
-so a slow render call can never back up subscriptions) - except here the
-handoff to the GUI thread is explicit, via Qt signals, rather than shared
-mutable attributes read straight off the node. A Qt signal emitted from a
-non-GUI thread is queued onto the receiving QObject's own thread
-automatically (Qt.AutoConnection, the default) as long as that QObject was
-created on the GUI thread - which RosBridge is, since main.py constructs it
-before starting the spin thread. That's what makes it safe for _BridgeNode's
-callbacks (running on the spin thread) to just call bridge.<signal>.emit(...)
-directly instead of needing a lock/queue of our own.
+rclpy spins on a background daemon thread and Qt keeps the main thread -
+the same split `ammo_dashboard` uses, and the only arrangement that stops a
+slow repaint from backing up the subscriptions. The handoff is Qt signals:
+because this QObject is constructed on the GUI thread, emitting from the
+ROS thread queues the call onto the GUI thread automatically, so no slot in
+either window ever touches a ROS callback's thread.
 
-Topics this subscribes to, and why:
-  - <map_topic> (nav_msgs/OccupancyGrid, default husky1/map): the ground
-    SLAM grid - see map_view.py and the map-source discussion in the repo
-    docs for why husky1 rather than parrot1.
-  - husky1/odometry, parrot1/odometry (nav_msgs/Odometry): same raw
-    world-absolute Gazebo bridge topics ammo_dashboard and
-    mushroom_mission_node already read poses from directly (no EKF, no TF
-    lookup) - husky_spawn/parrot_spawn below are the same spawn-offset
-    convention those use.
-  - <mushroom_found_topic> (geometry_msgs/PointStamped, default
-    mushroom_found): NEW topic, not published by anything yet as of this
-    commit - see mushroom_mission_node.py's diff, which adds one publish
-    call each time it dispatches the husky to a newly-confirmed mushroom.
-    That change needs Lachlan's sign-off before it's pushed; until then
-    this subscription just never receives anything, which is harmless -
-    mushroom count/markers stay at zero rather than erroring.
-
-Publishes to:
-  - <teleop_topic> (geometry_msgs/Twist, default /parrot1/cmd_vel): manual
-    keyboard teleop, from teleop_widget.py. This is the exact topic
-    ps4_drone_test.py also publishes to directly, with no arbitration node
-    between them the way the husky has cbf_guard_node - so this and
-    ps4_drone_test.py are an either/or, never both running at once (see
-    teleop_widget.py's docstring).
-
-Mission-progress estimate: on every map message, the fraction of cells
-that are no longer "unknown" (-1) is used as a stand-in for "how much of
-the working area has been explored", scaled against the working-area
-figure entered on the home page. It's a coarse proxy - it counts explored
-map area, not confirmed area within whatever the field boundary actually
-is (there's no real geofencing yet) - but it's real SLAM data, not a
-placeholder, and needs no changes to anyone else's node.
+`role` decides how much of this is wired up. The Debug UI takes 'debug' and
+gets subscriptions only, so opening or closing it can never disturb a
+running mission.
 """
+import json
 import math
 import threading
 
 import rclpy
 from geometry_msgs.msg import PointStamped, Twist
-from nav_msgs.msg import OccupancyGrid, Odometry
-from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from nav_msgs.msg import Odometry
 from PySide6.QtCore import QObject, Signal
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+from sensor_msgs.msg import Image
+from std_msgs.msg import Bool, String
 
-# Newest sample only - a slow repaint must never work through a backlog of
-# stale odometry/detections. Same LIVE_QOS shape used throughout this repo
-# (mushroom_mission_node, ammo_dashboard).
+from ammo_gui_node import contract as C
+from ammo_gui_node.image_utils import qimage_from_ros
+
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+EVENT_QOS = QoSProfile(depth=1000,
+                       history=HistoryPolicy.KEEP_LAST,
+                       reliability=ReliabilityPolicy.RELIABLE,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
-# nav_msgs/OccupancyGrid map publishers (slam_toolbox, nav2 map_server)
-# conventionally publish with this QoS - reliable + transient-local, so a
-# late-joining subscriber still gets the latest map instead of waiting for
-# the next update. Best-effort depth-1 (like LIVE_QOS) would very likely
-# never match slam_toolbox's publisher at all. If this project's
-# slam_toolbox launch overrides that QoS, this is the one line to change.
-MAP_QOS = QoSProfile(
-    depth=1,
-    reliability=ReliabilityPolicy.RELIABLE,
-    durability=DurabilityPolicy.TRANSIENT_LOCAL,
-)
-
-# A dispatched-mushroom event closer than this to an already-counted one is
-# treated as a re-trigger on the same mushroom (auto_trigger can re-fire on
-# a later fly-over, or a later R1+Triangle can override a goal mid-drive -
-# see mushroom_mission_node.py) rather than a new find. Sized a bit smaller
-# than mushroom_mission_node's own APPROACH_RADIUS_M (4.0) since that's the
-# radius it drives *to*, not the spacing between distinct mushrooms.
-DEDUP_RADIUS_M = 2.5
+HOLD_HZ = 20.0   # rate we publish zero velocity at while paused
 
 
-def _yaw_of(q):
+def yaw_of(q):
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
-class _BridgeNode(Node):
-    """The actual rclpy node. Kept separate from RosBridge (a QObject) since
-    QObject and rclpy.Node both come with their own base-class machinery -
-    simplest to keep them as two objects joined by plain callbacks rather
-    than fight a multiple-inheritance MRO.
-    """
+class _LinkNode(Node):
+    """The actual ROS node. Everything here runs on the spin thread."""
 
-    def __init__(self, bridge: 'RosBridge'):
-        super().__init__('ammo_gui_node')
+    def __init__(self, link, role):
+        super().__init__(f'ammo_{role}_link')
+        self.link = link
+        self.role = role
 
-        self.declare_parameter('map_topic', 'husky1/map')
-        self.declare_parameter('mushroom_found_topic', 'mushroom_found')
-        self.declare_parameter('teleop_topic', '/parrot1/cmd_vel')
-        self.declare_parameter('husky_spawn', [0.0, 0.0])
-        self.declare_parameter('parrot_spawn', [2.0, 0.0])
-        self.declare_parameter('parrot_ground_z', 0.8)
+        self.create_subscription(String, C.STATUS_TOPIC, self._on_status, LIVE_QOS)
+        self.create_subscription(String, C.EVENTS_TOPIC, self._on_event, EVENT_QOS)
+        self.create_subscription(Bool, C.PAUSE_TOPIC, self._on_pause, 10)
+        self.create_subscription(Odometry, C.HUSKY_ODOM, self._on_rover_odom, LIVE_QOS)
+        self.create_subscription(Odometry, C.PARROT_ODOM, self._on_quad_odom, LIVE_QOS)
 
-        self.husky_spawn = self.get_parameter('husky_spawn').value
-        self.parrot_spawn = self.get_parameter('parrot_spawn').value
-        self.parrot_ground_z = self.get_parameter('parrot_ground_z').value
+        # Raw feeds drive the live panels; the annotated ones are only
+        # subscribed so a frame is available the moment a sighting lands.
+        # yolo_node publishes its annotated image lazily - only while
+        # something is subscribed - so these subscriptions are what turn it on.
+        self.create_subscription(Image, C.HUSKY_CAM,
+                                 lambda m: self._image(m, self.link.rover_frame), LIVE_QOS)
+        self.create_subscription(Image, C.PARROT_CAM,
+                                 lambda m: self._image(m, self.link.quad_frame), LIVE_QOS)
+        self.create_subscription(Image, C.HUSKY_CAM_YOLO,
+                                 lambda m: self._image(m, self.link.rover_yolo_frame), LIVE_QOS)
+        self.create_subscription(Image, C.PARROT_CAM_YOLO,
+                                 lambda m: self._image(m, self.link.quad_yolo_frame), LIVE_QOS)
 
-        map_topic = self.get_parameter('map_topic').value
-        mushroom_topic = self.get_parameter('mushroom_found_topic').value
-        teleop_topic = self.get_parameter('teleop_topic').value
+        self.pause_pub = self.command_pub = self.waypoint_pub = None
+        self.hold_timer = None
+        self.cmd_pubs = []
+        self.nav_client = None
+        self.cancel_client = None
+        self._nav_handle = None
+        self._holding = False
 
-        self._bridge = bridge
+        if role == 'gui':
+            self.pause_pub = self.create_publisher(Bool, C.PAUSE_TOPIC, 10)
+            self.command_pub = self.create_publisher(String, C.COMMAND_TOPIC, 10)
+            self.waypoint_pub = self.create_publisher(PointStamped, C.CAGE_WAYPOINTS, 10)
+            self.cmd_pubs = [self.create_publisher(Twist, t, 10)
+                             for t in (C.HUSKY_CMD, C.HUSKY_CMD_RAW, C.PARROT_CMD)]
+            self.hold_timer = self.create_timer(1.0 / HOLD_HZ, self._hold_tick)
+            self._setup_nav()
 
-        self.create_subscription(OccupancyGrid, map_topic, self._on_map, MAP_QOS)
-        self.create_subscription(
-            Odometry, 'husky1/odometry', self._on_husky_odom, LIVE_QOS)
-        self.create_subscription(
-            Odometry, 'parrot1/odometry', self._on_parrot_odom, LIVE_QOS)
-        self.create_subscription(
-            PointStamped, mushroom_topic, self._on_mushroom_found, 10)
+    # -- Nav2, used for operator goals and for stopping on pause ------------
+    def _setup_nav(self):
+        try:
+            from action_msgs.srv import CancelGoal
+            from nav2_msgs.action import NavigateToPose
+            from rclpy.action import ActionClient
+            self.nav_client = ActionClient(self, NavigateToPose, 'husky1/navigate_to_pose')
+            self.cancel_client = self.create_client(CancelGoal, C.NAV_CANCEL_SERVICE)
+        except ImportError:
+            self.get_logger().warn(
+                'nav2_msgs/action_msgs not found - operator goals and pause-stop '
+                'will not be able to talk to Nav2')
 
-        self.teleop_pub = self.create_publisher(Twist, teleop_topic, 10)
+    def cancel_all_nav(self):
+        """Stop whatever Nav2 is driving, whoever asked for it.
 
-        self._mushroom_points = []  # de-duplicated [(world_x, world_y), ...]
+        A zero goal_id and a zero stamp in a CancelGoal request means "every
+        goal you have", which is the only way to cancel a goal that another
+        node started - and cage_capture_node's goals are exactly that.
+        """
+        if self.cancel_client is None or not self.cancel_client.service_is_ready():
+            return False
+        try:
+            from action_msgs.srv import CancelGoal
+            self.cancel_client.call_async(CancelGoal.Request())
+            return True
+        except Exception:
+            return False
 
-        self.get_logger().info(
-            f'ammo_gui_node bridge up - map:{map_topic}  '
-            f'mushroom:{mushroom_topic}  teleop:{teleop_topic}')
+    def send_nav_goal(self, x, y):
+        if self.nav_client is None or not self.nav_client.wait_for_server(timeout_sec=2.0):
+            return False
+        try:
+            from geometry_msgs.msg import PoseStamped
+            from nav2_msgs.action import NavigateToPose
+            goal = NavigateToPose.Goal()
+            pose = PoseStamped()
+            pose.header.frame_id = 'map'
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.pose.position.x = float(x)
+            pose.pose.position.y = float(y)
+            pose.pose.orientation.w = 1.0
+            goal.pose = pose
+            future = self.nav_client.send_goal_async(goal)
+            future.add_done_callback(self._nav_accepted)
+            return True
+        except Exception as exc:
+            self.get_logger().warn(f'could not send the operator goal: {exc}')
+            return False
 
-    def _on_map(self, msg: OccupancyGrid):
-        cells = msg.data
-        total = len(cells)
-        if total == 0:
+    def _nav_accepted(self, future):
+        try:
+            handle = future.result()
+        except Exception:
             return
-        known = sum(1 for c in cells if c != -1)
-        cell_area_m2 = msg.info.resolution * msg.info.resolution
-        known_ha = (known * cell_area_m2) / 10000.0
-        fraction = (known / total) if self._bridge.target_area_ha <= 0 else min(
-            1.0, known_ha / self._bridge.target_area_ha)
+        if handle is None or not handle.accepted:
+            self.link.nav_goal_finished.emit(False)
+            return
+        self._nav_handle = handle
+        handle.get_result_async().add_done_callback(self._nav_result)
 
-        self._bridge.map_received.emit(msg)
-        self._bridge.progress_updated.emit(known_ha, self._bridge.target_area_ha, fraction)
+    def _nav_result(self, future):
+        ok = False
+        try:
+            result = future.result()
+            ok = getattr(result, 'status', 0) == 4  # STATUS_SUCCEEDED
+        except Exception:
+            ok = False
+        self._nav_handle = None
+        self.link.nav_goal_finished.emit(ok)
 
-    def _on_husky_odom(self, msg: Odometry):
+    # -- the zero-velocity hold used while paused ---------------------------
+    def set_holding(self, holding):
+        self._holding = bool(holding)
+
+    def _hold_tick(self):
+        """While paused, we are the only thing publishing velocity.
+
+        Both robots use Gazebo's VelocityControl plugin, which holds the
+        last command it was given forever - there is no watchdog that zeroes
+        it. So stopping the mission nodes is not enough on its own: somebody
+        has to actively send zero, or the robots keep going at whatever they
+        were last told. That is this timer.
+        """
+        if not self._holding:
+            return
+        stop = Twist()
+        for pub in self.cmd_pubs:
+            pub.publish(stop)
+
+    # -- inbound ------------------------------------------------------------
+    def _on_status(self, msg):
+        try:
+            self.link.status_updated.emit(json.loads(msg.data))
+        except (ValueError, TypeError):
+            pass
+
+    def _on_event(self, msg):
+        try:
+            self.link.event_received.emit(json.loads(msg.data))
+        except (ValueError, TypeError):
+            pass
+
+    def _on_pause(self, msg):
+        self.link.pause_changed.emit(bool(msg.data))
+
+    def _on_rover_odom(self, msg):
         p = msg.pose.pose.position
-        x = self.husky_spawn[0] + p.x
-        y = self.husky_spawn[1] + p.y
-        yaw = _yaw_of(msg.pose.pose.orientation)
-        self._bridge.husky_pose.emit(x, y, yaw)
+        self.link.rover_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation))
 
-    def _on_parrot_odom(self, msg: Odometry):
+    def _on_quad_odom(self, msg):
         p = msg.pose.pose.position
-        x = self.parrot_spawn[0] + p.x
-        y = self.parrot_spawn[1] + p.y
-        yaw = _yaw_of(msg.pose.pose.orientation)
-        alt = self.parrot_ground_z + p.z
-        self._bridge.parrot_pose.emit(x, y, yaw, alt)
+        self.link.quad_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
 
-    def _on_mushroom_found(self, msg: PointStamped):
-        x, y = msg.point.x, msg.point.y
-        for ex, ey in self._mushroom_points:
-            if math.hypot(x - ex, y - ey) < DEDUP_RADIUS_M:
-                return  # same mushroom as one already counted - ignore
-        self._mushroom_points.append((x, y))
-        self._bridge.mushroom_found.emit(x, y, len(self._mushroom_points))
+    def _image(self, msg, signal):
+        img = qimage_from_ros(msg)
+        if img is not None:
+            signal.emit(img)
+
+    # -- outbound -----------------------------------------------------------
+    def publish_pause(self, paused):
+        if self.pause_pub:
+            self.pause_pub.publish(Bool(data=bool(paused)))
+
+    def publish_command(self, payload):
+        if self.command_pub:
+            self.command_pub.publish(String(data=json.dumps(payload)))
+
+    def publish_waypoint(self, x, y):
+        if not self.waypoint_pub:
+            return
+        pt = PointStamped()
+        pt.header.frame_id = 'map'
+        pt.header.stamp = self.get_clock().now().to_msg()
+        pt.point.x = float(x)
+        pt.point.y = float(y)
+        self.waypoint_pub.publish(pt)
+
+    def publish_drive(self, vx, wz):
+        """Manual driving. Goes through cmd_vel_raw so collision_guard still
+        gets to veto it - the operator should not be able to drive the rover
+        into a trunk just because they are holding W."""
+        if not self.cmd_pubs or self._holding:
+            return
+        t = Twist()
+        t.linear.x = float(vx)
+        t.angular.z = float(wz)
+        self.cmd_pubs[1].publish(t)   # husky1/cmd_vel_raw
 
 
-class RosBridge(QObject):
-    """Owns the rclpy node + its spin thread, and re-emits everything it
-    receives as Qt signals so the rest of the GUI never touches rclpy
-    directly. Construct on the GUI thread, call start() once, shutdown()
-    once at exit.
-    """
+class RosLink(QObject):
+    """Qt-facing handle. Construct on the GUI thread, then call start()."""
 
-    map_received = Signal(object)  # nav_msgs/OccupancyGrid
-    husky_pose = Signal(float, float, float)  # world x, y, yaw (rad)
-    parrot_pose = Signal(float, float, float, float)  # world x, y, yaw, altitude
-    mushroom_found = Signal(float, float, int)  # world x, y, running total
-    progress_updated = Signal(float, float, float)  # known_ha, target_ha, fraction
+    status_updated = Signal(dict)
+    event_received = Signal(dict)
+    pause_changed = Signal(bool)
+    rover_pose = Signal(float, float, float)
+    quad_pose = Signal(float, float, float, float)
+    rover_frame = Signal(object)
+    quad_frame = Signal(object)
+    rover_yolo_frame = Signal(object)
+    quad_yolo_frame = Signal(object)
+    nav_goal_finished = Signal(bool)
 
-    def __init__(self):
+    def __init__(self, role='gui'):
         super().__init__()
-        self._node = None
-        self._spin_thread = None
-        self.target_area_ha = 0.0
+        self.role = role
+        self._node = _LinkNode(self, role)
+        self._executor = None
+        self._thread = None
 
     def start(self):
-        if self._node is not None:
-            return
-        self._node = _BridgeNode(self)
-        self._spin_thread = threading.Thread(
-            target=rclpy.spin, args=(self._node,), daemon=True)
-        self._spin_thread.start()
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
 
-    def set_target_area_ha(self, area_ha: float):
-        self.target_area_ha = max(0.0, area_ha)
-
-    def publish_teleop(self, twist: Twist):
-        if self._node is not None:
-            self._node.teleop_pub.publish(twist)
+    def _spin(self):
+        try:
+            rclpy.spin(self._node)
+        except Exception:
+            pass
 
     def shutdown(self):
-        # Same ordering ammo_dashboard's main() uses: signal shutdown first
-        # so rclpy.spin() returns on its own, then join the thread, then
-        # tear down the node - destroying the node while spin() is still
-        # using it is the thing to avoid.
-        if rclpy.ok():
-            rclpy.shutdown()
-        if self._spin_thread is not None:
-            self._spin_thread.join(timeout=1.0)
-        if self._node is not None:
+        try:
+            self._node.set_holding(False)
             self._node.destroy_node()
+        except Exception:
+            pass
+
+    # thin pass-throughs so windows never reach into the node directly
+    def set_holding(self, holding):
+        self._node.set_holding(holding)
+
+    def publish_pause(self, paused):
+        self._node.publish_pause(paused)
+
+    def publish_command(self, payload):
+        self._node.publish_command(payload)
+
+    def publish_waypoint(self, x, y):
+        self._node.publish_waypoint(x, y)
+
+    def publish_drive(self, vx, wz):
+        self._node.publish_drive(vx, wz)
+
+    def cancel_all_nav(self):
+        return self._node.cancel_all_nav()
+
+    def send_nav_goal(self, x, y):
+        return self._node.send_nav_goal(x, y)

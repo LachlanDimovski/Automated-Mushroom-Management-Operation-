@@ -1,195 +1,251 @@
-"""Main operator screen: mission status bar (mode, elapsed time, mushroom
-count, area-explored progress, pause/resume, end mission), the occupancy
-grid map, and - in manual mode only - the keyboard teleop panel.
+"""The operator view: what is happening, and the three things you can do.
 
-Pause/resume, as scoped for this pass: a display freeze only. Pausing does
-not publish anything to the robots or touch mission_launcher's subprocess -
-the underlying nodes and sim keep running exactly as they were, and
-RosBridge keeps receiving every message the whole time. All pause does is
-stop this page's own elapsed-time timer and make every RosBridge-driven
-update slot below return immediately instead of touching a widget, so
-everything on screen holds at whatever it last showed. Resume just lets the
-next incoming message through, which immediately shows the current real
-state - there's no queue to replay, so nothing "catches up", it just picks
-back up live. An actual pause - one that stops the robots and freezes
-mission-node state - needs real coordination with the mission-control
-side (a paused/resumed concept inside mushroom_mission_node.py etc.),
-which is real cross-team work, not something to fake here; this is
-explicitly the "look right for now, wire up for real later" version.
+Counts, clock and robot states all come from one `ammo/mission/status`
+message, so nothing on this page can disagree with anything else - or with
+the Debug UI, which reads the same message.
+
+The three controls are Pause/Resume, End Mission, and clicking the map to
+send the rover somewhere. Manual mode adds the keyboard panel.
 """
-from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
+from ammo_gui_node import cards, contract as C, theme
 from ammo_gui_node.map_view import MapView
+from ammo_gui_node.mushroom_log import MushroomLog
 from ammo_gui_node.teleop_widget import TeleopWidget
-
-
-def _stat_card(label_text):
-    frame = QFrame()
-    frame.setObjectName('card')
-    layout = QVBoxLayout(frame)
-    layout.setContentsMargins(16, 12, 16, 12)
-    label = QLabel(label_text)
-    label.setObjectName('sectionLabel')
-    value = QLabel('--')
-    value.setObjectName('statValue')
-    layout.addWidget(label)
-    layout.addWidget(value)
-    return frame, value
+from ammo_gui_node.timeline import format_clock
 
 
 class OperatorPage(QWidget):
 
     end_mission = Signal()
+    pause_toggled = Signal(bool)
+    goal_clicked = Signal(float, float)
 
-    def __init__(self, bridge, parent=None):
-        super().__init__(parent)
-        self._bridge = bridge
+    def __init__(self, link):
+        super().__init__()
+        self.link = link
         self.paused = False
         self.mode = 'autonomous'
-        self._elapsed_s = 0
-        self._mushroom_count = 0
+        self.latest_quad_yolo = None
+        self.latest_rover_frame = None
+        self._build()
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 20)
-        root.setSpacing(16)
+    # -- layout -------------------------------------------------------------
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        root.addLayout(self._build_status_bar())
+        head, head_lay = cards.header('AMMO OPERATOR')
+        self.clock = cards.label('00:00', 'Clock')
+        clock_box = QWidget()
+        clock_lay = QHBoxLayout(clock_box)
+        clock_lay.setContentsMargins(16, 5, 16, 5)
+        clock_lay.setSpacing(10)
+        clock_box.setStyleSheet(f'background: {theme.BG}; border-radius: 5px;')
+        elapsed = cards.label('ELAPSED', 'SectionLabel')
+        elapsed.setAlignment(Qt.AlignBottom)
+        clock_lay.addWidget(elapsed)
+        clock_lay.addWidget(self.clock)
+        head_lay.addWidget(clock_box)
+        outer.addWidget(head)
+
+        bar = cards.panel()
+        bar.setObjectName('SubBar')
+        bar.setFixedHeight(72)
+        bar_lay = QHBoxLayout(bar)
+        bar_lay.setContentsMargins(34, 0, 34, 0)
+        bar_lay.setSpacing(9)
+        self.mode_chip = cards.Chip('AUTONOMOUS', theme.GREEN)
+        self.world_chip = cards.Chip('-')
+        self.layout_chip = cards.Chip('-')
+        for chip in (self.mode_chip, self.world_chip, self.layout_chip):
+            bar_lay.addWidget(chip)
+        bar_lay.addStretch(1)
+
+        self.pause_button = QPushButton('PAUSE')
+        self.pause_button.setObjectName('Pause')
+        self.pause_button.clicked.connect(self._toggle_pause)
+        bar_lay.addWidget(self.pause_button)
+
+        stop = QPushButton('END MISSION')
+        stop.clicked.connect(self.end_mission.emit)
+        bar_lay.addWidget(stop)
+        outer.addWidget(bar)
 
         body = QHBoxLayout()
-        body.setSpacing(16)
-        self.map_view = MapView()
-        body.addWidget(self.map_view, 3)
+        body.setContentsMargins(26, 22, 26, 24)
+        body.setSpacing(18)
+        outer.addLayout(body, 1)
 
-        self.teleop_widget = TeleopWidget(bridge)
-        self.teleop_widget.setFixedWidth(240)
-        body.addWidget(self.teleop_widget, 0)
-        root.addLayout(body, 1)
+        body.addWidget(self._side_column(), 0)
+        body.addWidget(self._map_panel(), 1)
+        body.addWidget(self._log_panel(), 0)
 
-        self._timer = QTimer(self)
-        self._timer.setInterval(1000)
-        self._timer.timeout.connect(self._on_second_tick)
+    def _side_column(self):
+        col = QWidget()
+        col.setFixedWidth(268)
+        lay = QVBoxLayout(col)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
 
-        self._connect_bridge()
+        self.found_card = cards.StatCard('MUSHROOMS FOUND', theme.AMBER,
+                                         sub='sighted by the quadcopter')
+        self.collected_card = cards.StatCard('COLLECTED', theme.GREEN)
+        self.rover_card = cards.StateCard('SKIDSTEER', theme.ACCENT)
+        self.quad_card = cards.StateCard('QUADCOPTER', theme.TEXT)
+        for w in (self.found_card, self.collected_card, self.rover_card, self.quad_card):
+            lay.addWidget(w)
 
-    # -- layout -----------------------------------------------------------
-    def _build_status_bar(self):
-        bar = QHBoxLayout()
-        bar.setSpacing(12)
+        self.teleop = TeleopWidget(self.link)
+        self.teleop_box = cards.panel()
+        tlay = QVBoxLayout(self.teleop_box)
+        tlay.setContentsMargins(0, 0, 0, 0)
+        tlay.addWidget(self.teleop)
+        self.teleop_box.hide()
+        lay.addWidget(self.teleop_box)
 
-        self.mode_label = QLabel('MODE: --')
-        self.mode_label.setObjectName('sectionLabel')
-        bar.addWidget(self.mode_label)
+        lay.addStretch(1)
 
-        time_card, self.time_value = _stat_card('ELAPSED')
-        bar.addWidget(time_card)
+        self.goal_box = cards.panel()
+        self.goal_box.setStyleSheet(
+            f'QFrame#Panel {{ background: {theme.PANEL};'
+            f'border: 1px solid {theme.LINE}; border-left: 3px solid {theme.VIOLET};'
+            f'border-radius: 9px; }}')
+        glay = QVBoxLayout(self.goal_box)
+        glay.setContentsMargins(14, 11, 14, 11)
+        glay.setSpacing(6)
+        title = cards.label('OPERATOR GOAL ACTIVE', 'SectionLabel')
+        title.setStyleSheet(f'color: {theme.VIOLET}; font-size: 11px; font-weight: 600;')
+        glay.addWidget(title)
+        self.goal_label = cards.label('-', 'Mono')
+        glay.addWidget(self.goal_label)
+        clear = QPushButton('Clear goal')
+        clear.setObjectName('Ghost')
+        clear.clicked.connect(lambda: self.goal_clicked.emit(float('nan'), float('nan')))
+        glay.addWidget(clear)
+        self.goal_box.hide()
+        lay.addWidget(self.goal_box)
+        return col
 
-        mushroom_card, self.mushroom_value = _stat_card('MUSHROOMS FOUND')
-        bar.addWidget(mushroom_card)
+    def _map_panel(self):
+        panel = cards.panel()
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
 
-        progress_frame = QFrame()
-        progress_frame.setObjectName('card')
-        progress_layout = QVBoxLayout(progress_frame)
-        progress_layout.setContentsMargins(16, 12, 16, 12)
-        progress_label = QLabel('AREA EXPLORED')
-        progress_label.setObjectName('sectionLabel')
-        progress_layout.addWidget(progress_label)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        progress_layout.addWidget(self.progress_bar)
-        self.progress_detail = QLabel('-- / -- ha')
-        self.progress_detail.setStyleSheet('color: #9a8f83; font-size: 11px;')
-        progress_layout.addWidget(self.progress_detail)
-        bar.addWidget(progress_frame, 1)
+        head = QHBoxLayout()
+        head.setContentsMargins(15, 10, 15, 10)
+        head.addWidget(cards.section('WORLD MAP'))
+        head.addStretch(1)
+        head.addWidget(cards.label(
+            'Click to send the skidsteer there  ·  a new click replaces the last goal', 'Faint'))
+        lay.addLayout(head)
+        lay.addWidget(cards.hline())
 
-        self.pause_button = QPushButton('Pause')
-        self.pause_button.setObjectName('secondary')
-        self.pause_button.clicked.connect(self._on_pause_clicked)
-        bar.addWidget(self.pause_button)
+        self.map = MapView(interactive=True)
+        self.map.clicked.connect(self.goal_clicked.emit)
+        lay.addWidget(self.map, 1)
+        return panel
 
-        self.end_button = QPushButton('End Mission')
-        self.end_button.setObjectName('secondary')
-        self.end_button.clicked.connect(self.end_mission.emit)
-        bar.addWidget(self.end_button)
-
-        return bar
-
-    # -- bridge wiring, done once (not per mission) ------------------------
-    def _connect_bridge(self):
-        self._bridge.map_received.connect(self._on_map)
-        self._bridge.husky_pose.connect(self._on_husky_pose)
-        self._bridge.parrot_pose.connect(self._on_parrot_pose)
-        self._bridge.mushroom_found.connect(self._on_mushroom_found)
-        self._bridge.progress_updated.connect(self._on_progress)
+    def _log_panel(self):
+        panel = cards.panel()
+        panel.setFixedWidth(374)
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.log = MushroomLog()
+        lay.addWidget(self.log)
+        return panel
 
     # -- mission lifecycle --------------------------------------------------
-    def start_mission(self, mode, area_ha):
-        self.mode = mode
+    def start_mission(self, config):
+        self.mode = config.get('mode', 'autonomous')
         self.paused = False
-        self._elapsed_s = 0
-        self._mushroom_count = 0
-
-        self.mode_label.setText(f'MODE: {mode.upper()}')
-        self.time_value.setText('00:00')
-        self.mushroom_value.setText('0')
-        self.progress_bar.setValue(0)
-        self.progress_detail.setText(f'0.0 / {area_ha:.1f} ha')
-        self.pause_button.setText('Pause')
-        self.map_view.clear_mission()
-
-        self.teleop_widget.setVisible(mode == 'manual')
-
-        self._timer.start()
+        self._style_pause()
+        self.mode_chip.setText('MANUAL DRIVE' if self.mode == 'manual' else 'AUTONOMOUS')
+        self.mode_chip.set_colour(theme.AMBER if self.mode == 'manual' else theme.GREEN,
+                                  theme.TEXT)
+        self.world_chip.setText(config.get('world', '-'))
+        total = len(config.get('points', []))
+        self.layout_chip.setText(f"{config.get('layout', '-')} · {total} mushroom(s)")
+        self.teleop_box.setVisible(self.mode == 'manual')
+        self.map.clear()
+        self.map.set_trunks(config.get('trunks', []))
+        self.log.clear()
+        self.found_card.set(0)
+        self.collected_card.set(0, f'/ {total}' if total else '')
+        self.clock.setText('00:00')
 
     def stop_mission(self):
-        self._timer.stop()
-        self.teleop_widget.armed_check.setChecked(False)
+        self.paused = False
+        self.teleop.armed.setChecked(False)
+        self._style_pause()
 
-    # -- pause/resume -------------------------------------------------------
-    def _on_pause_clicked(self):
+    def _toggle_pause(self):
         self.paused = not self.paused
-        self.pause_button.setText('Resume' if self.paused else 'Pause')
-        if self.paused:
-            self._timer.stop()
-        else:
-            self._timer.start()
+        self._style_pause()
+        self.pause_toggled.emit(self.paused)
 
-    def _on_second_tick(self):
-        if self.paused:
-            return
-        self._elapsed_s += 1
-        m, s = divmod(self._elapsed_s, 60)
-        self.time_value.setText(f'{m:02d}:{s:02d}')
+    def _style_pause(self):
+        self.pause_button.setText('RESUME' if self.paused else 'PAUSE')
+        self.pause_button.setObjectName('Resume' if self.paused else 'Pause')
+        self.pause_button.style().unpolish(self.pause_button)
+        self.pause_button.style().polish(self.pause_button)
+        self.map.set_frozen(self.paused)
+        self.teleop.set_blocked(self.paused)
 
-    # -- live data slots (each a no-op while paused, see module docstring) --
-    def _on_map(self, msg):
-        if self.paused:
-            return
-        self.map_view.set_map(msg)
+    # -- live data ----------------------------------------------------------
+    def apply_status(self, status):
+        self.clock.setText(format_clock(status.get('elapsed', 0)))
+        total = status.get('total') or 0
+        self.found_card.set(status.get('found', 0))
+        self.collected_card.set(status.get('collected', 0), f'/ {total}' if total else '')
 
-    def _on_husky_pose(self, x, y, yaw):
-        if self.paused:
-            return
-        self.map_view.set_husky_pose(x, y, yaw)
+        rover = status.get('rover', {})
+        quad = status.get('quad', {})
+        self.rover_card.set(rover.get('state', '--'), rover.get('detail', ''))
+        self.quad_card.set(quad.get('state', '--'),
+                           f"alt {quad.get('alt', 0):.1f} m" if quad.get('fresh') else 'no telemetry')
 
-    def _on_parrot_pose(self, x, y, yaw, alt):
-        if self.paused:
-            return
-        self.map_view.set_parrot_pose(x, y, yaw, alt)
+        self.map.set_mushrooms(status.get('mushrooms', []))
+        goal = status.get('operator_goal')
+        self.map.set_goal(goal)
+        self.goal_box.setVisible(bool(goal))
+        if goal:
+            self.goal_label.setText(f'{goal[0]:.1f}, {goal[1]:.1f}')
+        self.teleop.set_blocked(self.paused or bool(goal))
 
-    def _on_mushroom_found(self, x, y, total_count):
-        if self.paused:
-            return
-        self._mushroom_count = total_count
-        self.mushroom_value.setText(str(total_count))
-        self.map_view.add_mushroom(x, y)
+    def apply_event(self, ev):
+        kind = ev.get('kind')
+        n = ev.get('n')
+        if kind == C.EV_FOUND and n is not None:
+            stamp = format_clock(ev.get('t', 0))
+            self.log.add(n, ev.get('x', 0.0), ev.get('y', 0.0), ev.get('conf'),
+                         stamp, quad_image=self.latest_quad_yolo)
+        elif kind == C.EV_COLLECTED and n is not None:
+            self.log.set_capture_image(n, self.latest_rover_frame)
+            self.log.set_status(n, 'collected')
+        elif kind == C.EV_ABANDONED and n is not None:
+            self.log.set_status(n, 'abandoned')
+        elif kind == C.EV_STATE and ev.get('state') in (C.ALIGN, C.CAPTURE):
+            live = [num for num, entry in self.log.entries.items()
+                    if entry.status == 'found']
+            if live:
+                self.log.set_status(max(live), 'collecting')
 
-    def _on_progress(self, known_ha, target_ha, fraction):
-        if self.paused:
-            return
-        self.progress_bar.setValue(int(round(fraction * 100)))
-        self.progress_detail.setText(f'{known_ha:.1f} / {target_ha:.1f} ha')
+    # -- frames -------------------------------------------------------------
+    def on_rover_frame(self, image):
+        if not self.paused:
+            self.latest_rover_frame = image
+
+    def on_quad_yolo_frame(self, image):
+        if not self.paused:
+            self.latest_quad_yolo = image
+
+    def on_rover_pose(self, x, y, yaw):
+        self.map.set_rover(x, y, yaw)
+
+    def on_quad_pose(self, x, y, yaw, alt):
+        self.map.set_quad(x, y, yaw, alt)

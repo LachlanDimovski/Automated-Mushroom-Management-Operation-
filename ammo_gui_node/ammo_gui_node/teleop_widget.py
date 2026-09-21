@@ -1,164 +1,179 @@
-"""Keyboard teleop panel for the Parrot - the keyboard alternative to
-Lachlan's ps4_drone_test.py, for exactly the reason that came up in the
-Teams thread: no PS4/Xbox controller on hand, just keyboard.
+"""Keyboard driving for the skidsteer, used in manual mode.
 
-Publishes directly to the same topic ps4_drone_test.py does
-(/parrot1/cmd_vel by default) with no arbitration node between them (unlike
-the husky, which is gated through cbf_guard_node) - so this and
-ps4_drone_test.py are strictly either/or. Never run both against a live
-sim at once; whichever one is publishing more recently just steps on the
-other, and the quad ends up fighting itself.
+Commands go out on `husky1/cmd_vel_raw`, not `husky1/cmd_vel`, so they pass
+through `collision_guard_node` on the way like every other transit command.
+That means holding W into a tree trunk gets vetoed by the guard rather than
+driving into it, which is the behaviour you want from a teleop panel.
 
-Continuous "hold key to move" control, same shape as ps4_drone_test.py's
-own _tick(): a fixed-rate timer reads whatever keys are currently down and
-publishes a fresh Twist every tick (zero when nothing's held, or when not
-armed), rather than firing one command per keypress. Same speed constants
-ps4_drone_test.py uses (speed_xy=0.6 m/s, speed_climb=0.5 m/s, yaw_rate=0.8
-rad/s) so flying feels the same regardless of which input the operator
-picked.
+Speeds are kept near what `cage_capture_node` uses for its own approach
+(0.4 m/s, 1.2 rad/s), so driving by hand feels like the rover behaves on its
+own rather than something twitchier.
 
-Bindings:
-    W / S       forward / back      (linear.x)
-    A / D       strafe left / right (linear.y)
-    R / F       climb / descend     (linear.z)
-    Q / E       yaw left / right    (angular.z)
-
-Armed only while the "Teleop armed" checkbox is checked - a keyboard
-equivalent of ps4_drone_test.py's L1 deadman button, so an accidental
-keypress elsewhere in the app (or just forgetting the panel is live) can't
-send the quad off on its own.
+The panel has to hold keyboard focus to work, and it drops every held key
+when it loses focus - otherwise clicking away mid-throttle would leave the
+rover driving with nobody holding the key.
 """
-from geometry_msgs.msg import Twist
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget,
-)
+from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QVBoxLayout,
+                               QWidget)
+
+from ammo_gui_node import cards, theme
 
 RATE_HZ = 20.0
-SPEED_XY = 0.6
-SPEED_CLIMB = 0.5
-YAW_RATE = 0.8
+SPEED = 0.40        # m/s
+TURN = 1.10         # rad/s
 
-# Qt.Key_* -> (linear.x, linear.y, linear.z, angular.z) unit contribution.
-KEY_MAP = {
-    Qt.Key_W: (1.0, 0.0, 0.0, 0.0),
-    Qt.Key_S: (-1.0, 0.0, 0.0, 0.0),
-    Qt.Key_A: (0.0, -1.0, 0.0, 0.0),
-    Qt.Key_D: (0.0, 1.0, 0.0, 0.0),
-    Qt.Key_R: (0.0, 0.0, 1.0, 0.0),
-    Qt.Key_F: (0.0, 0.0, -1.0, 0.0),
-    Qt.Key_Q: (0.0, 0.0, 0.0, 1.0),
-    Qt.Key_E: (0.0, 0.0, 0.0, -1.0),
+KEYS = {
+    Qt.Key_W: (1.0, 0.0),
+    Qt.Key_S: (-1.0, 0.0),
+    Qt.Key_A: (0.0, 1.0),
+    Qt.Key_D: (0.0, -1.0),
 }
+
+
+class KeyCap(QWidget):
+    """A little key that lights up while it is held."""
+
+    def __init__(self, letter):
+        super().__init__()
+        self.letter = letter
+        self.held = False
+        self.setFixedSize(34, 34)
+
+    def set_held(self, held):
+        if held != self.held:
+            self.held = held
+            self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.ACCENT if self.held else theme.PANEL_DEEP))
+        p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 5, 5)
+        p.setPen(QColor(theme.CREAM if self.held else theme.TEXT_DIM))
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 11, QFont.DemiBold))
+        p.drawText(self.rect(), int(Qt.AlignCenter), self.letter)
+        p.end()
 
 
 class TeleopWidget(QWidget):
 
-    def __init__(self, bridge, parent=None):
-        super().__init__(parent)
-        self._bridge = bridge
-        self._held_keys = set()
-
-        # Needed to actually receive key events - a QWidget with no focus
-        # never gets keyPressEvent at all, so click-to-focus is required
-        # before flying (called out on-screen below, not just in a
-        # docstring nobody driving will read).
+    def __init__(self, link):
+        super().__init__()
+        self.link = link
+        self.held = set()
+        self.blocked = False      # paused, or an operator goal is running
         self.setFocusPolicy(Qt.StrongFocus)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(12)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(15, 12, 15, 12)
+        lay.setSpacing(9)
 
-        title = QLabel('PARROT TELEOP')
-        title.setObjectName('sectionLabel')
-        root.addWidget(title)
+        top = QHBoxLayout()
+        top.addWidget(cards.section('MANUAL DRIVE'))
+        top.addStretch(1)
+        self.armed = QCheckBox('Armed')
+        self.armed.toggled.connect(self._on_armed)
+        top.addWidget(self.armed)
+        lay.addLayout(top)
 
-        self.armed_check = QCheckBox('Teleop armed')
-        self.armed_check.toggled.connect(self._on_armed_toggled)
-        root.addWidget(self.armed_check)
+        self.caps = {k: KeyCap(v) for k, v in
+                     ((Qt.Key_W, 'W'), (Qt.Key_A, 'A'), (Qt.Key_S, 'S'), (Qt.Key_D, 'D'))}
+        grid = QVBoxLayout()
+        grid.setSpacing(4)
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        row.addStretch(1)
+        row.addWidget(self.caps[Qt.Key_W])
+        row.addStretch(1)
+        grid.addLayout(row)
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        row.addStretch(1)
+        for key in (Qt.Key_A, Qt.Key_S, Qt.Key_D):
+            row.addWidget(self.caps[key])
+        row.addStretch(1)
+        grid.addLayout(row)
+        lay.addLayout(grid)
 
-        self.status_label = QLabel('Click this panel, then hold Teleop armed to fly.')
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet('color: #9a8f83;')
-        root.addWidget(self.status_label)
+        self.hint = QLabel('Click here, then tick Armed to drive.')
+        self.hint.setWordWrap(True)
+        self.hint.setStyleSheet(f'color: {theme.TEXT_DIM}; font-size: 12px;')
+        lay.addWidget(self.hint)
 
-        key_frame = QFrame()
-        key_frame.setObjectName('card')
-        key_grid = QGridLayout(key_frame)
-        key_grid.setContentsMargins(12, 12, 12, 12)
-        for row, (label, keys) in enumerate((
-            ('forward / back', 'W / S'),
-            ('strafe left / right', 'A / D'),
-            ('climb / descend', 'R / F'),
-            ('yaw left / right', 'Q / E'),
-        )):
-            key_grid.addWidget(QLabel(keys), row, 0)
-            key_grid.addWidget(QLabel(label), row, 1)
-        root.addWidget(key_frame)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        self.timer.start(int(1000 / RATE_HZ))
 
-        self.command_label = QLabel('x +0.00  y +0.00  z +0.00  yaw +0.00')
-        self.command_label.setStyleSheet('color: #9a8f83; font-family: monospace;')
-        root.addWidget(self.command_label)
+    # -- state --------------------------------------------------------------
+    def set_blocked(self, blocked):
+        """Paused, or the rover is off running an operator goal."""
+        self.blocked = bool(blocked)
+        if self.blocked:
+            self.held.clear()
+            self._sync_caps()
+        self._update_hint()
 
-        root.addStretch(1)
-
-        self._timer = QTimer(self)
-        self._timer.setInterval(int(1000.0 / RATE_HZ))
-        self._timer.timeout.connect(self._tick)
-        self._timer.start()
-
-    # -- input ------------------------------------------------------------
-    def keyPressEvent(self, event):
-        if not event.isAutoRepeat() and event.key() in KEY_MAP:
-            self._held_keys.add(event.key())
+    def _on_armed(self, on):
+        if on:
+            self.setFocus(Qt.OtherFocusReason)
         else:
-            super().keyPressEvent(event)
+            self.held.clear()
+            self._sync_caps()
+            self.link.publish_drive(0.0, 0.0)
+        self._update_hint()
+
+    def _update_hint(self):
+        if self.blocked:
+            self.hint.setText('Held - resume the mission to drive.')
+        elif not self.armed.isChecked():
+            self.hint.setText('Click here, then tick Armed to drive.')
+        elif not self.hasFocus():
+            self.hint.setText('Click this panel to give it the keyboard.')
+        else:
+            self.hint.setText('W/S drive  ·  A/D turn  ·  release to stop')
+
+    def _sync_caps(self):
+        for key, cap in self.caps.items():
+            cap.set_held(key in self.held)
+
+    # -- keyboard -----------------------------------------------------------
+    def keyPressEvent(self, event):
+        if event.isAutoRepeat() or event.key() not in KEYS:
+            return super().keyPressEvent(event)
+        self.held.add(event.key())
+        self._sync_caps()
 
     def keyReleaseEvent(self, event):
-        if not event.isAutoRepeat() and event.key() in KEY_MAP:
-            self._held_keys.discard(event.key())
-        else:
-            super().keyReleaseEvent(event)
+        if event.isAutoRepeat() or event.key() not in KEYS:
+            return super().keyReleaseEvent(event)
+        self.held.discard(event.key())
+        self._sync_caps()
 
     def focusOutEvent(self, event):
-        # Losing focus (clicked elsewhere) must not leave keys "stuck down"
-        # - otherwise letting go of W after tabbing away keeps driving
-        # forever, since no keyReleaseEvent would ever arrive here.
-        self._held_keys.clear()
-        super().focusOutEvent(event)
+        # Never leave the rover driving because focus moved elsewhere.
+        if self.held:
+            self.held.clear()
+            self._sync_caps()
+            self.link.publish_drive(0.0, 0.0)
+        self._update_hint()
+        return super().focusOutEvent(event)
 
-    def _on_armed_toggled(self, armed):
-        if armed:
-            self.status_label.setText(
-                'ARMED - this panel must stay focused to receive keys.')
-            self.setFocus()
-        else:
-            self._held_keys.clear()
-            self.status_label.setText('Disarmed - hold Teleop armed to fly.')
+    def focusInEvent(self, event):
+        self._update_hint()
+        return super().focusInEvent(event)
 
-    # -- publish ------------------------------------------------------------
+    # -- output -------------------------------------------------------------
     def _tick(self):
-        cmd = Twist()
-        if self.armed_check.isChecked() and self._held_keys:
-            vx = vy = vz = wz = 0.0
-            for key in self._held_keys:
-                dx, dy, dz, dw = KEY_MAP[key]
-                vx += dx
-                vy += dy
-                vz += dz
-                wz += dw
-            # Held opposite keys (W+S) cancel out via the sums above rather
-            # than needing special-casing - clamped to +-1 unit each axis
-            # so e.g. W+A doesn't fly faster than W alone.
-            cmd.linear.x = max(-1.0, min(1.0, vx)) * SPEED_XY
-            cmd.linear.y = max(-1.0, min(1.0, vy)) * SPEED_XY
-            cmd.linear.z = max(-1.0, min(1.0, vz)) * SPEED_CLIMB
-            cmd.angular.z = max(-1.0, min(1.0, wz)) * YAW_RATE
-
-        if self.armed_check.isChecked():
-            self._bridge.publish_teleop(cmd)
-            self.command_label.setText(
-                f'x {cmd.linear.x:+.2f}  y {cmd.linear.y:+.2f}  '
-                f'z {cmd.linear.z:+.2f}  yaw {cmd.angular.z:+.2f}')
-        else:
-            self.command_label.setText('x +0.00  y +0.00  z +0.00  yaw +0.00')
+        if self.blocked or not self.armed.isChecked():
+            return
+        vx = wz = 0.0
+        for key in self.held:
+            dx, dw = KEYS[key]
+            vx += dx * SPEED
+            wz += dw * TURN
+        # Always publish, including the zero that follows a release - the
+        # Gazebo velocity plugin holds the last command it was given.
+        self.link.publish_drive(vx, wz)

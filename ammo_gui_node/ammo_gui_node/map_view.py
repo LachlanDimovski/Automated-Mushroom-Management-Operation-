@@ -1,185 +1,304 @@
-"""Occupancy-grid map view: the SLAM grid itself (known/unknown/occupied),
-both robots' pose + heading, and mushroom markers - the one part of the
-scope that has no equivalent anywhere else in the repo (ammo_dashboard's
-minimap is odometry trails only, no grid).
+"""The shared top-down map. One widget, used by both windows.
 
-Rendering approach: the OccupancyGrid is decoded into a QImage only when a
-new map message arrives (SLAM updates are ~1 Hz-ish, not every frame), and
-cached; robot/mushroom overlays are drawn on top in paintEvent from the
-latest pose data, which updates far more often and is cheap to redraw.
-paintEvent runs on the GUI thread only (Qt requirement - it may not be
-touched from the ROS spin thread), which is exactly why RosBridge hands
-everything over as signals instead of this widget reading rclpy state
-directly.
+The look follows `ammo_dashboard`'s minimap - grid, fading trails, a heading
+line on each robot, mushroom glyphs - drawn with QPainter instead of OpenCV
+so it lives happily inside Qt and can be clicked.
 
-Coordinate handling: OccupancyGrid.info.origin is technically a full pose
-(position + orientation), but every publisher this project's SLAM stack
-produces publishes an axis-aligned grid in practice (identity orientation)
-- so, matching the level of rigour ammo_dashboard's own minimap uses (plain
-x/y with a spawn offset, no TF lookups), this only accounts for origin
-*position*, not rotation. If a future map ever comes out rotated, robot
-markers will land in the wrong place on the grid and that assumption is the
-first thing to revisit.
+Coordinates are the world frame straight off `husky1/odometry` and
+`parrot1/odometry`, which in this repo are raw Gazebo poses with no TF and
+no EKF. That is the same simplification `ammo_dashboard` makes, so the two
+maps agree with each other.
+
++x is drawn to the right and +y up, the usual way round for a plan view.
 """
-import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPolygonF
+import math
+from collections import deque
+
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
-UNKNOWN_RGB = (60, 56, 50)
-FREE_RGB = (230, 227, 221)
-OCCUPIED_RGB = (20, 18, 16)
-OCCUPIED_THRESHOLD = 50  # OccupancyGrid: -1 unknown, 0 free .. 100 occupied
+from ammo_gui_node import theme
 
-HUSKY_COLOR = QColor('#d63434')
-PARROT_COLOR = QColor('#eef1f3')
-MUSHROOM_CAP = QColor('#d63434')
-MUSHROOM_STEM = QColor('#c6d8e6')
-
-
-def _grid_to_qimage(msg) -> QImage:
-    w, h = msg.info.width, msg.info.height
-    data = np.array(msg.data, dtype=np.int8).reshape((h, w))
-
-    rgb = np.empty((h, w, 3), dtype=np.uint8)
-    rgb[:] = UNKNOWN_RGB
-    free_mask = (data >= 0) & (data < OCCUPIED_THRESHOLD)
-    occ_mask = data >= OCCUPIED_THRESHOLD
-    rgb[free_mask] = FREE_RGB
-    rgb[occ_mask] = OCCUPIED_RGB
-
-    # OccupancyGrid row 0 is the row at the grid's y-origin (world +y goes
-    # up); QImage row 0 is the top of the image. Flip vertically so +y
-    # renders upward, matching how the robot markers are placed below.
-    rgb = np.flipud(rgb)
-    rgb = np.ascontiguousarray(rgb)
-
-    image = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888)
-    # QImage doesn't copy the buffer by default - it would otherwise be
-    # left pointing at `rgb`, which goes out of scope the moment this
-    # function returns.
-    return image.copy()
+TRAIL_LEN = 240          # ~12 s of odometry at 20 Hz
+MIN_RANGE_M = 8.0
+EDGE_PAD_M = 2.0
 
 
 class MapView(QWidget):
+    """Top-down map. Click anywhere to emit world coordinates."""
 
-    def __init__(self, parent=None):
+    clicked = Signal(float, float)
+
+    def __init__(self, parent=None, interactive=True, compact=False):
         super().__init__(parent)
-        self.setMinimumSize(360, 360)
+        self.setMinimumSize(240, 200)
+        self.interactive = interactive
+        self.compact = compact
+        if interactive:
+            self.setCursor(Qt.CrossCursor)
 
-        self._map_msg = None
-        self._map_image = None
-        self._husky_pose = None   # (x, y, yaw)
-        self._parrot_pose = None  # (x, y, yaw, alt)
-        self._mushrooms = []      # [(x, y), ...]
+        self.range_m = 12.0
+        self.rover = None        # (x, y, yaw)
+        self.quad = None         # (x, y, yaw, alt)
+        self.rover_trail = deque(maxlen=TRAIL_LEN)
+        self.quad_trail = deque(maxlen=TRAIL_LEN)
+        self.mushrooms = []      # dicts from the status message
+        self.trunks = []         # [(x, y), ...] if the world file gave us any
+        self.goal = None         # (x, y) operator goal
+        self.frozen = False      # paused: stop taking new samples
 
-    # -- slots, connected to RosBridge signals in operator_page.py --------
-    def set_map(self, msg):
-        self._map_msg = msg
-        self._map_image = _grid_to_qimage(msg)
-        self.update()
+    # -- inputs -------------------------------------------------------------
+    def set_frozen(self, frozen):
+        self.frozen = bool(frozen)
 
-    def set_husky_pose(self, x, y, yaw):
-        self._husky_pose = (x, y, yaw)
-        self.update()
-
-    def set_parrot_pose(self, x, y, yaw, alt):
-        self._parrot_pose = (x, y, yaw, alt)
-        self.update()
-
-    def add_mushroom(self, x, y):
-        self._mushrooms.append((x, y))
-        self.update()
-
-    def clear_mission(self):
-        self._map_msg = None
-        self._map_image = None
-        self._husky_pose = None
-        self._parrot_pose = None
-        self._mushrooms = []
-        self.update()
-
-    # -- world <-> widget transform -----------------------------------------
-    def _map_rect_and_scale(self):
-        """Where the map image lands inside this widget (letterboxed to
-        preserve aspect ratio) and pixels-per-cell for that placement."""
-        img = self._map_image
-        iw, ih = img.width(), img.height()
-        avail_w, avail_h = self.width(), self.height()
-        scale = min(avail_w / iw, avail_h / ih) if iw and ih else 1.0
-        draw_w, draw_h = iw * scale, ih * scale
-        x0 = (avail_w - draw_w) / 2.0
-        y0 = (avail_h - draw_h) / 2.0
-        return QRectF(x0, y0, draw_w, draw_h), scale
-
-    def _world_to_widget(self, wx, wy):
-        info = self._map_msg.info
-        col = (wx - info.origin.position.x) / info.resolution
-        row = (wy - info.origin.position.y) / info.resolution
-        rect, scale = self._map_rect_and_scale()
-        px = rect.x() + col * scale
-        # Image was flipped vertically in _grid_to_qimage, so row 0 (world
-        # y = origin.y) is now at the *bottom* of the image.
-        py = rect.y() + (info.height - row) * scale
-        return QPointF(px, py)
-
-    # -- paint ------------------------------------------------------------
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor('#141210'))
-
-        if self._map_image is None:
-            painter.setPen(QColor('#9a8f83'))
-            painter.drawText(self.rect(), Qt.AlignCenter, 'Waiting for husky1/map...')
-            painter.end()
+    def set_rover(self, x, y, yaw):
+        if self.frozen:
             return
+        self.rover = (x, y, yaw)
+        self._push(self.rover_trail, x, y)
+        self._grow(x, y)
+        self.update()
 
-        rect, _ = self._map_rect_and_scale()
-        painter.drawImage(rect, self._map_image)
+    def set_quad(self, x, y, yaw, alt):
+        if self.frozen:
+            return
+        self.quad = (x, y, yaw, alt)
+        self._push(self.quad_trail, x, y)
+        self._grow(x, y)
+        self.update()
 
-        if self._parrot_pose is not None:
-            self._draw_parrot(painter, *self._parrot_pose)
-        if self._husky_pose is not None:
-            self._draw_husky(painter, *self._husky_pose)
-        for mx, my in self._mushrooms:
-            self._draw_mushroom(painter, *self._world_to_widget(mx, my).toTuple())
+    def set_mushrooms(self, mushrooms):
+        self.mushrooms = list(mushrooms or [])
+        for m in self.mushrooms:
+            self._grow(m.get('x', 0.0), m.get('y', 0.0))
+        self.update()
 
-        painter.end()
+    def set_trunks(self, trunks):
+        self.trunks = list(trunks or [])
+        self.update()
 
-    def _draw_husky(self, painter, x, y, yaw):
-        p = self._world_to_widget(x, y)
-        size = 10
-        # Screen y grows downward while world yaw is a standard
-        # counter-clockwise angle - negate yaw so "forward" on screen
-        # matches the robot's actual heading rather than mirroring it.
-        tip = QPointF(p.x() + size * np.cos(-yaw), p.y() + size * np.sin(-yaw))
-        back_l = QPointF(
-            p.x() + size * 0.6 * np.cos(-yaw + 2.5), p.y() + size * 0.6 * np.sin(-yaw + 2.5))
-        back_r = QPointF(
-            p.x() + size * 0.6 * np.cos(-yaw - 2.5), p.y() + size * 0.6 * np.sin(-yaw - 2.5))
-        painter.setBrush(QBrush(HUSKY_COLOR))
-        painter.setPen(QPen(QColor('#1c1a17'), 1))
-        painter.drawPolygon(QPolygonF([tip, back_l, back_r]))
-        painter.setPen(QColor(HUSKY_COLOR))
-        painter.drawText(p + QPointF(10, -6), 'HUSKY')
+    def set_goal(self, goal):
+        self.goal = tuple(goal) if goal else None
+        if self.goal:
+            self._grow(*self.goal)
+        self.update()
 
-    def _draw_parrot(self, painter, x, y, yaw, alt):
-        p = self._world_to_widget(x, y)
-        r = 8
-        painter.setPen(QPen(PARROT_COLOR, 2))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawEllipse(p, r, r)
-        heading = QPointF(p.x() + r * 1.6 * np.cos(-yaw), p.y() + r * 1.6 * np.sin(-yaw))
-        painter.drawLine(p, heading)
-        painter.setPen(QColor(PARROT_COLOR))
-        painter.drawText(p + QPointF(10, 10), f'PARROT  {alt:.1f}m')
+    def clear(self):
+        self.rover = self.quad = self.goal = None
+        self.rover_trail.clear()
+        self.quad_trail.clear()
+        self.mushrooms = []
+        self.range_m = 12.0
+        self.update()
 
-    def _draw_mushroom(self, painter, x, y):
-        p = QPointF(x, y)
-        r = 6
-        painter.setPen(QPen(QColor('#1c1a17'), 1))
-        painter.setBrush(QBrush(MUSHROOM_STEM))
-        painter.drawRect(QRectF(p.x() - r / 4, p.y(), r / 2, r))
-        painter.setBrush(QBrush(MUSHROOM_CAP))
-        painter.drawChord(QRectF(p.x() - r, p.y() - r, 2 * r, 2 * r), 0, 180 * 16)
+    def _push(self, trail, x, y):
+        if not trail or math.hypot(x - trail[-1][0], y - trail[-1][1]) > 0.05:
+            trail.append((x, y))
+
+    def _grow(self, x, y):
+        """Keep everything on screen without ever zooming back in mid-run."""
+        need = max(abs(x), abs(y)) + EDGE_PAD_M
+        if need > self.range_m:
+            self.range_m = max(MIN_RANGE_M, math.ceil(need))
+
+    # -- geometry -----------------------------------------------------------
+    def _metrics(self):
+        w, h = self.width(), self.height()
+        side = min(w, h)
+        ppm = (side / 2.0 - 14.0) / max(self.range_m, 1.0)
+        return w / 2.0, h / 2.0, ppm
+
+    def to_px(self, wx, wy):
+        cx, cy, ppm = self._metrics()
+        return QPointF(cx + wx * ppm, cy - wy * ppm)
+
+    def to_world(self, px, py):
+        cx, cy, ppm = self._metrics()
+        if ppm <= 0:
+            return 0.0, 0.0
+        return (px - cx) / ppm, (cy - py) / ppm
+
+    def mousePressEvent(self, event):
+        if not self.interactive or event.button() != Qt.LeftButton:
+            return super().mousePressEvent(event)
+        pos = event.position()
+        wx, wy = self.to_world(pos.x(), pos.y())
+        self.clicked.emit(wx, wy)
+
+    # -- painting -----------------------------------------------------------
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.fillRect(self.rect(), QColor(theme.MAP_BG))
+
+        self._grid(p)
+        self._trunks(p)
+        self._trail(p, self.rover_trail, QColor(theme.ACCENT))
+        self._trail(p, self.quad_trail, QColor(theme.TEXT))
+        self._mushrooms(p)
+        self._goal(p)
+        if self.rover:
+            self._rover_glyph(p, *self.rover)
+        if self.quad:
+            self._quad_glyph(p, *self.quad)
+        if not self.compact:
+            self._legend(p)
+        p.end()
+
+    def _grid(self, p):
+        cx, cy, ppm = self._metrics()
+        p.setPen(QPen(QColor(theme.MAP_GRID), 1))
+        step = 2 if self.range_m <= 16 else 5
+        g = step
+        while g <= self.range_m:
+            d = g * ppm
+            p.drawLine(QPointF(cx - d, 0), QPointF(cx - d, self.height()))
+            p.drawLine(QPointF(cx + d, 0), QPointF(cx + d, self.height()))
+            p.drawLine(QPointF(0, cy - d), QPointF(self.width(), cy - d))
+            p.drawLine(QPointF(0, cy + d), QPointF(self.width(), cy + d))
+            g += step
+
+        p.setPen(QPen(QColor(theme.MAP_AXIS), 1))
+        p.drawLine(QPointF(cx, 0), QPointF(cx, self.height()))
+        p.drawLine(QPointF(0, cy), QPointF(self.width(), cy))
+
+        p.setPen(QColor(theme.TEXT_FAINT))
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
+        p.drawText(QPointF(cx + 5, 14), '+x')
+        p.drawText(QPointF(6, cy - 5), '+y')
+        p.drawText(QPointF(self.width() - 70, self.height() - 8),
+                   f'{self.range_m:.0f} m')
+
+    def _trunks(self, p):
+        p.setPen(QPen(QColor(theme.MAP_TRUNK_EDGE), 1.2))
+        p.setBrush(QBrush(QColor(theme.MAP_TRUNK)))
+        r = 5.0 if self.compact else 7.0
+        for tx, ty in self.trunks:
+            p.drawEllipse(self.to_px(tx, ty), r, r)
+
+    def _trail(self, p, trail, colour):
+        pts = list(trail)
+        if len(pts) < 2:
+            return
+        bg = QColor(theme.MAP_BG)
+        p.setPen(Qt.NoPen)
+        n = len(pts)
+        for i, (wx, wy) in enumerate(pts):
+            a = (i + 1) / n
+            c = QColor(int(bg.red() + (colour.red() - bg.red()) * a * 0.75),
+                       int(bg.green() + (colour.green() - bg.green()) * a * 0.75),
+                       int(bg.blue() + (colour.blue() - bg.blue()) * a * 0.75))
+            p.setBrush(QBrush(c))
+            p.drawEllipse(self.to_px(wx, wy), 1.6, 1.6)
+
+    def _mushroom_glyph(self, p, pt, r, colour):
+        """A little cap-and-stem, the same shape the dashboard draws."""
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(QColor(theme.TEXT)))
+        p.drawRoundedRect(QRectF(pt.x() - r * 0.28, pt.y(), r * 0.56, r * 0.95), 1.5, 1.5)
+        path = QPainterPath()
+        path.moveTo(pt.x() - r, pt.y())
+        path.arcTo(QRectF(pt.x() - r, pt.y() - r * 0.78, 2 * r, r * 1.56), 180, -180)
+        path.closeSubpath()
+        p.setBrush(QBrush(colour))
+        p.drawPath(path)
+
+    def _mushrooms(self, p):
+        r = 5.0 if self.compact else 7.0
+        font = QFont(theme.MONO_FAMILIES[0], 8)
+        p.setFont(font)
+        for m in self.mushrooms:
+            pt = self.to_px(m.get('x', 0.0), m.get('y', 0.0))
+            status = m.get('status', 'found')
+            if status == 'collected':
+                p.setPen(QPen(QColor(theme.GREEN), 2.2, Qt.SolidLine, Qt.RoundCap))
+                p.drawLine(QPointF(pt.x() - r, pt.y() - r), QPointF(pt.x() + r, pt.y() + r))
+                p.drawLine(QPointF(pt.x() + r, pt.y() - r), QPointF(pt.x() - r, pt.y() + r))
+                p.setPen(QColor(theme.GREEN))
+            elif status == 'abandoned':
+                p.setPen(QPen(QColor(theme.GREY), 2.0, Qt.SolidLine, Qt.RoundCap))
+                p.drawLine(QPointF(pt.x() - r, pt.y() - r), QPointF(pt.x() + r, pt.y() + r))
+                p.drawLine(QPointF(pt.x() + r, pt.y() - r), QPointF(pt.x() - r, pt.y() + r))
+                p.setPen(QColor(theme.GREY))
+            else:
+                self._mushroom_glyph(p, pt, r, QColor(theme.ACCENT))
+                p.setPen(QColor(theme.AMBER))
+            label = f"M{m.get('n', '?')}"
+            conf = m.get('conf')
+            if conf and not self.compact:
+                label += f' {conf:.2f}'
+            p.drawText(QPointF(pt.x() + r + 4, pt.y() + 4), label)
+
+    def _goal(self, p):
+        if not self.goal:
+            return
+        pt = self.to_px(*self.goal)
+        pen = QPen(QColor(theme.VIOLET), 1.6)
+        pen.setDashPattern([3, 3])
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(pt, 13, 13)
+        p.setPen(QPen(QColor(theme.VIOLET), 1.6, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(pt.x(), pt.y() - 10), QPointF(pt.x(), pt.y() + 10))
+        p.drawLine(QPointF(pt.x() - 10, pt.y()), QPointF(pt.x() + 10, pt.y()))
+        if not self.compact:
+            p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
+            p.drawText(QPointF(pt.x() + 17, pt.y() + 4), 'GOAL')
+
+    def _rover_glyph(self, p, x, y, yaw):
+        pt = self.to_px(x, y)
+        colour = QColor(theme.ACCENT)
+        p.setPen(QPen(colour, 2, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(pt, QPointF(pt.x() + 22 * math.cos(yaw), pt.y() - 22 * math.sin(yaw)))
+
+        p.save()
+        p.translate(pt)
+        p.rotate(-math.degrees(yaw))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(colour))
+        p.drawRoundedRect(QRectF(-9, -6, 18, 12), 2.5, 2.5)
+        p.setBrush(QBrush(QColor(theme.TEXT)))
+        for dx in (-5.5, 5.5):
+            p.drawRoundedRect(QRectF(dx - 2.4, -8.2, 4.8, 2.6), 1.0, 1.0)
+            p.drawRoundedRect(QRectF(dx - 2.4, 5.6, 4.8, 2.6), 1.0, 1.0)
+        p.restore()
+
+    def _quad_glyph(self, p, x, y, yaw, alt):
+        pt = self.to_px(x, y)
+        colour = QColor(theme.TEXT)
+        p.setPen(QPen(colour, 1.6, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(pt, QPointF(pt.x() + 20 * math.cos(yaw), pt.y() - 20 * math.sin(yaw)))
+
+        p.save()
+        p.translate(pt)
+        p.rotate(-math.degrees(yaw))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(colour, 1.4))
+        for dx, dy in ((-6, -6), (6, -6), (-6, 6), (6, 6)):
+            p.drawEllipse(QPointF(dx, dy), 4.0, 4.0)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(colour))
+        p.drawRoundedRect(QRectF(-3.4, -3.4, 6.8, 6.8), 1.6, 1.6)
+        p.restore()
+
+        p.setPen(QColor(theme.TEXT))
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
+        p.drawText(QPointF(pt.x() + 15, pt.y() + 20), f'{alt:.1f} m')
+
+    def _legend(self, p):
+        x, y = 10, self.height() - 46
+        p.setBrush(QBrush(QColor(20, 26, 31, 220)))
+        p.setPen(QPen(QColor(theme.MAP_AXIS), 1))
+        p.drawRoundedRect(QRectF(x, y, 150, 38), 5, 5)
+
+        p.setFont(QFont(theme.SANS_FAMILIES[0], 8))
+        self._mushroom_glyph(p, QPointF(x + 14, y + 11), 5, QColor(theme.ACCENT))
+        p.setPen(QColor(theme.TEXT))
+        p.drawText(QPointF(x + 28, y + 15), 'found')
+
+        p.setPen(QPen(QColor(theme.GREEN), 2, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(x + 9, y + 22), QPointF(x + 19, y + 32))
+        p.drawLine(QPointF(x + 19, y + 22), QPointF(x + 9, y + 32))
+        p.setPen(QColor(theme.TEXT))
+        p.drawText(QPointF(x + 28, y + 31), 'collected')
