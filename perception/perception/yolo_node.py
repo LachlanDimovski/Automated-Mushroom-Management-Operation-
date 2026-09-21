@@ -7,7 +7,17 @@ robots detect identically.
 """
 import os
 
+# Before torch/cv2 import. Thread caps alone did not hold (oneDNN/interop pools
+# ignored them: 3.2 s/frame on 3.5 cores, thrashing); pinning the whole process
+# to one core before any pool spawns measured 0.3 s/frame on 1.0 core.
+if os.environ.get('YOLO_CORE'):
+    os.sched_setaffinity(0, {int(os.environ['YOLO_CORE'])})
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+
 import cv2
+cv2.setNumThreads(1)
 import numpy as np
 import rclpy
 import torch
@@ -53,12 +63,33 @@ class YoloNode(Node):
         self.declare_parameter('conf_threshold', 0.25)
         self.declare_parameter('publish_annotated', True)
         # Capped so CPU inference does not starve Gazebo's physics thread.
-        self.declare_parameter('num_threads', 2)
+        # ponytail: temporarily 1 (was 2) - two yolo_node instances at 2 threads
+        # each were pegging up to 4 cores combined and starving Nav2's control
+        # loop; raise back to 2+ on hardware that isn't CPU-constrained.
+        self.declare_parameter('num_threads', 1)
+        # ponytail: temporary CPU-relief knob for a CPU-only, resource-constrained
+        # test box - halving the inference resolution cuts YOLO's actual compute
+        # cost (unlike num_threads, which only capped PyTorch's own thread pool
+        # and left OpenCV/BLAS threads free to keep eating cores). Revert to the
+        # model's native resolution (imgsz=0 means don't override) on real hardware.
+        self.declare_parameter('imgsz', 384)
+        # ponytail: inference used to run on every single incoming frame with
+        # no rate limit, back-to-back, as fast as the CPU allowed - the real
+        # driver of the measured 300-400%+ CPU. Capping call frequency cuts
+        # total compute roughly proportionally, unlike imgsz/num_threads which
+        # only shrink each individual call. 2Hz still comfortably covers a
+        # slow-moving search/approach; raise on hardware with headroom.
+        self.declare_parameter('max_rate_hz', 2.0)
 
         image_topic = self.get_parameter('image_topic').value
         model_path = self.get_parameter('model_path').value or DEFAULT_MODEL_PATH
         self.conf_threshold = self.get_parameter('conf_threshold').value
         self.publish_annotated = self.get_parameter('publish_annotated').value
+        self.imgsz = self.get_parameter('imgsz').value
+        max_rate_hz = self.get_parameter('max_rate_hz').value
+        self.min_interval_s = 1.0 / max_rate_hz if max_rate_hz > 0 else 0.0
+        self.last_infer_s = 0.0
+        self.last_boxes = []  # (x1, y1, x2, y2, label, score) - redrawn on frames we skip inference for
         torch.set_num_threads(self.get_parameter('num_threads').value)
 
         self.model = YOLO(model_path)
@@ -77,18 +108,41 @@ class YoloNode(Node):
             f'(classes: {sorted(self.model.names.values())}, '
             f'conf>={self.conf_threshold}) on {image_topic}')
 
+    def _draw(self, frame, x1, y1, x2, y2, label, score):
+        crop = frame[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)]
+        colour = (0, 0, 255) if classify_red(crop) else (0, 255, 0)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
+        cv2.putText(frame, f'{label} {score:.2f}', (x1, max(y1 - 8, 0)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
+
     def image_callback(self, msg: Image):
+        now = self.get_clock().now().nanoseconds / 1e9
+        if now - self.last_infer_s < self.min_interval_s:
+            # rate-limited: no inference, but keep the annotated feed at camera rate
+            # with the last boxes so viewers get a smooth picture
+            if self.publish_annotated and self.annotated_pub.get_subscription_count():
+                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                for x1, y1, x2, y2, label, score in self.last_boxes:
+                    self._draw(frame, x1, y1, x2, y2, label, score)
+                annotated_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+                annotated_msg.header = msg.header
+                self.annotated_pub.publish(annotated_msg)
+            return
+        self.last_infer_s = now
+
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         result = self.model.predict(
-            frame, conf=self.conf_threshold, verbose=False)[0]
+            frame, conf=self.conf_threshold, imgsz=self.imgsz, verbose=False)[0]
 
         detections = Detection2DArray()
         detections.header = msg.header
+        self.last_boxes = []
 
         for box in result.boxes:
             x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
             label = result.names[int(box.cls[0])]
             score = float(box.conf[0])
+            self.last_boxes.append((x1, y1, x2, y2, label, score))
 
             det = Detection2D()
             det.header = msg.header
@@ -103,12 +157,7 @@ class YoloNode(Node):
             detections.detections.append(det)
 
             if self.publish_annotated:
-                crop = frame[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)]
-                colour = (0, 0, 255) if classify_red(crop) else (0, 255, 0)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
-                cv2.putText(
-                    frame, f'{label} {score:.2f}', (x1, max(y1 - 8, 0)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
+                self._draw(frame, x1, y1, x2, y2, label, score)
 
         self.detections_pub.publish(detections)
 

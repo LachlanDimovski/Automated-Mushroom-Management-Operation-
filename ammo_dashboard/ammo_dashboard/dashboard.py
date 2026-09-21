@@ -6,8 +6,19 @@ quadcopter's altitude, and a top-down minimap of where each one is.
 
     ros2 launch ammo_dashboard dashboard.launch.py
 
-Press q (or close the window) to quit.
+Also doubles as the mission mode switcher: the repo has several
+mutually-exclusive "which node drives the husky/quad" launch combinations
+(see the root README's Node topology section) that used to only be
+choosable by typing the right `ros2 launch` command in a spare terminal.
+The mode bar below the header does the same thing as a row of buttons -
+clicking one stops whatever mode is currently running (SIGINT to its whole
+process group, so child nodes shut down cleanly) and launches the next one.
+
+Press q (or close the window) to quit - this also stops any active mode.
 """
+import os
+import signal
+import subprocess
 import threading
 import time
 from collections import deque
@@ -16,10 +27,26 @@ import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PointStamped
+from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.qos import DurabilityPolicy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
+
+# Each mutually-exclusive husky/quad control combination, bundled as its own
+# launch file elsewhere in the repo - the mode bar just runs one of these at
+# a time instead of the user picking by hand. Labels kept short for the bar.
+MODES = [
+    ('mission', 'MISSION  (simple_trees)', ['ros2', 'launch', 'ammo_mission_control', 'cage_mission.launch.py',
+                                            'world:=simple_trees', 'headless:=true', 'rviz:=false', 'meta_goals:=false',
+                                            'mushrooms:=6,-5,-5,-5.5,-2,6.5']),
+    ('forest', 'MISSION  (forest_flat)', ['ros2', 'launch', 'ammo_mission_control', 'cage_mission.launch.py',
+                                          'world:=forest_flat', 'headless:=true', 'rviz:=false']),
+]
+STOP_LABEL = 'STOP'
+MODE_BAR_Y0 = 50   # just below the header (HEAD_H)
+MODE_BAR_Y1 = 100
 
 # Newest sample only - a slow render must never work through a backlog.
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -41,12 +68,13 @@ W, H = 1280, 800
 HEAD_H = 50
 MARGIN = 14
 GAP = 14
-CAM_TOP = 80
-CAM_H = 380
+CAM_TOP = 120
+CAM_H = 460
 CAM_W = (W - 2 * MARGIN - GAP) // 2
 BOT_TOP = CAM_TOP + CAM_H + 28
 BOT_H = H - BOT_TOP - MARGIN
 MAP_SIZE = BOT_H
+MAP_STREAM_PX = 900   # size of the standalone minimap stream (ammo/minimap/compressed)
 CARD_W = (W - 2 * MARGIN - 2 * GAP - MAP_SIZE) // 2
 
 
@@ -95,8 +123,11 @@ class Dashboard(Node):
         self.declare_parameter('husky_spawn', [0.0, 0.0])
         self.declare_parameter('parrot_spawn', [2.0, 0.0])
         self.declare_parameter('parrot_ground_z', 0.8)
-        self.declare_parameter('map_range_m', 12.0)
-        self.declare_parameter('fps', 12.0)
+        self.declare_parameter('map_range_m', 16.0)
+        self.declare_parameter('fps', 10.0)
+        # also publish the rendered HUD as an image so web_video_server can stream it
+        # (iPad: http://<pc>:8080/stream?topic=/ammo/dashboard&type=mjpeg)
+        self.declare_parameter('publish_hud', True)
 
         self.husky_spawn = self.get_parameter('husky_spawn').value
         self.parrot_spawn = self.get_parameter('parrot_spawn').value
@@ -105,25 +136,143 @@ class Dashboard(Node):
         self.fps = self.get_parameter('fps').value
 
         self.bridge = CvBridge()
+        # JPEG-compressed so web_video_server streams it as-is (type=ros_compressed):
+        # a raw 1280x800 frame is 3 MB and mostly got dropped by DDS at 5 Hz
+        self.hud_pub = self.create_publisher(CompressedImage, 'ammo/dashboard/compressed', 1) if self.get_parameter('publish_hud').value else None
+        self.map_pub = self.create_publisher(CompressedImage, 'ammo/minimap/compressed', 1) if self.hud_pub else None
+        # extra iPad views: colour-mapped depth per robot, Nav2 local costmap
+        self.extra = {}   # name -> latest bgr image
+        self.extra_pubs = {k: self.create_publisher(CompressedImage, f'ammo/{k}/compressed', 1)
+                           for k in ('depth_husky', 'depth_parrot', 'costmap')} if self.hud_pub else {}
+        self.create_subscription(Image, 'husky1/camera/depth/image', lambda m: self._depth(m, 'depth_husky'), LIVE_QOS)
+        self.create_subscription(Image, 'parrot1/camera/depth/image', lambda m: self._depth(m, 'depth_parrot'), LIVE_QOS)
+        self.create_subscription(OccupancyGrid, 'husky1/local_costmap/costmap', self._costmap,
+                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.husky_img = None
         self.parrot_img = None
         self.husky_odom = None
         self.parrot_odom = None
         self.seen = {'hi': 0.0, 'pi': 0.0, 'ho': 0.0, 'po': 0.0}
+        self.husky_annotated_at = 0.0  # last YOLO-annotated rover frame; raw camera fills in when that is stale
         self.husky_trail = deque(maxlen=80)
         self.parrot_trail = deque(maxlen=80)
 
         self.create_subscription(Image, 'husky1/detections/image', self._husky_img, LIVE_QOS)
+        # raw camera fallback: the mission runs the rover without YOLO by default
+        self.create_subscription(Image, 'husky1/camera/image', self._husky_raw, LIVE_QOS)
         self.create_subscription(Image, 'parrot1/detections/image', self._parrot_img, LIVE_QOS)
         self.create_subscription(Odometry, 'husky1/odometry', self._husky_odom, LIVE_QOS)
         self.create_subscription(Odometry, 'parrot1/odometry', self._parrot_odom, LIVE_QOS)
+        self.waypoints, self.done = [], []   # quad-projected targets, rover-collected points
+        self.create_subscription(PointStamped, 'husky1/cage/waypoints', self._waypoint, 10)
+        self.create_subscription(PointStamped, 'husky1/cage/done',
+                                 lambda m: self.done.append((m.point.x, m.point.y)), 10)
+
+        self.active_mode = None  # key from MODES, or None if nothing running
+        self.active_proc = None
+        self._buttons = self._layout_buttons()
 
         self.window = 'AMMO Field Debug'
-        cv2.namedWindow(self.window, cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(self.window, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # resizable: canvas scales with the window
+        cv2.resizeWindow(self.window, W, H)
+        cv2.setMouseCallback(self.window, self._on_mouse)
         # Rendering runs in main() on the wall clock, not a ROS timer, so it
         # never blocks message intake and never slows with sim time.
 
+    def _layout_buttons(self):
+        """(x1, y1, x2, y2, key, label) for each mode button plus STOP,
+        evenly spaced across the bar between the header and camera panels."""
+        entries = [(key, label) for key, label, _cmd in MODES] + [('stop', STOP_LABEL)]
+        n = len(entries)
+        slot_w = W // n
+        buttons = []
+        for i, (key, label) in enumerate(entries):
+            x1 = i * slot_w + 4
+            x2 = (i + 1) * slot_w - 4
+            buttons.append((x1, MODE_BAR_Y0 + 3, x2, MODE_BAR_Y1 - 3, key, label))
+        return buttons
+
+    def _on_mouse(self, event, x, y, flags, param):
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        try:  # window may be scaled: map the click back onto the W x H canvas
+            _, _, rw, rh = cv2.getWindowImageRect(self.window)
+            if rw > 0 and rh > 0:
+                x, y = int(x * W / rw), int(y * H / rh)
+        except cv2.error:
+            pass
+        for x1, y1, x2, y2, key, _label in self._buttons:
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                self._select_mode(key)
+                return
+
+    def _select_mode(self, key):
+        self._stop_active()
+        if key == 'stop':
+            return
+        cmd = next(cmd for k, _label, cmd in MODES if k == key)
+        self.get_logger().info(f'Mode bar: starting "{key}" -> {" ".join(cmd)}')
+        # New process group so SIGINT can be sent to it and every child
+        # `ros2 launch` spawns, not just the launch process itself.
+        self.active_proc = subprocess.Popen(cmd, preexec_fn=os.setsid)
+        self.active_mode = key
+
+    def _stop_active(self):
+        if self.active_proc is None or self.active_proc.poll() is not None:
+            self.active_mode = None
+            self.active_proc = None
+            return
+        self.get_logger().info(f'Mode bar: stopping "{self.active_mode}"')
+        try:
+            os.killpg(os.getpgid(self.active_proc.pid), signal.SIGINT)
+            self.active_proc.wait(timeout=5.0)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(os.getpgid(self.active_proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        self.active_mode = None
+        self.active_proc = None
+
+    def _waypoint(self, m):
+        # the bridge re-publishes refined estimates: keep one entry per distinct target (within 1 m)
+        x, y = m.point.x, m.point.y
+        for i, (wx, wy) in enumerate(self.waypoints):
+            if np.hypot(x - wx, y - wy) < 1.0:
+                self.waypoints[i] = (x, y)
+                return
+        self.waypoints.append((x, y))
+
+    def _depth(self, msg, key):
+        try:
+            d = self.bridge.imgmsg_to_cv2(msg, 'passthrough').astype(np.float32)
+            d = np.nan_to_num(d, nan=0.0, posinf=0.0)
+            v = (np.clip(d / 8.0, 0, 1) * 255).astype(np.uint8)   # near = dark, far = bright (monotone, like Gazebo's)
+            img = cv2.merge([v, (v * 0.6).astype(np.uint8), (v * 0.3).astype(np.uint8)])  # blue-tinted BGR
+            img[d <= 0.0] = 0
+            self.extra[key] = img
+        except Exception:
+            pass
+
+    def _costmap(self, msg):
+        g = np.array(msg.data, dtype=np.int16).reshape(msg.info.height, msg.info.width)
+        img = np.full((msg.info.height, msg.info.width, 3), SOIL, np.uint8)
+        img[(g > 0) & (g < 99)] = (40, 140, 220)   # inflation
+        img[g >= 99] = CAP_RED                      # lethal
+        img[g < 0] = (60, 60, 60)                   # unknown
+        img = cv2.flip(img, 0)                      # grid y-up -> image y-down
+        self.extra['costmap'] = cv2.resize(img, (600, 600), interpolation=cv2.INTER_NEAREST)
+
     def _husky_img(self, msg):
+        try:
+            self.husky_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            self.seen['hi'] = self.husky_annotated_at = time.monotonic()
+        except Exception:
+            pass
+
+    def _husky_raw(self, msg):
+        if time.monotonic() - self.husky_annotated_at < STALE_S:
+            return  # annotated feed is live, prefer it
         try:
             self.husky_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             self.seen['hi'] = time.monotonic()
@@ -141,13 +290,13 @@ class Dashboard(Node):
         self.husky_odom = msg
         self.seen['ho'] = time.monotonic()
         p = msg.pose.pose.position
-        self.husky_trail.append((self.husky_spawn[0] + p.x, self.husky_spawn[1] + p.y))
+        self.husky_trail.append((p.x, p.y))
 
     def _parrot_odom(self, msg):
         self.parrot_odom = msg
         self.seen['po'] = time.monotonic()
         p = msg.pose.pose.position
-        self.parrot_trail.append((self.parrot_spawn[0] + p.x, self.parrot_spawn[1] + p.y))
+        self.parrot_trail.append((p.x, p.y))
 
     def _fresh(self, key):
         return time.monotonic() - self.seen[key] < STALE_S
@@ -157,6 +306,7 @@ class Dashboard(Node):
         try:
             c = np.full((H, W, 3), BG, np.uint8)
             self._header(c)
+            self._mode_bar(c)
             self._cam_panel(c, MARGIN, CAM_TOP, 'SKIDSTEER - YOLO',
                             self.husky_img, self._fresh('hi'))
             self._cam_panel(c, MARGIN + CAM_W + GAP, CAM_TOP, 'QUADCOPTER - YOLO',
@@ -165,6 +315,15 @@ class Dashboard(Node):
             self._alt_card(c, MARGIN + CARD_W + GAP, BOT_TOP)
             self._minimap(c, W - MARGIN - MAP_SIZE, BOT_TOP)
             cv2.imshow(self.window, c)
+            self.frame_n = getattr(self, 'frame_n', 0) + 1
+            if self.hud_pub is not None and self.frame_n % 2 == 0:  # ~5 Hz at native size for the browser stream
+                # minimap rendered fresh at stream size (not cropped from the HUD) so it stays sharp full-screen
+                big = np.full((MAP_STREAM_PX + 24, MAP_STREAM_PX, 3), BG, np.uint8)
+                self._minimap(big, 0, 24, MAP_STREAM_PX)
+                for pub, img in [(self.hud_pub, c), (self.map_pub, big)] + [(self.extra_pubs[k], v) for k, v in self.extra.items()]:
+                    m = CompressedImage(format='jpeg')
+                    m.data = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+                    pub.publish(m)
         except Exception as exc:
             self.get_logger().warn(f'render error: {exc}', throttle_duration_sec=5.0)
         key = cv2.waitKey(wait_ms) & 0xFF
@@ -179,6 +338,22 @@ class Dashboard(Node):
         live = sum(self._fresh(k) for k in self.seen)
         tag = f'{live}/4 feeds live'
         txt(c, tag, (W - 16 - txt_w(tag, 0.55), 33), 0.55, SPOT)
+
+    def _mode_bar(self, c):
+        running = self.active_proc is not None and self.active_proc.poll() is None
+        for x1, y1, x2, y2, key, label in self._buttons:
+            is_stop = key == 'stop'
+            active = running and key == self.active_mode
+            if active:
+                fill = CAP_RED
+            elif is_stop:
+                fill = SOIL
+            else:
+                fill = PANEL
+            cv2.rectangle(c, (x1, y1), (x2, y2), fill, -1)
+            cv2.rectangle(c, (x1, y1), (x2, y2), INK if not active else SPOT, 1)
+            col = SPOT if (active or is_stop) else INK
+            txt(c, label, (x1 + (x2 - x1 - txt_w(label, 0.45)) // 2, y2 - 9), 0.45, col)
 
     def _cam_panel(self, c, x, y, title, frame, ok):
         cv2.rectangle(c, (x, y), (x + CAM_W, y + CAM_H), PANEL, 2)
@@ -203,8 +378,9 @@ class Dashboard(Node):
         txt(c, label, (x + 16, y + 30), 0.55, INK)
         col = CAP_RED if ok else DIM
         vs = value if (ok and value) else '--'
-        txt(c, vs, (x + (CARD_W - txt_w(vs, 3.0, 6)) // 2, y + BOT_H // 2 + 42), 3.0, col, 6)
-        txt(c, unit, (x + (CARD_W - txt_w(unit, 0.7)) // 2, y + BOT_H - 40), 0.7, INK)
+        sc, th = 3.0 * BOT_H / 268, max(2, int(6 * BOT_H / 268))
+        txt(c, vs, (x + (CARD_W - txt_w(vs, sc, th)) // 2, y + BOT_H // 2 + int(14 * sc)), sc, col, th)
+        txt(c, unit, (x + (CARD_W - txt_w(unit, 0.6)) // 2, y + BOT_H - 30), 0.6, INK)
         if sub:
             txt(c, sub, (x + 16, y + BOT_H - 14), 0.45, FAINT)
 
@@ -223,12 +399,11 @@ class Dashboard(Node):
         if self.parrot_odom is not None:
             p = self.parrot_odom.pose.pose.position
             vz = self.parrot_odom.twist.twist.linear.z
-            val = f'{self.parrot_ground_z + p.z:.2f}'
+            val = f'{p.z:.2f}'
             sub = f'climb rate {vz:+.2f} m/s'
         self._card(c, x, y, 'QUADCOPTER - ALTITUDE', val, 'm', sub, ok)
 
-    def _minimap(self, c, x, y):
-        s = MAP_SIZE
+    def _minimap(self, c, x, y, s=MAP_SIZE):
         cv2.rectangle(c, (x, y), (x + s, y + s), SOIL, -1)
         cv2.rectangle(c, (x, y), (x + s, y + s), PANEL, 2)
         tab(c, x, y, 'MINIMAP - ODOM')
@@ -251,6 +426,10 @@ class Dashboard(Node):
         def to_px(wx, wy):
             return int(cx - wy * ppm), int(cy - wx * ppm)
 
+        for wx, wy in self.waypoints[-20:]:
+            draw_mushroom(c, *to_px(wx, wy), 6, CAP_RED)
+        for wx, wy in self.done[-20:]:
+            cv2.drawMarker(c, to_px(wx, wy), PANEL, cv2.MARKER_TILTED_CROSS, 12, 2)
         self._trail(c, self.husky_trail, to_px, CAP_RED)
         self._trail(c, self.parrot_trail, to_px, PANEL)
         self._robot(c, to_px, self.husky_odom, self.husky_spawn, self._fresh('ho'),
@@ -263,6 +442,8 @@ class Dashboard(Node):
         txt(c, 'skidsteer', (x + 32, y + s - 24), 0.4, PANEL)
         cv2.circle(c, (x + 18, y + s - 14), 5, PANEL, 1)
         txt(c, 'quadcopter', (x + 32, y + s - 10), 0.4, PANEL)
+        t_ = f'targets {len(self.waypoints)}  collected {len(self.done)}'
+        txt(c, t_, (x + s - txt_w(t_, 0.4) - 8, y + 20), 0.4, PANEL)
 
     def _trail(self, c, trail, to_px, color):
         pts = list(trail)
@@ -275,7 +456,7 @@ class Dashboard(Node):
         if odom is None:
             return
         p = odom.pose.pose.position
-        px, py = to_px(spawn[0] + p.x, spawn[1] + p.y)
+        px, py = to_px(p.x, p.y)
         yaw = yaw_of(odom.pose.pose.orientation)
         col = color if ok else DIM
         cv2.line(c, (px, py), (int(px - 16 * np.sin(yaw)), int(py - 16 * np.cos(yaw))), col, 2)
@@ -283,7 +464,7 @@ class Dashboard(Node):
             cv2.circle(c, (px, py), 7, col, 2)
             cv2.line(c, (px - 5, py), (px + 5, py), col, 1)
             cv2.line(c, (px, py - 5), (px, py + 5), col, 1)
-            txt(c, f'{self.parrot_ground_z + p.z:.1f}m', (px + 11, py + 4), 0.4, col)
+            txt(c, f'{p.z:.1f}m', (px + 11, py + 4), 0.4, col)
         else:
             draw_mushroom(c, px, py, 8, col)
         txt(c, label, (px - 3, py - 12), 0.4, col)
@@ -306,6 +487,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node._stop_active()  # don't leave a mode's nodes running after the HUD closes
         cv2.destroyAllWindows()
         if rclpy.ok():
             rclpy.shutdown()

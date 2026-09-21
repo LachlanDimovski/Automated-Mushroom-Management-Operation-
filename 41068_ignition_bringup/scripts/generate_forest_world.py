@@ -984,7 +984,8 @@ def _default_pkg_dir():
 def parse_args(argv):
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--seed', type=int, default=None,
+                    help='omit for a fresh random forest each run; pass a value to reproduce one')
     ap.add_argument('--name', default='forest_random',
                     help='output world name (worlds/<name>.sdf)')
     ap.add_argument('--preset', default='moderate', choices=sorted(PRESETS))
@@ -1025,6 +1026,8 @@ def parse_args(argv):
         ap.error(f'expected worlds/ and models/ under {pkg} - pass --pkg-dir')
     if args.heightmap_samples < 9 or (args.heightmap_samples - 1) & (args.heightmap_samples - 2) != 0:
         ap.error('--heightmap-samples must be (2^n)+1 (e.g. 65, 129, 257)')
+    if args.seed is None:
+        args.seed = int.from_bytes(os.urandom(4), 'little')
     return args
 
 

@@ -1,45 +1,39 @@
-"""Autonomous search-and-rescue flight for the quadcopter - no controller.
+"""Autonomous search flight for the quadcopter.
 
-Replaces ps4_drone_test.py entirely: climbs to a cruise altitude, then flies
-a fixed lawnmower (boustrophedon) pattern over the field looking for
-mushrooms, reactively avoiding obstacles using its own lidar. Combined with
-mushroom_mission_node's auto_trigger (already fires on YOLO detections with
-no button) and the R1+Triangle path being irrelevant when nothing's holding
-a controller, this makes the whole find -> mark -> dispatch -> confirm loop
-run with nobody touching a joystick:
+Climbs to CRUISE_ALT_M, then flies its legs (the `waypoints` parameter, or a
+lawnmower over `search_area`) looking for mushrooms with its own YOLO feed.
+Legs detour around known trunks (`trunks` parameter, from the world meta) and
+around whatever the lidar sees (nearest return per 15 deg sector); a reactive
+front-cone slow/turn and a climb-over stuck recovery are the fallbacks.
 
-    ros2 run ammo_mission_control quad_search_node
+On a confident, consistent detection it closes to an observation point
+APPROACH_M from the mushroom (chosen clear of canopies), turns to face it and
+holds still. Once it has been still for SETTLE_S it publishes the projected
+ground point on husky1/cage/waypoints (re-published every REPUBLISH_S so a
+refined estimate replaces the earlier one); the rover collects it and reports
+on husky1/cage/done, and the search resumes. Holds time out on their own if
+no waypoint could be published or the rover never reports.
 
-CONFIRMED LIVE (not assumed) before writing this: parrot1/cmd_vel is
-body-frame - commanding pure linear.x after rotating ~226 deg moved the
-quad along that exact heading in world coordinates, not world +X regardless
-of orientation (this was flagged as an open question in ps4_drone_test.py's
-own docstring). Also confirmed the sim keeps the quad level (no roll/pitch)
-during horizontal motion, which is what mushroom_mission_node's ground
-projection already assumed.
+Dispatch gates, all learned live: still for SETTLE_S (a moving/turning frame
+read 5-8 m off, a still one 2 cm), box confidence >= MIN_CONF, never a point
+within ROVER_EXCLUDE_M of the rover (YOLO boxes the rover now and then), and
+two projections in a row that agree.
 
-Altitude and heading/speed are controlled independently: a P-controller
-holds cruise altitude every tick regardless of what the xy-motion is doing,
-and forward/turn commands only engage once the quad is first within
-altitude tolerance (a one-shot latch - it doesn't re-gate on minor altitude
-noise after that).
-
-Obstacle avoidance is reactive and horizontal only (no climb-over strategy -
-canopy height varies too much to trust that): if the lidar's forward cone
-reads a hard-stop distance, forward motion is zeroed and it turns towards
-whichever side (left/right half of the front cone) has more clearance.
-This does not replace a real planner - it's the same reactive-only shape as
-skidsteer_controller's own patrol obstacle avoidance, and can get stuck
-against a wide obstacle it can't out-turn.
+Verified live: parrot1/cmd_vel is body-frame, the sim keeps the quad level in
+horizontal flight, and parrot1/odometry equals Gazebo ground truth.
 """
 import math
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PointStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
+from vision_msgs.msg import Detection2DArray
+
+from ammo_mission_control.drive_utils import steer_angular, yaw_of
+from ammo_mission_control.ground_projection import project_to_ground
 
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 CONTROL_HZ = 20.0
@@ -55,7 +49,7 @@ MAX_CLIMB_SPEED = 0.6
 # CPU/real-time tradeoff, not something to fight from this node). Flying
 # slower means more detection frames per metre travelled, since the frame
 # rate itself is fixed - this is the lever available here instead.
-MAX_LINEAR_SPEED = 0.35
+MAX_LINEAR_SPEED = 1.0    # ponytail: raised from 0.35 for faster mission-testing iteration
 MAX_ANGULAR_SPEED = 0.8
 ANGLE_THRESHOLD_RAD = 0.3
 ANGULAR_GAIN = 2.0
@@ -64,6 +58,24 @@ SPEED_RAMP_DIST_M = 6.0
 WAYPOINT_TOLERANCE_M = 1.5
 
 HEARTBEAT_PERIOD_S = 5.0
+
+# Hold: on detection the quad closes to APPROACH_M short of the projected point
+# (where the 45 deg camera has the mushroom centred, ~= cruise altitude), faces
+# it and freezes - the projection is only exact when level and still. After the
+# rover reports on husky1/cage/done the search resumes after a short blind spell.
+RESUME_BLIND_S = 5.0
+APPROACH_M = 3.0
+APPROACH_TOL_M = 0.5
+CONSISTENT_M = 1.0  # two consecutive frames must project within this of each other before holding
+CONSISTENT_S = 4.0  # ...and within this long of each other (an estimate from minutes ago proves nothing)
+ROVER_EXCLUDE_M = 2.0  # YOLO boxes the rover itself now and then; never hold for a hit on top of it
+MIN_CONF = 0.5         # real mushrooms score 0.85+; rover/roots/grass false positives sit at 0.3-0.45
+HOLD_TIMEOUT_S = 150.0  # rover dispatched but no cage/done in this long - give up and resume search
+HOLD_NO_WP_S = 30.0     # holding but never able to publish a waypoint (mushroom out of view / false positive)
+SETTLE_S = 2.0          # still this long before a projection is trusted
+STATIONARY_V = 0.1      # m/s and rad/s, from odometry position deltas
+STATIONARY_W = 0.05
+REPUBLISH_S = 2.0       # while holding, re-publish the refined point this often
 
 # Lawnmower search pattern: rows spaced 6m apart, sweeping the full width on
 # each row, alternating direction - a simple, predictable full-area cover
@@ -79,6 +91,9 @@ FRONT_HALF_ARC_RAD = 0.6
 AVOID_STOP_DIST_M = 3.0       # start slowing within this range
 AVOID_HARD_STOP_DIST_M = 1.5  # zero forward motion, turn to clear
 AVOID_TURN_RATE = 0.6
+TRUNK_CLEAR_M = 3.0           # legs keep at least this far from a known trunk
+SCAN_OBST_M = 8.0             # lidar returns closer than this join the detour planner as pseudo-trunks
+CANOPY_M = 4.0                # a hold point closer than this to a trunk is inside the foliage: camera sees leaves
 
 # Stuck-recovery: a purely reactive left/right turn can deadlock against an
 # obstacle that sits almost exactly on the avoidance threshold (observed
@@ -92,19 +107,12 @@ RECOVERY_CLIMB_M = 4.0
 RECOVERY_DURATION_S = 8.0
 
 
-def yaw_of(q):
-    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-
-
-def build_lawnmower_waypoints():
+def build_lawnmower_waypoints(x_min=X_MIN, x_max=X_MAX, y_min=ROW_YS[0], y_max=ROW_YS[-1], spacing=6.0):
     waypoints = []
-    for i, y in enumerate(ROW_YS):
-        if i % 2 == 0:
-            waypoints.append((X_MIN, y))
-            waypoints.append((X_MAX, y))
-        else:
-            waypoints.append((X_MAX, y))
-            waypoints.append((X_MIN, y))
+    y, i = y_min, 0
+    while y <= y_max + 1e-6:
+        waypoints += [(x_min, y), (x_max, y)] if i % 2 == 0 else [(x_max, y), (x_min, y)]
+        y, i = y + spacing, i + 1
     return waypoints
 
 
@@ -112,9 +120,25 @@ class QuadSearchController(Node):
 
     def __init__(self):
         super().__init__('quad_search_controller')
+        self.declare_parameter('ground_z', 0.0)
+        self.ground_z = self.get_parameter('ground_z').value
 
-        self.waypoints = build_lawnmower_waypoints()
+        # flat [x0, y0, x1, y1, ...]; empty = default lawnmower over the field
+        self.declare_parameter('waypoints', [0.0])
+        # lawnmower area [x_min, x_max, y_min, y_max, row_spacing] used when no waypoints are given
+        self.declare_parameter('search_area', [X_MIN, X_MAX, ROW_YS[0], ROW_YS[-1], 6.0])
+        wp = self.get_parameter('waypoints').value
+        self.waypoints = (list(zip(wp[0::2], wp[1::2])) if len(wp) >= 2
+                          else build_lawnmower_waypoints(*self.get_parameter('search_area').value))
         self.wp_idx = 0
+        # known trunks (flat [x, y, ...], same list the rover gets): legs that pass
+        # within TRUNK_CLEAR_M of one get a detour point on the trunk's flank -
+        # reactive lidar avoidance alone stalled against canopies and just climbed.
+        self.declare_parameter('trunks', [0.0])
+        t = self.get_parameter('trunks').value
+        self.trunks = list(zip(t[0::2], t[1::2])) if len(t) >= 2 else []
+        self.detour = None  # (x, y) inserted before the current waypoint, or None
+        self.last_detour_log = None
 
         self.x = self.y = self.z = self.yaw = 0.0
         self.have_odom = False
@@ -123,21 +147,40 @@ class QuadSearchController(Node):
         self.front_left_min = math.inf
         self.front_right_min = math.inf
         self.have_scan = False
+        self.scan_pts = []  # world (x, y) of the nearest lidar return per 15 deg sector within SCAN_OBST_M
+
+        self.holding = False
+        self.hold_since = 0.0
+        self.hold_xy = (0.0, 0.0)
+        self.hold_target = (0.0, 0.0)
+        self.prev_ground = None  # (t, x, y) of the last confident projection
+        self.latest_ground = None  # (t, x, y) of the latest gated projection while holding
+        self.ignore_detections_until = 0.0
+        self.stationary_since = None  # odometry-based: when the quad last became still
+        self.prev_odom = None  # (t, x, y, yaw) for the stationary check
+        self.last_publish = -1e9
 
         self.progress_x = self.progress_y = None
         self.progress_time = None  # monotonic seconds
         self.recovery_until = None  # monotonic seconds, or None if not recovering
 
         self.cmd_pub = self.create_publisher(Twist, 'parrot1/cmd_vel', 10)
+        self.waypoint_pub = self.create_publisher(PointStamped, 'husky1/cage/waypoints', 10)
         self.create_subscription(Odometry, 'parrot1/odometry', self._odom_cb, LIVE_QOS)
         self.create_subscription(LaserScan, 'parrot1/scan', self._scan_cb, LIVE_QOS)
+        self.create_subscription(Detection2DArray, 'parrot1/detections', self._det_cb, LIVE_QOS)
+        self.create_subscription(PointStamped, 'husky1/cage/done', self._done_cb, 10)
+        self.wp_seen_at = None  # time a waypoint was last published during this hold
+        self.rover_xy = None
+        self.create_subscription(Odometry, 'husky1/odometry',
+                                 lambda m: setattr(self, 'rover_xy', (m.pose.pose.position.x, m.pose.pose.position.y)), LIVE_QOS)
         self.create_timer(1.0 / CONTROL_HZ, self._control_step)
         self.create_timer(HEARTBEAT_PERIOD_S, self._heartbeat)
 
+        xs, ys = [w[0] for w in self.waypoints], [w[1] for w in self.waypoints]
         self.get_logger().info(
-            f'Autonomous search flight - no controller. Climbing to {CRUISE_ALT_M}m, '
-            f'then {len(self.waypoints)}-point lawnmower pattern over '
-            f'x:[{X_MIN},{X_MAX}] y:{ROW_YS}.')
+            f'Climbing to {CRUISE_ALT_M} m, then {len(self.waypoints)} legs over '
+            f'x:[{min(xs):.0f},{max(xs):.0f}] y:[{min(ys):.0f},{max(ys):.0f}], {len(self.trunks)} known trunks.')
 
     def _heartbeat(self):
         """Prints current status every few seconds, regardless of whether
@@ -159,7 +202,7 @@ class QuadSearchController(Node):
         avoiding = self.have_scan and min(self.front_left_min, self.front_right_min) < AVOID_STOP_DIST_M
         recovering = self.recovery_until is not None
         self.get_logger().info(
-            f'SEARCHING - pos=({self.x:.1f},{self.y:.1f}) alt={self.z:.2f}m '
+            f'{"HOLDING" if self.holding else "SEARCHING"} - pos=({self.x:.1f},{self.y:.1f}) alt={self.z:.2f}m '
             f'wp={self.wp_idx}/{len(self.waypoints)} target=({gx:.1f},{gy:.1f}) '
             f'dist={dist:.1f}m avoiding={avoiding} recovering={recovering}')
 
@@ -170,14 +213,30 @@ class QuadSearchController(Node):
         self.x, self.y, self.z = p.x, p.y, p.z
         self.yaw = yaw_of(msg.pose.pose.orientation)
         self.have_odom = True
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        if self.prev_odom is not None and t - self.prev_odom[0] > 0.05:
+            pt, px, py, pyaw = self.prev_odom
+            v = math.hypot(self.x - px, self.y - py) / (t - pt)
+            w = abs(math.remainder(self.yaw - pyaw, 2.0 * math.pi)) / (t - pt)
+            if v < STATIONARY_V and w < STATIONARY_W:
+                self.stationary_since = t if self.stationary_since is None else self.stationary_since
+            else:
+                self.stationary_since = None
+        if self.prev_odom is None or t - self.prev_odom[0] > 0.05:
+            self.prev_odom = (t, self.x, self.y, self.yaw)
 
     def _scan_cb(self, msg):
         left_min = math.inf
         right_min = math.inf
+        sectors = {}  # 15 deg sector -> (range, angle) of its nearest return
         for i, r in enumerate(msg.ranges):
             if not math.isfinite(r) or r <= 0.0:
                 continue
             angle = math.remainder(msg.angle_min + i * msg.angle_increment, 2.0 * math.pi)
+            if r < SCAN_OBST_M:
+                k = int((angle + math.pi) / (math.pi / 12))
+                if k not in sectors or r < sectors[k][0]:
+                    sectors[k] = (r, angle)
             if abs(angle) > FRONT_HALF_ARC_RAD:
                 continue
             if angle >= 0.0:
@@ -186,7 +245,71 @@ class QuadSearchController(Node):
                 right_min = min(right_min, r)
         self.front_left_min = left_min
         self.front_right_min = right_min
+        # world-frame obstacle points for the detour / hold-point planners: unknown
+        # trees and canopies get routed around proactively, not just bumped into
+        self.scan_pts = [(self.x + r * math.cos(self.yaw + a), self.y + r * math.sin(self.yaw + a))
+                         for r, a in sectors.values()]
         self.have_scan = True
+
+    def _gated_projection(self, msg):
+        """Ground point of the most confident box, or None if no box passes the
+        confidence gate, projects on the ground, and is clear of the rover."""
+        for det in sorted(msg.detections, key=lambda d: -d.results[0].hypothesis.score if d.results else 0.0):
+            if not det.results or det.results[0].hypothesis.score < MIN_CONF:
+                continue
+            g = project_to_ground(self.x, self.y, self.yaw, self.z,
+                                  det.bbox.center.position.x, det.bbox.center.position.y, self.ground_z)
+            if g is None:
+                continue
+            if self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < ROVER_EXCLUDE_M:
+                continue
+            return g
+        return None
+
+    def _det_cb(self, msg):
+        if not msg.detections or not self.taken_off:
+            return
+        now = self._now_s()
+        g = self._gated_projection(msg)
+        if self.holding:
+            if g is not None:
+                self.latest_ground = (now, g[0], g[1])
+            return
+        if now < self.ignore_detections_until:
+            return
+        prev, self.prev_ground = self.prev_ground, ((now,) + g if g else None)
+        if g is None or prev is None or now - prev[0] > CONSISTENT_S or math.hypot(g[0] - prev[1], g[1] - prev[2]) > CONSISTENT_M:
+            return
+        self.holding = True
+        self.detour = None
+        self.wp_seen_at = None
+        self.latest_ground = None
+        self.hold_since = now
+        self.hold_target = g
+        self.hold_xy = self._hold_point(g)
+        self.get_logger().info(f'Mushroom in view near ({g[0]:.1f},{g[1]:.1f}) - closing to {APPROACH_M:.0f} m, then holding for the rover.')
+
+    def _publish_waypoint_if_settled(self, now):
+        """While holding: once still for SETTLE_S, publish the latest gated
+        projection, and re-publish every REPUBLISH_S so it keeps refining."""
+        settled = self.stationary_since is not None and now - self.stationary_since > SETTLE_S
+        fresh = self.latest_ground is not None and now - self.latest_ground[0] < CONSISTENT_S
+        if not settled or not fresh or now - self.last_publish < REPUBLISH_S:
+            return
+        m = PointStamped()
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.header.frame_id = 'map'
+        m.point.x, m.point.y = self.latest_ground[1], self.latest_ground[2]
+        self.waypoint_pub.publish(m)
+        self.last_publish = self.wp_seen_at = now
+        self.get_logger().info(f'Mushroom waypoint ({m.point.x:.2f}, {m.point.y:.2f}).')
+
+    def _done_cb(self, msg):
+        if self.holding:
+            self.holding = False
+            self.detour = None
+            self.ignore_detections_until = self._now_s() + RESUME_BLIND_S
+            self.get_logger().info(f'Rover done at ({msg.point.x:.1f},{msg.point.y:.1f}) - resuming search.')
 
     def _control_step(self):
         cmd = Twist()
@@ -211,21 +334,48 @@ class QuadSearchController(Node):
             self.cmd_pub.publish(cmd)  # climbing in place - hold xy still until near cruise alt
             return
 
+        if self.holding:
+            no_wp = self.wp_seen_at is None and now - self.hold_since > HOLD_NO_WP_S
+            if no_wp or now - self.hold_since > HOLD_TIMEOUT_S:
+                self.holding = False
+                self.ignore_detections_until = now + RESUME_BLIND_S
+                self.get_logger().warn('Hold produced no waypoint in %.0fs - resuming search.' % HOLD_NO_WP_S if no_wp
+                                       else f'No cage/done in {HOLD_TIMEOUT_S:.0f}s - resuming search.')
+            else:
+                hx, hy = self._leg_target(*self.hold_xy)
+                hdx, hdy = hx - self.x, hy - self.y
+                if math.hypot(hdx, hdy) > APPROACH_TOL_M:
+                    angle_diff, cmd.angular.z = steer_angular(hdx, hdy, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
+                    if abs(angle_diff) < ANGLE_THRESHOLD_RAD:
+                        cmd.linear.x = min(0.5, math.hypot(hdx, hdy))
+                    cmd.linear.x, cmd.angular.z = self._apply_avoidance(cmd.linear.x, cmd.angular.z)
+                else:
+                    # at the hold point: face the mushroom (arriving heading is the travel
+                    # direction, which can point away from it), then freeze
+                    tx, ty = self.hold_target
+                    angle_diff, w = steer_angular(tx - self.x, ty - self.y, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
+                    if abs(angle_diff) > 0.1:
+                        cmd.angular.z = w
+                    else:
+                        self._publish_waypoint_if_settled(now)
+                self.cmd_pub.publish(cmd)
+                return
+
         self._check_stuck(now)
 
         gx, gy = self.waypoints[self.wp_idx]
+        if math.hypot(gx - self.x, gy - self.y) <= WAYPOINT_TOLERANCE_M:
+            self.wp_idx = (self.wp_idx + 1) % len(self.waypoints)
+            self.detour = None
+            gx, gy = self.waypoints[self.wp_idx]
+            if math.hypot(gx - self.x, gy - self.y) <= WAYPOINT_TOLERANCE_M:
+                self.cmd_pub.publish(cmd)  # single/last waypoint reached: hover, don't chase a point underneath
+                return
+        gx, gy = self._leg_target(gx, gy)
         dx, dy = gx - self.x, gy - self.y
         dist = math.hypot(dx, dy)
-        if dist <= WAYPOINT_TOLERANCE_M:
-            self.wp_idx = (self.wp_idx + 1) % len(self.waypoints)
-            gx, gy = self.waypoints[self.wp_idx]
-            dx, dy = gx - self.x, gy - self.y
-            dist = math.hypot(dx, dy)
 
-        target_angle = math.atan2(dy, dx)
-        angle_diff = math.atan2(
-            math.sin(target_angle - self.yaw), math.cos(target_angle - self.yaw))
-        angular = max(-MAX_ANGULAR_SPEED, min(MAX_ANGULAR_SPEED, angle_diff * ANGULAR_GAIN))
+        angle_diff, angular = steer_angular(dx, dy, self.yaw, MAX_ANGULAR_SPEED, ANGULAR_GAIN)
 
         linear = 0.0
         if abs(angle_diff) < ANGLE_THRESHOLD_RAD:
@@ -240,6 +390,61 @@ class QuadSearchController(Node):
         cmd.linear.x = linear
         cmd.angular.z = angular
         self.cmd_pub.publish(cmd)
+
+    def _hold_point(self, g):
+        """Observation point APPROACH_M from the mushroom: on the quad's own
+        bearing if that is clear of every trunk's canopy, else the clear
+        direction closest to it (held live: a hold point inside the oak's
+        foliage saw only leaves and never published)."""
+        a0 = math.atan2(self.y - g[1], self.x - g[0])   # from the mushroom back toward the quad
+        best = None
+        for k in range(12):
+            a = a0 + k * math.pi / 6
+            hx, hy = g[0] + APPROACH_M * math.cos(a), g[1] + APPROACH_M * math.sin(a)
+            clear = min((math.hypot(hx - tx, hy - ty) for tx, ty in self.trunks + self.scan_pts), default=99.0)
+            key = (clear >= CANOPY_M, -abs(math.atan2(math.sin(a - a0), math.cos(a - a0))), clear)
+            if best is None or key > best[0]:
+                best = (key, (hx, hy))
+        return best[1]
+
+    def _plan_detour(self, gx, gy):
+        """Nearest known trunk whose flank the straight leg to (gx, gy) would clip
+        -> a point TRUNK_CLEAR_M off that trunk on the side the leg already
+        favours, or None if the leg is clear. Re-run after reaching a detour
+        so a second trunk further along the leg gets its own."""
+        dx, dy = gx - self.x, gy - self.y
+        L = math.hypot(dx, dy)
+        if L < 1e-3:
+            return None
+        ux, uy = dx / L, dy / L          # along the leg
+        nx, ny = -uy, ux                 # left of the leg
+        hit = None
+        for tx, ty in self.trunks + self.scan_pts:
+            along = (tx - self.x) * ux + (ty - self.y) * uy
+            side = (tx - self.x) * nx + (ty - self.y) * ny
+            if 0.5 < along < L - 0.5 and abs(side) < TRUNK_CLEAR_M and (hit is None or along < hit[0]):
+                hit = (along, tx, ty, side)
+        if hit is None:
+            return None
+        _, tx, ty, side = hit
+        sgn = 1.0 if side >= 0.0 else -1.0   # trunk left of the leg -> pass on its right
+        return tx - sgn * nx * TRUNK_CLEAR_M, ty - sgn * ny * TRUNK_CLEAR_M
+
+    def _leg_target(self, gx, gy):
+        """Where to steer right now for the leg to (gx, gy): a trunk detour if one
+        is needed (planned once, held until reached), else the goal itself."""
+        if self.detour is not None:
+            if math.hypot(self.detour[0] - self.x, self.detour[1] - self.y) <= WAYPOINT_TOLERANCE_M:
+                self.detour = None
+            else:
+                return self.detour
+        self.detour = self._plan_detour(gx, gy)
+        if self.detour is not None:
+            if self.last_detour_log is None or math.hypot(self.detour[0] - self.last_detour_log[0], self.detour[1] - self.last_detour_log[1]) > 1.0:
+                self.get_logger().info(f'Trunk on the leg to ({gx:.1f},{gy:.1f}) - detouring via ({self.detour[0]:.1f},{self.detour[1]:.1f}).')
+                self.last_detour_log = self.detour
+            return self.detour
+        return gx, gy
 
     def _apply_avoidance(self, linear, angular):
         if not self.have_scan:

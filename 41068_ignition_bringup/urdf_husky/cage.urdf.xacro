@@ -1,0 +1,112 @@
+<?xml version="1.0"?>
+<!-- Containment lift: twin boom arms (inside the body width) pivot at the
+     front of the roof; a second hinge at the tip keeps a wire-frame cage
+     level. Joint zero = stowed: boom flat along the roof, cage trailing
+     8 cm off the ground behind the rover (nothing above roof height while
+     driving). Boom +3.07 rad = swung over the top, cage rim on the ground
+     ~1.45 m ahead. Command cage joint = -boom angle to keep it level. -->
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:property name="boom_len" value="0.85"/>
+  <xacro:property name="boom_y" value="0.25"/>
+  <xacro:property name="bar" value="0.05"/>
+  <xacro:property name="cage_s" value="0.45"/>
+  <xacro:property name="cage_h" value="0.25"/>
+  <xacro:property name="cage_hang" value="0.25"/>
+  <xacro:property name="rod" value="0.015"/>
+  <material name="lift_silver"><color rgba="0.08 0.08 0.08 1"/></material>
+  <material name="lift_red"><color rgba="0.05 0.05 0.05 1"/></material>
+  <material name="lift_panel"><color rgba="0.2 0.2 0.2 0.25"/></material>
+
+  <xacro:macro name="box_vis" params="xyz size mat">
+    <visual><origin xyz="${xyz}"/><geometry><box size="${size}"/></geometry><material name="${mat}"/></visual>
+  </xacro:macro>
+  <xacro:macro name="box_col" params="xyz size">
+    <collision><origin xyz="${xyz}"/><geometry><box size="${size}"/></geometry></collision>
+  </xacro:macro>
+
+  <xacro:macro name="cage_arm" params="prefix gz_model_name">
+    <!-- boom: pivots at rear top of chassis, x-axis runs along the arms -->
+    <joint name="${prefix}boom_joint" type="revolute">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}boom_link"/>
+      <origin xyz="0.10 0 0.33" rpy="0 ${pi} 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-0.1" upper="3.3" effort="80" velocity="1.0"/>
+      <dynamics damping="2.0"/>
+    </joint>
+    <link name="${prefix}boom_link">
+      <xacro:box_vis xyz="${boom_len/2} ${boom_y} 0" size="${boom_len} ${bar} ${bar}" mat="lift_silver"/>
+      <xacro:box_vis xyz="${boom_len/2} -${boom_y} 0" size="${boom_len} ${bar} ${bar}" mat="lift_silver"/>
+      <xacro:box_vis xyz="0 0 0" size="${bar} ${2*boom_y+bar} ${bar}" mat="lift_red"/>
+      <xacro:box_vis xyz="${boom_len} 0 0" size="${bar} ${2*boom_y+bar} ${bar}" mat="lift_red"/>
+      <inertial>
+        <origin xyz="${boom_len/2} 0 0"/>
+        <mass value="2.0"/>
+        <inertia ixx="0.03" ixy="0" ixz="0" iyy="0.2" iyz="0" izz="0.2"/>
+      </inertial>
+    </link>
+
+    <!-- cage hinge at boom tip, driven to -boom angle so the cage stays level -->
+    <joint name="${prefix}cage_joint" type="revolute">
+      <parent link="${prefix}boom_link"/>
+      <child link="${prefix}cage_link"/>
+      <origin xyz="${boom_len} 0 0" rpy="0 ${pi} 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-3.3" upper="0.1" effort="40" velocity="1.0"/>
+      <dynamics damping="1.0"/>
+    </joint>
+    <link name="${prefix}cage_link">
+      <!-- hanger down to cage top -->
+      <xacro:box_vis xyz="0 0 -${(cage_hang-cage_h/2)/2}" size="${bar} ${bar} ${cage_hang-cage_h/2}" mat="lift_red"/>
+      <!-- wire frame: 12 rods -->
+      <xacro:property name="h" value="${cage_s/2}"/>
+      <xacro:property name="v" value="${cage_h/2}"/>
+      <xacro:property name="c" value="-${cage_hang}"/>
+      <xacro:box_vis xyz="0 ${h} ${c+v}"  size="${cage_s} ${rod} ${rod}" mat="lift_red"/>
+      <xacro:box_vis xyz="0 -${h} ${c+v}" size="${cage_s} ${rod} ${rod}" mat="lift_red"/>
+      <xacro:box_vis xyz="0 ${h} ${c-v}"  size="${cage_s} ${rod} ${rod}" mat="lift_red"/>
+      <xacro:box_vis xyz="0 -${h} ${c-v}" size="${cage_s} ${rod} ${rod}" mat="lift_red"/>
+      <xacro:box_vis xyz="${h} 0 ${c+v}"  size="${rod} ${cage_s} ${rod}" mat="lift_red"/>
+      <xacro:box_vis xyz="-${h} 0 ${c+v}" size="${rod} ${cage_s} ${rod}" mat="lift_red"/>
+      <xacro:box_vis xyz="${h} 0 ${c-v}"  size="${rod} ${cage_s} ${rod}" mat="lift_red"/>
+      <xacro:box_vis xyz="-${h} 0 ${c-v}" size="${rod} ${cage_s} ${rod}" mat="lift_red"/>
+      <xacro:box_vis xyz="${h} ${h} ${c}"   size="${rod} ${rod} ${cage_h}" mat="lift_red"/>
+      <xacro:box_vis xyz="${h} -${h} ${c}"  size="${rod} ${rod} ${cage_h}" mat="lift_red"/>
+      <xacro:box_vis xyz="-${h} ${h} ${c}"  size="${rod} ${rod} ${cage_h}" mat="lift_red"/>
+      <xacro:box_vis xyz="-${h} -${h} ${c}" size="${rod} ${rod} ${cage_h}" mat="lift_red"/>
+      <!-- translucent panels, top + 4 sides, open bottom -->
+      <xacro:box_vis xyz="0 0 ${c+v}" size="${cage_s} ${cage_s} 0.004" mat="lift_panel"/>
+      <xacro:box_vis xyz="${h} 0 ${c}"  size="0.004 ${cage_s} ${cage_h}" mat="lift_panel"/>
+      <xacro:box_vis xyz="-${h} 0 ${c}" size="0.004 ${cage_s} ${cage_h}" mat="lift_panel"/>
+      <xacro:box_vis xyz="0 ${h} ${c}"  size="${cage_s} 0.004 ${cage_h}" mat="lift_panel"/>
+      <xacro:box_vis xyz="0 -${h} ${c}" size="${cage_s} 0.004 ${cage_h}" mat="lift_panel"/>
+      <xacro:box_col xyz="0 0 ${c+v}" size="${cage_s} ${cage_s} 0.01"/>
+      <xacro:box_col xyz="${h} 0 ${c}"  size="0.01 ${cage_s} ${cage_h}"/>
+      <xacro:box_col xyz="-${h} 0 ${c}" size="0.01 ${cage_s} ${cage_h}"/>
+      <xacro:box_col xyz="0 ${h} ${c}"  size="${cage_s} 0.01 ${cage_h}"/>
+      <xacro:box_col xyz="0 -${h} ${c}" size="${cage_s} 0.01 ${cage_h}"/>
+      <inertial>
+        <origin xyz="0 0 ${c}"/>
+        <mass value="1.0"/>
+        <inertia ixx="0.03" ixy="0" ixz="0" iyy="0.03" iyz="0" izz="0.03"/>
+      </inertial>
+    </link>
+
+    <gazebo>
+      <plugin filename="ignition-gazebo-joint-position-controller-system"
+              name="ignition::gazebo::systems::JointPositionController">
+        <joint_name>${prefix}boom_joint</joint_name>
+        <topic>model/${gz_model_name}/boom/cmd_pos</topic>
+        <p_gain>150</p_gain><i_gain>15</i_gain><d_gain>10</d_gain>
+        <initial_position>0.0</initial_position>
+      </plugin>
+      <plugin filename="ignition-gazebo-joint-position-controller-system"
+              name="ignition::gazebo::systems::JointPositionController">
+        <joint_name>${prefix}cage_joint</joint_name>
+        <topic>model/${gz_model_name}/cage/cmd_pos</topic>
+        <p_gain>60</p_gain><i_gain>8</i_gain><d_gain>5</d_gain>
+        <initial_position>0.0</initial_position>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+</robot>

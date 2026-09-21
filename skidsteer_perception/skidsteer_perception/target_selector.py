@@ -5,7 +5,7 @@ directly), ranges each one against the depth camera, and publishes the single
 best target on husky1/target_info for skidsteer_controller.
 
 husky1/target_info layout: [detected(0/1), bearing(-1..1), distance_m,
-stop_distance_m, class_id].
+stop_distance_m, class_id, confidence(0..1)].
 """
 import math
 
@@ -22,8 +22,9 @@ from vision_msgs.msg import Detection2DArray
 IMG_W, IMG_H = 720, 480
 FY_PIXELS = (IMG_W / 2.0) / math.tan(2.0944 / 2.0)
 
-# Known mushroom height [m] for the pinhole range fallback (2.5x-scaled model).
-MUSHROOM_HEIGHT_M = 1.0
+# Known mushroom height [m] for the pinhole range fallback. Must match
+# <scale> in models/mushroom_amanita/model.sdf (0.5x of a 0.40 m mesh).
+MUSHROOM_HEIGHT_M = 0.2
 
 # Stop distance [m] reported for a detected mushroom.
 STOP_DISTANCE_M = 5.0
@@ -108,21 +109,22 @@ class TargetSelector(Node):
             if distance is None:
                 distance = self.estimate_range(x1, y1, x2, y2)
             sort_key = distance if distance is not None else (1.0 / area)
+            score = det.results[0].hypothesis.score
             if best is None or sort_key < best[0]:
-                best = (sort_key, cx, distance)
+                best = (sort_key, cx, distance, score)
 
         if not self.drive_to_target:
             best = None
 
         target = Float32MultiArray()
         if best is not None:
-            _, cx, distance = best
+            _, cx, distance, score = best
             bearing = (cx - IMG_W / 2.0) / (IMG_W / 2.0)
             # -1.0 distance = detected but no valid depth yet; controller holds.
             target.data = [1.0, bearing, distance if distance is not None else -1.0,
-                           STOP_DISTANCE_M, CLASS_ID_MUSHROOM]
+                           STOP_DISTANCE_M, CLASS_ID_MUSHROOM, score]
         else:
-            target.data = [0.0, 0.0, 0.0, 0.0, 0.0]
+            target.data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.target_pub.publish(target)
 
 

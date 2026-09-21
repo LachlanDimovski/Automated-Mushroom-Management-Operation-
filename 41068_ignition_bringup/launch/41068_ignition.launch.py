@@ -172,6 +172,7 @@ def add_navigation_instance(
             'config_filename_suffix': '_' + robot_namespace,
             'slam': LaunchConfiguration('slam'),
             'nav2': LaunchConfiguration('nav2'),
+            'ground_truth_localization': LaunchConfiguration('ground_truth_localization'),
         }.items(),
     )
 
@@ -194,6 +195,8 @@ def add_perception(
     robot_arg,
     robot_namespace,
     start_delay,
+    core='',
+    yolo_arg='yolo',
 ):
     """Run the shared perception stack (YOLO detector) for one robot.
 
@@ -210,13 +213,14 @@ def add_perception(
         launch_arguments={
             'robot': robot_namespace,
             'use_sim_time': use_sim_time,
+            'core': core,
         }.items(),
     )
 
     ld.add_action(TimerAction(
         period=start_delay,
         actions=[GroupAction(scoped=True, actions=[perception_include])],
-        condition=_if_all_true('yolo', robot_arg),
+        condition=_if_all_true(yolo_arg, robot_arg),
     ))
 
 
@@ -287,6 +291,9 @@ def generate_launch_description():
         description='Flag to launch Nav2 for each enabled robot. Nav2 also starts SLAM.',
     )
     ld.add_action(nav2_launch_arg)
+    ld.add_action(DeclareLaunchArgument(
+        'ground_truth_localization', default_value='False',
+        description='Skip SLAM; map->odom comes from an external ground-truth localizer (sim only)'))
 
     husky_launch_arg = DeclareLaunchArgument(
         'husky',
