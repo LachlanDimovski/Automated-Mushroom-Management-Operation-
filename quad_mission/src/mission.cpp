@@ -1,5 +1,5 @@
-
 #include "mission.h"
+#include <algorithm>
 #include <cmath>
 #include <chrono>
  
@@ -32,7 +32,7 @@ Mission::Mission(std::shared_ptr<Quadcopter> quad)
     // External control services
     liftoffSrv_ = this->create_service<Trigger>(
         "/parrot1/mission/liftoff", std::bind(&Mission::handleLiftoff, this, _1, _2));
-    startSearchSrv_ = this->create_service<Trigger>(
+    startSearchSrv_ = this->create_service<StartSearch>(
         "/parrot1/mission/start_search", std::bind(&Mission::handleStartSearch, this, _1, _2));
     returnHomeSrv_ = this->create_service<Trigger>(
         "/parrot1/mission/return_home", std::bind(&Mission::handleReturnHome, this, _1, _2));
@@ -67,8 +67,7 @@ void Mission::handleLiftoff(
     quad_->setGoal(goal);
     quad_->setActive(true);
  
-    RCLCPP_INFO(this->get_logger(),
-        "Liftoff initiated, climbing to 3m");
+    RCLCPP_INFO(this->get_logger(), "Liftoff initiated, climbing to %.1fm.", takeoffAltitude_);
  
     state_ = MissionState::TAKEOFF;
     response->success = true;
@@ -76,19 +75,20 @@ void Mission::handleLiftoff(
 }
  
 void Mission::handleStartSearch(
-    const std::shared_ptr<Trigger::Request>, std::shared_ptr<Trigger::Response> response) {
+    const std::shared_ptr<StartSearch::Request> request, std::shared_ptr<StartSearch::Response> response) {
     if (state_ != MissionState::TAKEOFF || !quad_->isGoalReached()) {
         response->success = false;
         response->message = "Cannot start search from state " + missionStateToString(state_) +
             (state_ == MissionState::TAKEOFF ? " (not yet at altitude)" : "");
         return;
     }
-    waypoints_ = generateBoustrophedonPath();
+    waypoints_ = generateShapePath(request->shape);
     currentWpIdx_ = 0;
     state_ = MissionState::SEARCH;
     sendNextWaypoint();
     response->success = true;
-    response->message = "Search started, " + std::to_string(waypoints_.size()) + " waypoints";
+    response->message = "Search started (shape='" + request->shape + "'), " +
+        std::to_string(waypoints_.size()) + " waypoints";
 }
  
 void Mission::handleReturnHome(
@@ -185,6 +185,51 @@ std::vector<std::pair<double, double>> Mission::generateBoustrophedonPath() {
             waypoints.emplace_back(searchMinX_, y);
         }
         goingRight = !goingRight;
+    }
+    return waypoints;
+}
+ 
+std::vector<std::pair<double, double>> Mission::generateShapePath(const std::string & shape) {
+    if (shape == "rect" || shape == "square") {
+        return generateRectPath();
+    } else if (shape == "circle") {
+        return generateCirclePath();
+    }
+    // Empty or unrecognised shape -> original full-coverage sweep. Keeps
+    // old test commands (Trigger-style calls with no shape) working the
+    // same way they always did.
+    return generateBoustrophedonPath();
+}
+ 
+std::vector<std::pair<double, double>> Mission::generateRectPath() {
+    // Perimeter loop around the search bounds, starting and ending at the
+    // same corner so the shape closes visibly in the RViz trail.
+    // "square" uses the same bounding box rather than forcing equal side
+    // lengths — the search area is already whatever shape the operator/GUI
+    // configured, so a "square" request just traces it without distorting it.
+    std::vector<std::pair<double, double>> waypoints;
+    waypoints.emplace_back(searchMinX_, searchMinY_);
+    waypoints.emplace_back(searchMaxX_, searchMinY_);
+    waypoints.emplace_back(searchMaxX_, searchMaxY_);
+    waypoints.emplace_back(searchMinX_, searchMaxY_);
+    waypoints.emplace_back(searchMinX_, searchMinY_);  // close the loop
+    return waypoints;
+}
+ 
+std::vector<std::pair<double, double>> Mission::generateCirclePath(int numPoints) {
+    // Circle inscribed in the search bounding box: centred on the box,
+    // radius limited by the shorter dimension so it stays inside the
+    // configured search area.
+    double centreX = (searchMinX_ + searchMaxX_) / 2.0;
+    double centreY = (searchMinY_ + searchMaxY_) / 2.0;
+    double width = searchMaxX_ - searchMinX_;
+    double height = searchMaxY_ - searchMinY_;
+    double radius = std::min(width, height) / 2.0;
+ 
+    std::vector<std::pair<double, double>> waypoints;
+    for (int i = 0; i <= numPoints; ++i) {  // <= to close the loop back to start
+        double angle = 2.0 * M_PI * static_cast<double>(i) / static_cast<double>(numPoints);
+        waypoints.emplace_back(centreX + radius * std::cos(angle), centreY + radius * std::sin(angle));
     }
     return waypoints;
 }
