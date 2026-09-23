@@ -29,6 +29,23 @@ Mission::Mission(std::shared_ptr<Quadcopter> quad)
     laneSpacing_ = this->declare_parameter<double>("lane_spacing", 1.0);
     takeoffAltitude_ = this->declare_parameter<double>("takeoff_altitude", 2.0);
  
+    // Planned-path preview — the full upcoming route, published as soon as
+    // a shape is chosen, distinct from Quadcopter's /parrot1/trail (which
+    // shows where it's already been). Add a Path display in RViz pointed
+    // at this topic to see the shape before/while it flies.
+    //
+    // transient_local (latched): this only publishes once per start_search
+    // call, not continuously like /parrot1/trail. Without latching, an
+    // RViz Path display added *after* that single publish would never see
+    // it — the message is already gone by the time it subscribes. With
+    // this, a late-joining subscriber gets the last published path
+    // immediately. NOTE: the RViz display's own "Durability Policy" must
+    // also be set to "Transient Local" (in its properties, same place as
+    // Topic/Color) to actually receive it — mismatched QoS otherwise shows
+    // as an error in RViz even though the publisher is fine.
+    plannedPathPub_ = this->create_publisher<nav_msgs::msg::Path>(
+        "/parrot1/planned_path", rclcpp::QoS(1).transient_local());
+ 
     // External control services
     liftoffSrv_ = this->create_service<Trigger>(
         "/parrot1/mission/liftoff", std::bind(&Mission::handleLiftoff, this, _1, _2));
@@ -85,6 +102,7 @@ void Mission::handleStartSearch(
     waypoints_ = generateShapePath(request->shape);
     currentWpIdx_ = 0;
     state_ = MissionState::SEARCH;
+    publishPlannedPath();
     sendNextWaypoint();
     response->success = true;
     response->message = "Search started (shape='" + request->shape + "'), " +
@@ -127,10 +145,26 @@ void Mission::handleLand(
  
 void Mission::handleAbort(
     const std::shared_ptr<Trigger::Request>, std::shared_ptr<Trigger::Response> response) {
-    quad_->setActive(false);   // zeroes cmd_vel immediately, see Quadcopter::setActive
-    state_ = MissionState::GROUNDED;
+    if (state_ == MissionState::IDLE || state_ == MissionState::GROUNDED) {
+        response->success = false;
+        response->message = "Already grounded — nothing to abort";
+        return;
+    }
+    if (!homeXY_.has_value()) {
+        // Shouldn't happen (home is captured on liftoff), but fall back to
+        // an immediate stop rather than flying towards an unknown point.
+        quad_->setActive(false);
+        state_ = MissionState::GROUNDED;
+        response->success = true;
+        response->message = "Aborted — no home position captured, stopped immediately";
+        return;
+    }
+    auto [hx, hy] = homeXY_.value();
+    quad_->setGoal(makePose(hx, hy, takeoffAltitude_));
+    state_ = MissionState::RETURN;
+    RCLCPP_INFO(this->get_logger(), "Aborted — returning to origin.");
     response->success = true;
-    response->message = "Aborted — dropped to GROUNDED";
+    response->message = "Aborted — returning to origin (call /mission/land once home)";
 }
  
 void Mission::stateLoop() {
@@ -151,6 +185,8 @@ void Mission::stateLoop() {
             if (quad_->isGoalReached()) {
                 quad_->setActive(false);
                 state_ = MissionState::GROUNDED;
+                waypoints_.clear();
+                publishPlannedPath();  // clears the preview in RViz
                 RCLCPP_INFO(this->get_logger(), "Landed.");
             }
             break;
@@ -194,10 +230,14 @@ std::vector<std::pair<double, double>> Mission::generateShapePath(const std::str
         return generateRectPath();
     } else if (shape == "circle") {
         return generateCirclePath();
+    } else if (shape == "zigzag" || shape.empty()) {
+        // Empty stays as a silent default (old Trigger-style calls with no
+        // shape keep working exactly as before); "zigzag" is the same
+        // pattern requested explicitly by name.
+        return generateBoustrophedonPath();
     }
-    // Empty or unrecognised shape -> original full-coverage sweep. Keeps
-    // old test commands (Trigger-style calls with no shape) working the
-    // same way they always did.
+    RCLCPP_WARN(this->get_logger(),
+        "Unrecognised shape '%s' — falling back to zigzag sweep.", shape.c_str());
     return generateBoustrophedonPath();
 }
  
@@ -241,4 +281,17 @@ geometry_msgs::msg::Pose Mission::makePose(double x, double y, double z) {
     pose.position.z = z;
     pose.orientation.w = 1.0;  // no particular heading requested
     return pose;
+}
+ 
+void Mission::publishPlannedPath() {
+    nav_msgs::msg::Path path;
+    path.header.frame_id = "parrot1_odom";  // same frame as Quadcopter's /parrot1/trail
+    path.header.stamp = this->get_clock()->now();
+    for (const auto & [x, y] : waypoints_) {
+        geometry_msgs::msg::PoseStamped ps;
+        ps.header = path.header;
+        ps.pose = makePose(x, y, takeoffAltitude_);
+        path.poses.push_back(ps);
+    }
+    plannedPathPub_->publish(path);  // empty waypoints_ publishes an empty Path, clearing it in RViz
 }

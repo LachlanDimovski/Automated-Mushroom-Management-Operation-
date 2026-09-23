@@ -1,7 +1,7 @@
 // Top level quad state machine
 // Call this for all your quad needs!
 // Made and Upkept by Darcy Moyes - 25280025
-// last patch was 22 September 26
+// last patch was 4 September 26
 // -- Quadcopter States --
 // IDLE          = Motors are idle, here when waiting for a command
 // TAKEOFF       = Start to move to a coasting height
@@ -19,6 +19,8 @@
  
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/pose.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "std_srvs/srv/trigger.hpp"
 #include "quad_mission_interfaces/srv/start_search.hpp"
  
@@ -85,6 +87,7 @@ private:
  
   geometry_msgs::msg::Pose makePose(double x, double y, double z);
   void sendNextWaypoint();
+  void publishPlannedPath();   // publishes waypoints_ as a preview Path, or clears it when empty
  
   std::shared_ptr<Quadcopter> quad_;
   MissionState state_;
@@ -98,6 +101,7 @@ private:
   double takeoffAltitude_;
  
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr plannedPathPub_;
   rclcpp::Service<Trigger>::SharedPtr liftoffSrv_;
   rclcpp::Service<StartSearch>::SharedPtr startSearchSrv_;
   rclcpp::Service<Trigger>::SharedPtr returnHomeSrv_;
