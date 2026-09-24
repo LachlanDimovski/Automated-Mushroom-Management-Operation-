@@ -6,6 +6,16 @@
   <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/common_properties.urdf.xacro"/>
   <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/husky.gazebo.xacro"/>
   <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/wheel.urdf.xacro"/>
+  <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/cage.urdf.xacro"/>
+  <xacro:include filename="$(find 41068_ignition_bringup)/urdf_husky/gripper.urdf.xacro"/>
+  <xacro:arg name="gripper" default="true"/>
+  <xacro:if value="$(arg gripper)">
+    <xacro:front_gripper prefix="${prefix}" gz_model_name="$(arg gz_model_name)"/>
+  </xacro:if>
+  <xacro:arg name="cage" default="false"/>  <!-- boom cage superseded by the front gripper; cage:=true restores it -->
+  <xacro:if value="$(arg cage)">
+    <xacro:cage_arm prefix="${prefix}" gz_model_name="$(arg gz_model_name)"/>
+  </xacro:if>
 
   <xacro:property name="r200_cam_rgb_px" value="0.005"/>
   <xacro:property name="r200_cam_rgb_py" value="0.018"/>
@@ -13,6 +23,18 @@
   <xacro:property name="r200_cam_depth_offset" value="0.01"/>
 
   <link name="${prefix}base_link">
+    <xacro:arg name="x2_body" default="true"/>
+    <xacro:if value="$(arg x2_body)">
+      <!-- X2 UGV body scaled onto the Husky skeleton: joints, sensors and
+           collisions are unchanged so every controller behaves identically. -->
+      <visual>
+        <origin xyz="0 0 -0.132" rpy="${pi/2} 0 -${pi/2}"/>
+        <geometry>
+          <mesh filename="file://$(find 41068_ignition_bringup)/urdf_husky/meshes/x2/x2_chassis.dae" scale="1.7 1.7 1.7"/>
+        </geometry>
+      </visual>
+    </xacro:if>
+    <xacro:unless value="$(arg x2_body)">
     <visual>
       <origin xyz="0 0 0.0" rpy="0 0 0"/>
       <geometry>
@@ -55,6 +77,7 @@
       <material name="black"/>
     </visual>
 
+    </xacro:unless>
     <collision name="base_link_collision">
       <origin xyz="0 0 0.12" rpy="0 0 0"/>
       <geometry>
@@ -96,10 +119,10 @@
   </link>
 
   <!-- Wheels -->
-  <xacro:wheel prefix="${prefix}" wheel_id="front_left" x_pos="0.256" y_pos="${wheel_separation/2}"/>
-  <xacro:wheel prefix="${prefix}" wheel_id="front_right" x_pos="0.256" y_pos="-${wheel_separation/2}"/>
-  <xacro:wheel prefix="${prefix}" wheel_id="rear_left" x_pos="-0.256" y_pos="${wheel_separation/2}"/>
-  <xacro:wheel prefix="${prefix}" wheel_id="rear_right" x_pos="-0.256" y_pos="-${wheel_separation/2}"/>
+  <xacro:wheel prefix="${prefix}" wheel_id="front_left" x_pos="0.256" y_pos="${wheel_separation/2}" side="left"/>
+  <xacro:wheel prefix="${prefix}" wheel_id="front_right" x_pos="0.256" y_pos="-${wheel_separation/2}" side="right"/>
+  <xacro:wheel prefix="${prefix}" wheel_id="rear_left" x_pos="-0.256" y_pos="${wheel_separation/2}" side="left"/>
+  <xacro:wheel prefix="${prefix}" wheel_id="rear_right" x_pos="-0.256" y_pos="-${wheel_separation/2}" side="right"/>
 
   <joint name="${prefix}imu_joint" type="fixed">
     <parent link="${prefix}base_link"/>
@@ -134,7 +157,8 @@
   </link>
 
   <joint name="${prefix}camera_joint" type="fixed">
-    <origin xyz="0.45 0.0 0.25" rpy="0 0 0"/> <!-- 0.5 0.0 0.9 -->
+    <xacro:arg name="camera_pitch" default="0.4363"/> <!-- rad down, 25 deg: sees mushrooms at cage range -->
+    <origin xyz="0.45 0.0 0.25" rpy="0 $(arg camera_pitch) 0"/>
     <parent link="${prefix}base_link"/>
     <child link="${prefix}camera_link"/>
   </joint>

@@ -28,9 +28,14 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument('yolo', default_value='True'))
     ld.add_action(DeclareLaunchArgument('model_path', default_value=''))
     ld.add_action(DeclareLaunchArgument('conf_threshold', default_value='0.25'))
+<<<<<<< HEAD
     ld.add_action(DeclareLaunchArgument('hazard', default_value='False'))
     ld.add_action(DeclareLaunchArgument('hazard_conf', default_value='0.65'))
     ld.add_action(DeclareLaunchArgument('stop_height_px', default_value='120.0'))
+=======
+    # one core per detector (see yolo_node.py); '' = unpinned
+    ld.add_action(DeclareLaunchArgument('core', default_value=''))
+>>>>>>> f6ea8db38b484c171ded0834383f43514413f07a
 
     ld.add_action(Node(
         package='perception',
@@ -45,6 +50,7 @@ def generate_launch_description():
             'conf_threshold': ParameterValue(conf_threshold, value_type=float),
         }],
         condition=IfCondition(yolo),
+        additional_env={'YOLO_CORE': LaunchConfiguration('core')},
     ))
 
     # Person detection, on stock COCO weights. Separate file because its

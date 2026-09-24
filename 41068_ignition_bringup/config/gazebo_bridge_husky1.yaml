@@ -34,11 +34,6 @@
   direction: GZ_TO_ROS
 
 # Lidar: pointcloud
-- ros_topic_name: "scan/points"
-  gz_topic_name: "/model/husky1/scan/points"
-  ros_type_name: "sensor_msgs/msg/PointCloud2"
-  gz_type_name: "gz.msgs.PointCloudPacked"
-  direction: GZ_TO_ROS
 
 # Camera: RGB
 - ros_topic_name: "camera/image"
@@ -55,8 +50,30 @@
   direction: GZ_TO_ROS
 
 # Camera: depth pointcloud
-- ros_topic_name: "camera/depth/points"
-  gz_topic_name: "/model/husky1/camera/points"
-  ros_type_name: "sensor_msgs/msg/PointCloud2"
-  gz_type_name: "ignition.msgs.PointCloudPacked"
-  direction: GZ_TO_ROS
+# Lift: boom 0.28 stowed / 3.07 lowered; cage joint = -boom to stay level
+- ros_topic_name: 'boom/cmd_pos'
+  gz_topic_name: '/model/husky1/boom/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ
+- ros_topic_name: 'cage/cmd_pos'
+  gz_topic_name: '/model/husky1/cage/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ
+# Front gripper claws: +-1.57 stowed / +-0.35 open / -+0.6 closed
+- ros_topic_name: 'claw_left/cmd_pos'
+  gz_topic_name: '/model/husky1/claw_left/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ
+- ros_topic_name: 'claw_right/cmd_pos'
+  gz_topic_name: '/model/husky1/claw_right/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ
+- ros_topic_name: 'gripper_pitch/cmd_pos'
+  gz_topic_name: '/model/husky1/gripper_pitch/cmd_pos'
+  ros_type_name: 'std_msgs/msg/Float64'
+  gz_type_name: 'ignition.msgs.Double'
+  direction: ROS_TO_GZ

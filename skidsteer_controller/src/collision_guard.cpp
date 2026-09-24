@@ -126,6 +126,7 @@ void CollisionGuard::guardTimerCallback()
   }
 
   if ((now() - lastRawCmdStamp_).seconds() > RAW_CMD_TIMEOUT_S) {
+    haveRawCmd_ = false;  // stop once, then go quiet so Nav2 / the unguarded ALIGN path own cmd_vel
     cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
     return;
   }

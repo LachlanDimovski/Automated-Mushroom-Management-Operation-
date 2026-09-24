@@ -191,6 +191,7 @@ def add_navigation_instance(
             'config_filename_suffix': '_' + robot_namespace,
             'slam': LaunchConfiguration('slam'),
             'nav2': LaunchConfiguration('nav2'),
+            'ground_truth_localization': LaunchConfiguration('ground_truth_localization'),
         }.items(),
     )
 
@@ -213,6 +214,8 @@ def add_perception(
     robot_arg,
     robot_namespace,
     start_delay,
+    core='',
+    yolo_arg='yolo',
 ):
     """Run the shared perception stack (YOLO detector) for one robot.
 
@@ -229,20 +232,28 @@ def add_perception(
         launch_arguments={
             'robot': robot_namespace,
             'use_sim_time': use_sim_time,
+<<<<<<< HEAD
             'yolo': LaunchConfiguration('yolo'),
             'hazard': LaunchConfiguration('hazard'),
             'conf_threshold': LaunchConfiguration('conf_threshold'),
             'hazard_conf': LaunchConfiguration('hazard_conf'),
             'stop_height_px': LaunchConfiguration('stop_height_px'),
+=======
+            'core': core,
+>>>>>>> f6ea8db38b484c171ded0834383f43514413f07a
         }.items(),
     )
 
     ld.add_action(TimerAction(
         period=start_delay,
         actions=[GroupAction(scoped=True, actions=[perception_include])],
+<<<<<<< HEAD
         # Either detector is reason enough to bring perception up; which
         # nodes actually run is decided inside perception.launch.py.
         condition=_if_any_of_and(('yolo', 'hazard'), robot_arg),
+=======
+        condition=_if_all_true(yolo_arg, robot_arg),
+>>>>>>> f6ea8db38b484c171ded0834383f43514413f07a
     ))
 
 
@@ -313,6 +324,9 @@ def generate_launch_description():
         description='Flag to launch Nav2 for each enabled robot. Nav2 also starts SLAM.',
     )
     ld.add_action(nav2_launch_arg)
+    ld.add_action(DeclareLaunchArgument(
+        'ground_truth_localization', default_value='False',
+        description='Skip SLAM; map->odom comes from an external ground-truth localizer (sim only)'))
 
     husky_launch_arg = DeclareLaunchArgument(
         'husky',

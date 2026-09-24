@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<!-- Front claw gripper, low-mounted: a bar on a pitch hinge at the bottom of
+     the bumper (base_link z=0, ~0.13 m above ground) carries two claws on
+     vertical hinges. Driving: bar pitched up (-1.5 rad) so the claws stand
+     vertical and clear roots. At the target: bar pitches down level, claws
+     ~0.08 m off the ground, open (+-0.35) then close (-+0.6) so the tips meet
+     ~0.85 m ahead of base_link around the mushroom. Visual only - no
+     collision; the collect check is positional, as for the cage. -->
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:property name="claw_len" value="0.35"/>
+  <xacro:property name="bar_x" value="0.62"/>
+  <xacro:property name="bar_y" value="0.22"/>
+  <xacro:property name="claw_drop" value="0.05"/>
+  <material name="claw_yellow"><color rgba="1.0 0.84 0.0 1"/></material>
+
+  <xacro:macro name="claw" params="prefix gz_model_name side sign">
+    <joint name="${prefix}claw_${side}_joint" type="revolute">
+      <parent link="${prefix}gripper_bar_link"/>
+      <child link="${prefix}claw_${side}_link"/>
+      <origin xyz="0.03 ${sign*bar_y} -${claw_drop}"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-1.7" upper="1.7" effort="20" velocity="2.0"/>
+      <dynamics damping="0.5"/>
+    </joint>
+    <link name="${prefix}claw_${side}_link">
+      <visual><origin xyz="${claw_len/2} 0 0"/><geometry><box size="${claw_len} 0.03 0.04"/></geometry><material name="claw_yellow"/></visual>
+      <visual><origin xyz="${claw_len} ${-sign*0.03} 0"/><geometry><box size="0.04 0.08 0.04"/></geometry><material name="claw_yellow"/></visual>
+      <inertial><origin xyz="${claw_len/2} 0 0"/><mass value="0.2"/><inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial>
+    </link>
+    <gazebo>
+      <plugin filename="ignition-gazebo-joint-position-controller-system"
+              name="ignition::gazebo::systems::JointPositionController">
+        <joint_name>${prefix}claw_${side}_joint</joint_name>
+        <topic>model/${gz_model_name}/claw_${side}/cmd_pos</topic>
+        <p_gain>20</p_gain><i_gain>2</i_gain><d_gain>1</d_gain>
+        <initial_position>${sign*0.35}</initial_position>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="front_gripper" params="prefix gz_model_name">
+    <joint name="${prefix}gripper_pitch_joint" type="revolute">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}gripper_bar_link"/>
+      <origin xyz="${bar_x} 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-1.6" upper="0.2" effort="40" velocity="1.5"/>
+      <dynamics damping="1.0"/>
+    </joint>
+    <link name="${prefix}gripper_bar_link">
+      <visual><origin xyz="0.015 0 0"/><geometry><box size="0.03 ${2*bar_y+0.03} 0.04"/></geometry><material name="claw_yellow"/></visual>
+      <visual><origin xyz="0.03 ${bar_y} -${claw_drop/2}"/><geometry><box size="0.03 0.03 ${claw_drop}"/></geometry><material name="claw_yellow"/></visual>
+      <visual><origin xyz="0.03 -${bar_y} -${claw_drop/2}"/><geometry><box size="0.03 0.03 ${claw_drop}"/></geometry><material name="claw_yellow"/></visual>
+      <inertial><origin xyz="0.02 0 0"/><mass value="0.5"/><inertia ixx="0.01" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.01"/></inertial>
+    </link>
+    <gazebo>
+      <plugin filename="ignition-gazebo-joint-position-controller-system"
+              name="ignition::gazebo::systems::JointPositionController">
+        <joint_name>${prefix}gripper_pitch_joint</joint_name>
+        <topic>model/${gz_model_name}/gripper_pitch/cmd_pos</topic>
+        <p_gain>60</p_gain><i_gain>6</i_gain><d_gain>4</d_gain>
+        <initial_position>-1.5</initial_position>
+      </plugin>
+    </gazebo>
+    <xacro:claw prefix="${prefix}" gz_model_name="${gz_model_name}" side="left" sign="1"/>
+    <xacro:claw prefix="${prefix}" gz_model_name="${gz_model_name}" side="right" sign="-1"/>
+  </xacro:macro>
+</robot>

@@ -1,7 +1,7 @@
 // Top level quad state machine
 // Call this for all your quad needs!
 // Made and Upkept by Darcy Moyes - 25280025
-// last patch was 6 September 26
+// last patch was 4 September 26
 // -- Quadcopter States --
 // IDLE          = Motors are idle, here when waiting for a command
 // TAKEOFF       = Start to move to a coasting height
@@ -9,8 +9,8 @@
 // RETURN        = Returning home to start point - doesnt search in this mode
 // LAND          = self explanatory - lands the quadcopter
 // GROUNDED      = on the ground - can lead to takeoff
-#ifndef QUADCOPTER_MISSION__MISSION_HPP_
-#define QUADCOPTER_MISSION__MISSION_HPP_
+#ifndef QUAD_MISSION__MISSION_H_
+#define QUAD_MISSION__MISSION_H_
  
 #include <memory>
 #include <optional>
@@ -19,7 +19,10 @@
  
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/pose.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "std_srvs/srv/trigger.hpp"
+#include "quad_mission_interfaces/srv/start_search.hpp"
  
 #include "quadcopter.h"
  
@@ -34,7 +37,19 @@ enum class MissionState {  // refer to header comment above for state meanings
  
 std::string missionStateToString(MissionState state);
  
-
+// Mission-level state machine, same split as A3's Mission/Controller:
+// this node holds a shared_ptr to the Quadcopter node and drives it by
+// calling its public setGoal()/isGoalReached()/setActive() interface
+// directly (both nodes are spun together in the same executor in
+// main.cpp), rather than talking to it over topics.
+//
+// Liftoff and land are just pose goals with a target z (see quadcopter.hpp
+// for why — no dedicated flight-controller topic on this drone model).
+//
+// There's no separate FAILSAFE state: /mission/abort cancels the current
+// goal, zeroes cmd_vel, and drops straight to GROUNDED, since GROUNDED is
+// already "on the ground, can lead to takeoff" — the right place to sit
+// after an aborted mission just as much as after a normal landing.
 class Mission : public rclcpp::Node
 {
 public:
@@ -42,6 +57,7 @@ public:
  
 private:
   using Trigger = std_srvs::srv::Trigger;
+  using StartSearch = quad_mission_interfaces::srv::StartSearch;
  
   void stateLoop();
  
@@ -49,8 +65,8 @@ private:
     const std::shared_ptr<Trigger::Request> request,
     std::shared_ptr<Trigger::Response> response);
   void handleStartSearch(
-    const std::shared_ptr<Trigger::Request> request,
-    std::shared_ptr<Trigger::Response> response);
+    const std::shared_ptr<StartSearch::Request> request,
+    std::shared_ptr<StartSearch::Response> response);
   void handleReturnHome(
     const std::shared_ptr<Trigger::Request> request,
     std::shared_ptr<Trigger::Response> response);
@@ -61,9 +77,17 @@ private:
     const std::shared_ptr<Trigger::Request> request,
     std::shared_ptr<Trigger::Response> response);
  
+  // Path shapes. "rect"/"square" trace the search-area perimeter, "circle"
+  // traces a circle inscribed in it, anything else (including empty/unknown)
+  // falls back to the original full-coverage boustrophedon sweep.
+  std::vector<std::pair<double, double>> generateShapePath(const std::string & shape);
   std::vector<std::pair<double, double>> generateBoustrophedonPath();
+  std::vector<std::pair<double, double>> generateRectPath();
+  std::vector<std::pair<double, double>> generateCirclePath(int numPoints = 24);
+ 
   geometry_msgs::msg::Pose makePose(double x, double y, double z);
   void sendNextWaypoint();
+  void publishPlannedPath();   // publishes waypoints_ as a preview Path, or clears it when empty
  
   std::shared_ptr<Quadcopter> quad_;
   MissionState state_;
@@ -77,12 +101,13 @@ private:
   double takeoffAltitude_;
  
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr plannedPathPub_;
   rclcpp::Service<Trigger>::SharedPtr liftoffSrv_;
-  rclcpp::Service<Trigger>::SharedPtr startSearchSrv_;
+  rclcpp::Service<StartSearch>::SharedPtr startSearchSrv_;
   rclcpp::Service<Trigger>::SharedPtr returnHomeSrv_;
   rclcpp::Service<Trigger>::SharedPtr landSrv_;
   rclcpp::Service<Trigger>::SharedPtr abortSrv_;
 };
  
-#endif  // QUADCOPTER_MISSION__MISSION_HPP_
+#endif  // QUAD_MISSION__MISSION_H_
  

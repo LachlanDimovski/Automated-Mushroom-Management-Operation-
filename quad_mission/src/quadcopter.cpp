@@ -1,3 +1,5 @@
+// ros2 launch 41068_ignition_bringup 41068_ignition_parrot.launch.py slam:=true nav2:=true rviz:=true world:=large_demo
+
 #include "quadcopter.h"
 #include <algorithm>
 #include <cmath>
@@ -14,19 +16,31 @@ Quadcopter::Quadcopter() : Node("quadcopter"), active_(false), goalSet_(false) {
         // publishes to the parrot1 cmd_vel topic (this project's drone, not sjtu_drone)
         // Number at the end is the queue size, so 10 loads 10 messages, which is good for slow processing
  
+    // Flight trail for RViz — accumulated in odomCallback, drawn as a Path
+    // display pointed at /parrot1/trail (Add -> By display type -> Path).
+    trail_publisher_ = this->create_publisher<nav_msgs::msg::Path>("/parrot1/trail", 10);
+    trail_.header.frame_id = "parrot1_odom";
+ 
     // NOTE: no takeoff_publisher_/land_publisher_ here — see the header comment.
     // The Parrot has no arm/disarm flight-controller topic like sjtu_drone did;
     // liftoff/land are handled as z-axis pose goals through setGoal() instead,
     // driven by the Mission node.
  
     // Subscribers
+    // NOTE: deliberately /parrot1/odometry, not /parrot1/odom. /odom is the
+    // robot_localization EKF-fused output, and the EKF is configured in 2D
+    // mode — it zeroes z regardless of what the raw sensor data contains
+    // (see the comment on the OdometryPublisher plugin in
+    // parrot.gazebo.xacro: "3D so odometry carries altitude (z); the EKF
+    // ignores z either way"). /parrot1/odometry is the raw bridge from
+    // Gazebo's ignition-gazebo-odometry-publisher-system plugin
+    // (gazebo_bridge_parrot1.yaml), configured with <dimensions>3</dimensions>
+    // — this is the one that actually reports real altitude.
     odom_subscriber_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "/parrot1/odom", 10, std::bind(&Quadcopter::odomCallback, this, std::placeholders::_1));
+        "/parrot1/odometry", 10, std::bind(&Quadcopter::odomCallback, this, std::placeholders::_1));
     // similar to the publisher but has the additional callback binding to tell ROS what
     // function to call when it arrives — so when a new odometry message arrives, call
     // odomCallback and move the message to it.
-    // TODO: confirm /parrot1/odom is the correct topic on your VM —
-    // `ros2 topic list | grep parrot1` — before relying on this for real feedback.
  
     // Timer for 50ms (20Hz) control loop
     timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&Quadcopter::timerCallback, this));
@@ -42,6 +56,31 @@ Quadcopter::~Quadcopter() {
 void Quadcopter::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     std::unique_lock<std::mutex> lck(odomMtx_);
     odom_ = *msg;  // dereferenced pointer so it is the actual message object
+    lck.unlock();
+ 
+    // Trail: only record a new point if we've moved far enough from the
+    // last one (keeps the Path from being pointlessly dense while hovering
+    // or moving slowly), and cap total points so the message doesn't grow
+    // unbounded over a long mission.
+    bool should_record = trail_.poses.empty();
+    if (!should_record) {
+        const auto & last = trail_.poses.back().pose.position;
+        double dx = msg->pose.pose.position.x - last.x;
+        double dy = msg->pose.pose.position.y - last.y;
+        double dz = msg->pose.pose.position.z - last.z;
+        should_record = std::sqrt(dx * dx + dy * dy + dz * dz) > TRAIL_MIN_SPACING;
+    }
+    if (should_record) {
+        geometry_msgs::msg::PoseStamped ps;
+        ps.header = msg->header;
+        ps.pose = msg->pose.pose;
+        trail_.poses.push_back(ps);
+        if (trail_.poses.size() > TRAIL_MAX_POINTS) {
+            trail_.poses.erase(trail_.poses.begin());
+        }
+        trail_.header.stamp = msg->header.stamp;
+        trail_publisher_->publish(trail_);
+    }
 }
  
 void Quadcopter::setGoal(geometry_msgs::msg::Pose goal) {
@@ -77,14 +116,12 @@ bool Quadcopter::isGoalReached() {
  
     double dx = goal.position.x - odom.pose.pose.position.x;
     double dy = goal.position.y - odom.pose.pose.position.y;
-    // NOTE: horizontal distance only. This platform doesn't reliably report
-    // (or control) z — the 41068 starter README confirms the Parrot flies
-    // in 2D at a fixed altitude by default. Including dz here would mean
-    // isGoalReached() never returns true for a liftoff/land goal (which only
-    // changes z), hanging the mission indefinitely. cmd.linear.z is still
-    // computed below and published, so if the platform is later extended to
-    // real 3D flight this starts working with no further changes needed here.
-    double dist = std::sqrt(dx * dx + dy * dy);
+    double dz = goal.position.z - odom.pose.pose.position.z;
+    // Real 3D distance — /parrot1/odometry (unlike /parrot1/odom) carries
+    // genuine altitude, so liftoff/land goals now converge properly instead
+    // of needing the horizontal-only workaround from before that topic was
+    // found. See the odom_subscriber_ comment in the constructor for why.
+    double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
     return dist < GOAL_TOLERANCE;
 }
  
