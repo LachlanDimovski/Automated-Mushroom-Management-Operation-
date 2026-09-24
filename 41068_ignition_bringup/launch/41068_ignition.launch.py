@@ -4,6 +4,7 @@ from launch.actions import (
     GroupAction,
     IncludeLaunchDescription,
     SetEnvironmentVariable,
+    SetLaunchConfiguration,
     TimerAction,
 )
 from launch.conditions import IfCondition
@@ -232,28 +233,21 @@ def add_perception(
         launch_arguments={
             'robot': robot_namespace,
             'use_sim_time': use_sim_time,
-<<<<<<< HEAD
-            'yolo': LaunchConfiguration('yolo'),
+            'yolo': LaunchConfiguration(yolo_arg),
             'hazard': LaunchConfiguration('hazard'),
             'conf_threshold': LaunchConfiguration('conf_threshold'),
             'hazard_conf': LaunchConfiguration('hazard_conf'),
             'stop_height_px': LaunchConfiguration('stop_height_px'),
-=======
             'core': core,
->>>>>>> f6ea8db38b484c171ded0834383f43514413f07a
         }.items(),
     )
 
     ld.add_action(TimerAction(
         period=start_delay,
         actions=[GroupAction(scoped=True, actions=[perception_include])],
-<<<<<<< HEAD
         # Either detector is reason enough to bring perception up; which
         # nodes actually run is decided inside perception.launch.py.
-        condition=_if_any_of_and(('yolo', 'hazard'), robot_arg),
-=======
-        condition=_if_all_true(yolo_arg, robot_arg),
->>>>>>> f6ea8db38b484c171ded0834383f43514413f07a
+        condition=_if_any_of_and((yolo_arg, 'hazard'), robot_arg),
     ))
 
 
@@ -371,12 +365,17 @@ def generate_launch_description():
         description='Run the shared YOLO detector for each enabled robot',
     )
     ld.add_action(yolo_launch_arg)
+    ld.add_action(DeclareLaunchArgument(
+        'husky_yolo', default_value='True',
+        description='Also required for the husky detector (the mission approach is odometry-only and does not need it)'))
+    # husky detector only when both yolo and husky_yolo are true
+    ld.add_action(SetLaunchConfiguration('husky_yolo_on', PythonExpression(
+        _is_true_expression('yolo') + [' and '] + _is_true_expression('husky_yolo'))))
 
     world_launch_arg = DeclareLaunchArgument(
         'world',
         default_value='simple_trees',
-        description='Which world to load',
-        choices=['simple_trees', 'large_demo'],
+        description='Which world to load: any worlds/<name>.sdf (simple_trees, large_demo, forest_flat, forest_random, ...)',
     )
     ld.add_action(world_launch_arg)
 
@@ -484,21 +483,15 @@ def generate_launch_description():
         start_delay=7.0,
     )
 
-    add_navigation_instance(
-        ld,
-        pkg_path=pkg_path,
-        use_sim_time=use_sim_time,
-        robot_arg='parrot',
-        robot_namespace='parrot1',
-        start_delay=10.0,
-    )
-
+    # one CPU core per detector (see perception/yolo_node.py)
     add_perception(
         ld,
         use_sim_time=use_sim_time,
         robot_arg='husky',
         robot_namespace='husky1',
         start_delay=8.0,
+        core='6',
+        yolo_arg='husky_yolo_on',
     )
 
     add_perception(
@@ -507,6 +500,7 @@ def generate_launch_description():
         robot_arg='parrot',
         robot_namespace='parrot1',
         start_delay=11.0,
+        core='7',
     )
 
     add_rviz_instance(

@@ -25,7 +25,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetRemap
 from launch_ros.parameter_descriptions import ParameterValue
 
 BRINGUP = get_package_share_directory('41068_ignition_bringup')
@@ -41,7 +41,8 @@ def _nodes(context):
         if LaunchConfiguration('meta_goals').perform(context).lower() == 'true':  # false = quad dispatches only
             goals_x = [m['x'] for m in d['mushrooms']] or [0.0]
             goals_y = [m['y'] for m in d['mushrooms']] or [0.0]
-    half = d['world']['playable_size_m'] / 2.0 - 3.0 if os.path.exists(meta) else 6.5  # simple_trees grass is 15 x 15 m
+    # 4.5 m in from the boundary tree ring (at 3 m the quad stalled in the corners); simple_trees grass is 15 x 15 m
+    half = d['world']['playable_size_m'] / 2.0 - 4.5 if os.path.exists(meta) else 6.5
     ground_z = d['spawn_clearing']['ground_z'] if os.path.exists(meta) else 0.0
     qwp = [float(v) for v in LaunchConfiguration('quad_waypoints').perform(context).split(',') if v.strip()]
     # demo mushrooms 'x,y,x,y,...' spawned once Gazebo is up - not queued, the quad has to find them
@@ -55,7 +56,7 @@ def _nodes(context):
     quad = [] if not parrot_on else [
         Node(package='ammo_mission_control', executable='quad_search_node', output='screen',
              parameters=[{**sim, 'trunks': trunks, 'waypoints': qwp or [0.0], 'ground_z': ground_z,
-                          'search_area': [-half, half, -half, half, 4.0 if half < 10 else 6.0]}]),
+                          'search_area': [-half, half, -half, half, 3.0]}]),  # rows 3 m apart: YOLO range is ~3.5 m
     ]
     return ([TimerAction(period=12.0, actions=spawns)] if spawns else []) + quad + [
         Node(package='ammo_mission_control', executable='truth_localizer', output='screen', parameters=[sim],
@@ -63,9 +64,10 @@ def _nodes(context):
         # cage_capture_node now publishes cmd_vel_raw (not cmd_vel directly) so
         # this guard can still stop it for low obstacles (fallen trees/logs)
         # that forest_random's terrain puts below Nav2's costmap.
-        Node(package='skidsteer_controller', executable='collision_guard_node', output='screen', parameters=[sim]),
+        Node(package='skidsteer_controller', executable='collision_guard_node', output='screen', parameters=[sim],
+             remappings=[('/tf', '/husky1/tf'), ('/tf_static', '/husky1/tf_static')]),  # camera pose for the depth check
         Node(package='ammo_mission_control', executable='cage_capture_node', output='screen',
-             parameters=[{**sim, 'world': world, 'trunks': trunks, 'goals_x': goals_x, 'goals_y': goals_y,
+             parameters=[{**sim, 'world': os.path.basename(world), 'trunks': trunks, 'goals_x': goals_x, 'goals_y': goals_y,
                           'count': ParameterValue(LaunchConfiguration('count'), value_type=int),
                           'tool': LaunchConfiguration('tool')}]),
     ]
@@ -79,8 +81,10 @@ def generate_launch_description():
                           # quad flight plan as 'x0,y0,x1,y1,...'; empty = lawnmower over the world
                           ('quad_waypoints', ''), ('mushrooms', ''), ('husky_yolo', 'false')):
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
+    # Nav2's smoothed output goes through collision_guard's depth check instead of straight to the wheels
+    ld.add_action(SetRemap(src='cmd_vel_smoothed', dst='cmd_vel_nav_guarded'))
     ld.add_action(IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(BRINGUP, 'launch', 'forest_world.launch.py')),
+        PythonLaunchDescriptionSource(os.path.join(BRINGUP, 'launch', '41068_ignition.launch.py')),
         launch_arguments={'world': LaunchConfiguration('world'), 'nav2': 'true',
                           'parrot': LaunchConfiguration('parrot'), 'yolo': LaunchConfiguration('yolo'),
                           'husky_yolo': LaunchConfiguration('husky_yolo'),

@@ -6,21 +6,40 @@
 #include <cstring>
 #include <limits>
 
+#include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/LinearMath/Quaternion.h>
+
 using namespace std::chrono_literals;
 
 CollisionGuard::CollisionGuard()
 : Node("collision_guard")
 {
   cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("husky1/cmd_vel", 10);
+  obstacle_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("husky1/depth_obstacles", 10);
   cmd_vel_raw_sub_ = create_subscription<geometry_msgs::msg::Twist>(
     "husky1/cmd_vel_raw", 10,
     std::bind(&CollisionGuard::cmdCallback, this, std::placeholders::_1));
+  // Nav2's velocity smoother output (cage_mission.launch.py remaps it here).
+  // Only the depth checks apply to it: Nav2's own costmap already keeps it off
+  // lidar obstacles, and the lidar stop/steering assist would fight its path
+  // follower between trunks. Depth covers what that costmap cannot see.
+  cmd_vel_nav_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+    "husky1/cmd_vel_nav_guarded", 10,
+    std::bind(&CollisionGuard::navCallback, this, std::placeholders::_1));
   scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
     "husky1/scan", 10,
     std::bind(&CollisionGuard::scanCallback, this, std::placeholders::_1));
   depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
     "husky1/camera/depth/image", 10,
     std::bind(&CollisionGuard::depthCallback, this, std::placeholders::_1));
+  base_frame_ = declare_parameter("base_frame", "husky1_base_link");
+  // wheel axle z (0.0328) - wheel radius (0.1651) in husky.urdf.xacro
+  base_height_ = declare_parameter("base_height_m", 0.1323);
+  // calibration knob: rougher ground than the generated forests may need this raised
+  depth_limits_.min_obstacle_height = declare_parameter("min_obstacle_height_m", depth_limits_.min_obstacle_height);
+  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   guard_timer_ = create_wall_timer(
     std::chrono::milliseconds(GUARD_TIMER_MS),
     std::bind(&CollisionGuard::guardTimerCallback, this));
@@ -39,72 +58,79 @@ void CollisionGuard::scanCallback(const sensor_msgs::msg::LaserScan::SharedPtr m
   haveScan_ = true;
 }
 
-// Depth image is 32-bit float metres per pixel (encoding "32FC1"), so we
-// read it directly rather than pulling in cv_bridge for one min-reduction.
-// The lidar can't physically tilt down, so its single fixed-height plane
-// misses low obstacles entirely - tree roots, low grass clumps, anything
-// below ~0.68m in this forest world. The crop is biased towards the bottom
-// of the frame (closer to the ground) to cover that gap, but only down to
-// a row whose ray would hit flat ground at GROUND_SAFE_DIST_M or further -
-// past that point every row sees bare earth close up regardless of any
-// real obstacle, which would permanently read as "blocked" on open ground.
+// Depth image is 32-bit float metres per pixel ("32FC1"), read directly
+// rather than via cv_bridge. The lidar's single plane misses low obstacles
+// (logs, roots) - the depth camera covers them. Pixels are projected into
+// base_link with the camera pose from TF, so flat ground is height ~0
+// wherever the camera is mounted or tilted (see depth_check.hpp).
 void CollisionGuard::depthCallback(const sensor_msgs::msg::Image::SharedPtr msg)
 {
   if (msg->encoding != "32FC1" || msg->height == 0 || msg->width == 0) {
     return;
   }
-
-  double verticalHalfFov = std::atan(std::tan(CAMERA_HORIZONTAL_FOV_RAD / 2.0) / CAMERA_ASPECT);
-  double maxSafeDepressionRad = std::atan(CAMERA_HEIGHT_M / GROUND_SAFE_DIST_M);
-  double safeFractionBelowCenter = std::clamp(maxSafeDepressionRad / verticalHalfFov, 0.0, 1.0);
-
-  uint32_t xStart = msg->width / 4;
-  uint32_t xEnd = msg->width - xStart;
-  uint32_t yStart = msg->height * 3 / 8;  // skip the upper canopy/sky band
-  uint32_t yEnd = msg->height / 2 +
-    static_cast<uint32_t>(safeFractionBelowCenter * static_cast<double>(msg->height) / 2.0);
-  yEnd = std::min(yEnd, msg->height);
-
-  float minDepth = std::numeric_limits<float>::infinity();
-  for (uint32_t y = yStart; y < yEnd; ++y) {
-    const uint8_t * row = msg->data.data() + static_cast<size_t>(y) * msg->step;
-    for (uint32_t x = xStart; x < xEnd; ++x) {
-      float value;
-      std::memcpy(&value, row + static_cast<size_t>(x) * sizeof(float), sizeof(float));
-      if (std::isfinite(value) && value > 0.0f) {
-        minDepth = std::min(minDepth, value);
-      }
-    }
+  geometry_msgs::msg::TransformStamped tf;
+  try {
+    tf = tf_buffer_->lookupTransform(base_frame_, msg->header.frame_id, tf2::TimePointZero);
+  } catch (const tf2::TransformException & e) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+      "Collision guard: depth check off, no TF %s <- %s (%s)", base_frame_.c_str(),
+      msg->header.frame_id.c_str(), e.what());
+    return;
   }
+  const auto & q = tf.transform.rotation;
+  const auto & p = tf.transform.translation;
+  tf2::Matrix3x3 m(tf2::Quaternion(q.x, q.y, q.z, q.w));
+  depth_check::Geometry g{
+    {m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2]},
+    {p.x, p.y, p.z}, CAMERA_HORIZONTAL_FOV_RAD, base_height_};
 
-  depthForwardMin_ = minDepth;
+  auto r = depth_check::check(msg->data.data(), msg->width, msg->height, msg->step, g, depth_limits_);
+  sensor_msgs::msg::PointCloud2 cloud;
+  cloud.header.stamp = msg->header.stamp;
+  cloud.header.frame_id = base_frame_;
+  sensor_msgs::PointCloud2Modifier mod(cloud);
+  mod.setPointCloud2FieldsByString(1, "xyz");
+  mod.resize(r.points.size());
+  sensor_msgs::PointCloud2Iterator<float> ix(cloud, "x"), iy(cloud, "y"), iz(cloud, "z");
+  for (const auto & pt : r.points) {
+    *ix = pt[0]; *iy = pt[1]; *iz = pt[2];
+    ++ix; ++iy; ++iz;
+  }
+  obstacle_pub_->publish(cloud);
+
+  depthForwardMin_ = r.obstacle_dist;
+  cliffDetected_ = r.cliff;
+  depthStamp_ = now();
   haveDepth_ = true;
+}
 
-  // Cliff check: sample a row whose ray should hit flat ground at
-  // CLIFF_CHECK_EXPECTED_DIST_M under normal terrain. If the floor is
-  // there, this reads close to that distance; if it isn't (a drop-off),
-  // the ray either finds nothing (infinite) or hits ground much further
-  // away/below, both of which read as "much further than expected".
-  double cliffDepressionRad = std::atan(CAMERA_HEIGHT_M / CLIFF_CHECK_EXPECTED_DIST_M);
-  double cliffFractionBelowCenter = std::clamp(cliffDepressionRad / verticalHalfFov, 0.0, 1.0);
-  uint32_t cliffRow = msg->height / 2 +
-    static_cast<uint32_t>(cliffFractionBelowCenter * static_cast<double>(msg->height) / 2.0);
-  cliffRow = std::min(cliffRow, msg->height - 1);
-
-  float cliffMax = 0.0f;
-  bool cliffAnyValid = false;
-  const uint8_t * cliffRowPtr = msg->data.data() + static_cast<size_t>(cliffRow) * msg->step;
-  for (uint32_t x = xStart; x < xEnd; ++x) {
-    float value;
-    std::memcpy(&value, cliffRowPtr + static_cast<size_t>(x) * sizeof(float), sizeof(float));
-    if (std::isfinite(value) && value > 0.0f) {
-      cliffMax = std::max(cliffMax, value);
-      cliffAnyValid = true;
-    }
+bool CollisionGuard::depthBlocksForward(double vx)
+{
+  if (vx <= 0.0 || !haveDepth_ || (now() - depthStamp_).seconds() >= DEPTH_STALE_S) {
+    return false;
   }
+  if (depthForwardMin_ < DEPTH_FORWARD_STOP_DIST_M) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "Collision guard: blocking forward motion, obstacle %.2fm ahead (depth camera)", depthForwardMin_);
+    return true;
+  }
+  if (cliffDetected_) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "Collision guard: blocking forward motion, no floor detected ahead (cliff/edge)");
+    return true;
+  }
+  return false;
+}
 
-  cliffCheckDist_ = cliffAnyValid ? cliffMax : std::numeric_limits<float>::infinity();
-  cliffDetected_ = cliffCheckDist_ > CLIFF_CHECK_TRIGGER_DIST_M;
+void CollisionGuard::navCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
+{
+  geometry_msgs::msg::Twist cmd = *msg;
+  if (depthBlocksForward(cmd.linear.x)) {
+    cmd.linear.x = 0.0;
+  }
+  cmd_vel_pub_->publish(cmd);
 }
 
 void CollisionGuard::cmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
@@ -206,23 +232,9 @@ geometry_msgs::msg::Twist CollisionGuard::applyGuard(geometry_msgs::msg::Twist c
       cmd.linear.x = 0.0;
     }
 
-    // Independent depth-camera check: catches low obstacles (roots, grass
-    // clumps) and anything else outside the lidar's single scan plane.
-    if (haveDepth_ && depthForwardMin_ < DEPTH_FORWARD_STOP_DIST_M) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "Collision guard: blocking forward motion, obstacle %.2fm ahead (depth camera)", depthForwardMin_);
-      cmd.linear.x = 0.0;
-    }
-
-    // Cliff/edge check: the ground itself is missing ahead (drop-off at
-    // the edge of the mapped terrain, a pit, etc.) - neither the lidar nor
-    // the obstacle-distance check above can ever catch this, since both
-    // only look for something closer than expected, not the floor vanishing.
-    if (haveDepth_ && cliffDetected_) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "Collision guard: blocking forward motion, no floor detected ahead (cliff/edge)");
+    // Independent depth-camera check: low obstacles (logs, roots) under the
+    // lidar plane, and the floor vanishing ahead.
+    if (depthBlocksForward(cmd.linear.x)) {
       cmd.linear.x = 0.0;
     }
   } else if (cmd.linear.x < 0.0) {

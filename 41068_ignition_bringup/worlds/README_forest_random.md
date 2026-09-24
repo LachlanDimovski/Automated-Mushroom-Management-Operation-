@@ -21,7 +21,7 @@ existing worlds or launch files.
 | `worlds/forest_random.meta.json` | seed, params, ground-truth pose of every object (generated) |
 | `models/forest_random_terrain/` | heightmap model (generated: `heightmap.png`, `terrain_diffuse.png`, `flat_normal.png`, SDF) |
 | `models/tree_oak/`, `models/tree_pine/` | vendored OSRF Fuel tree meshes + textures, mesh collision swapped for a trunk cylinder |
-| `launch/forest_world.launch.py` | standalone bringup, mirrors `41068_ignition.launch.py` |
+| `launch/41068_ignition.launch.py world:=forest_random` | standalone bringup, mirrors `41068_ignition.launch.py` |
 
 Trees are the `tree_oak` / `tree_pine` models: a real **mesh trunk** (cheap
 trunk-cylinder collision) plus, by default, one **opaque canopy shape**
@@ -44,9 +44,9 @@ colcon build --packages-select 41068_ignition_bringup
 source install/setup.bash
 
 # 3. run
-ros2 launch 41068_ignition_bringup forest_world.launch.py
-ros2 launch 41068_ignition_bringup forest_world.launch.py nav2:=true rviz:=true
-ros2 launch 41068_ignition_bringup forest_world.launch.py parrot:=true
+ros2 launch 41068_ignition_bringup 41068_ignition.launch.py world:=forest_random
+ros2 launch 41068_ignition_bringup 41068_ignition.launch.py world:=forest_random nav2:=true rviz:=true
+ros2 launch 41068_ignition_bringup 41068_ignition.launch.py world:=forest_random parrot:=true
 ```
 
 Launch args mirror `41068_ignition.launch.py`: `use_sim_time`, `husky`, `parrot`,
@@ -74,8 +74,8 @@ reads clearly without the multi-texture blend that stippled on integrated GPUs.
 ### If the GUI is sluggish (integrated graphics)
 
 - `--preset light`, or lower `--tree-density` / `--size`
-- `ros2 launch ... forest_world.launch.py husky:=false` - just the scenery
-- `ros2 launch ... forest_world.launch.py headless:=true rviz:=true` - no 3D
+- `ros2 launch ... 41068_ignition.launch.py world:=forest_random husky:=false` - just the scenery
+- `ros2 launch ... 41068_ignition.launch.py world:=forest_random headless:=true rviz:=true` - no 3D
   viewport at all; RViz shows scan / map / costmap / path, which is what nav
   dev actually needs
 
@@ -129,8 +129,7 @@ aggregate a pass-rate + failure-mode table.
 
 ## Optional integration (deferred - do when ready)
 
-- add `forest_random` to the `world` `choices` in `41068_ignition.launch.py`
-  and `skidsteer_test.launch.py` (+ a `scatter:=` toggle) to reach it via the
-  normal `world:=` arg
+- `41068_ignition.launch.py` accepts any `world:=<name>` (no fixed choices);
+  the old skidsteer_test launch was removed - use `cage_mission.launch.py mushrooms:=x,y,...`
 - add the generator to `install(PROGRAMS ...)` in `CMakeLists.txt` for `ros2 run`
 - add `<exec_depend>python3-pil</exec_depend>` to `package.xml`

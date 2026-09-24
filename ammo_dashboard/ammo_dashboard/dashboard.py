@@ -128,6 +128,8 @@ class Dashboard(Node):
         # also publish the rendered HUD as an image so web_video_server can stream it
         # (iPad: http://<pc>:8080/stream?topic=/ammo/dashboard&type=mjpeg)
         self.declare_parameter('publish_hud', True)
+        self.declare_parameter('window', True)  # false: publish for the iPad only, no local GUI
+        self.show = self.get_parameter('window').value
 
         self.husky_spawn = self.get_parameter('husky_spawn').value
         self.parrot_spawn = self.get_parameter('parrot_spawn').value
@@ -173,9 +175,10 @@ class Dashboard(Node):
         self._buttons = self._layout_buttons()
 
         self.window = 'AMMO Field Debug'
-        cv2.namedWindow(self.window, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # resizable: canvas scales with the window
-        cv2.resizeWindow(self.window, W, H)
-        cv2.setMouseCallback(self.window, self._on_mouse)
+        if self.show:
+            cv2.namedWindow(self.window, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # resizable: canvas scales with the window
+            cv2.resizeWindow(self.window, W, H)
+            cv2.setMouseCallback(self.window, self._on_mouse)
         # Rendering runs in main() on the wall clock, not a ROS timer, so it
         # never blocks message intake and never slows with sim time.
 
@@ -314,7 +317,8 @@ class Dashboard(Node):
             self._speed_card(c, MARGIN, BOT_TOP)
             self._alt_card(c, MARGIN + CARD_W + GAP, BOT_TOP)
             self._minimap(c, W - MARGIN - MAP_SIZE, BOT_TOP)
-            cv2.imshow(self.window, c)
+            if self.show:
+                cv2.imshow(self.window, c)
             self.frame_n = getattr(self, 'frame_n', 0) + 1
             if self.hud_pub is not None and self.frame_n % 2 == 0:  # ~5 Hz at native size for the browser stream
                 # minimap rendered fresh at stream size (not cropped from the HUD) so it stays sharp full-screen
@@ -326,6 +330,9 @@ class Dashboard(Node):
                     pub.publish(m)
         except Exception as exc:
             self.get_logger().warn(f'render error: {exc}', throttle_duration_sec=5.0)
+        if not self.show:
+            time.sleep(wait_ms / 1000.0)
+            return True
         key = cv2.waitKey(wait_ms) & 0xFF
         closed = cv2.getWindowProperty(self.window, cv2.WND_PROP_VISIBLE) < 1
         return key != ord('q') and not closed

@@ -140,12 +140,8 @@ class YoloNode(Node):
 
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         result = self.model.predict(
-<<<<<<< HEAD
-            frame, conf=self.conf_threshold, classes=self.classes,
+            frame, conf=self.conf_threshold, imgsz=self.imgsz, classes=self.classes,
             verbose=False)[0]
-=======
-            frame, conf=self.conf_threshold, imgsz=self.imgsz, verbose=False)[0]
->>>>>>> f6ea8db38b484c171ded0834383f43514413f07a
 
         detections = Detection2DArray()
         detections.header = msg.header
