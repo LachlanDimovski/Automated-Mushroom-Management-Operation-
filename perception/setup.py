@@ -31,6 +31,8 @@ setup(
     entry_points={
         'console_scripts': [
             'yolo_node = perception.yolo_node:main',
+            'hazard_brake = perception.hazard_brake:main',
+            'combined_view = perception.combined_view:main',
         ],
     },
 )

@@ -34,6 +34,25 @@ def _if_all_true(*names):
     return IfCondition(PythonExpression(pieces))
 
 
+def _if_any_of_and(any_of, *names):
+    """IfCondition for (any of `any_of`) and (all of `names`).
+
+    Perception has two independent detectors but one include, so it must come
+    up when either is wanted - while still respecting whether the robot itself
+    is enabled.
+    """
+    pieces = ['(']
+    for i, name in enumerate(any_of):
+        if i > 0:
+            pieces.append(' or ')
+        pieces.extend(_is_true_expression(name))
+    pieces.append(')')
+    for name in names:
+        pieces.append(' and ')
+        pieces.extend(_is_true_expression(name))
+    return IfCondition(PythonExpression(pieces))
+
+
 def add_robot(
     ld,
     *,
@@ -210,13 +229,20 @@ def add_perception(
         launch_arguments={
             'robot': robot_namespace,
             'use_sim_time': use_sim_time,
+            'yolo': LaunchConfiguration('yolo'),
+            'hazard': LaunchConfiguration('hazard'),
+            'conf_threshold': LaunchConfiguration('conf_threshold'),
+            'hazard_conf': LaunchConfiguration('hazard_conf'),
+            'stop_height_px': LaunchConfiguration('stop_height_px'),
         }.items(),
     )
 
     ld.add_action(TimerAction(
         period=start_delay,
         actions=[GroupAction(scoped=True, actions=[perception_include])],
-        condition=_if_all_true('yolo', robot_arg),
+        # Either detector is reason enough to bring perception up; which
+        # nodes actually run is decided inside perception.launch.py.
+        condition=_if_any_of_and(('yolo', 'hazard'), robot_arg),
     ))
 
 
@@ -301,6 +327,29 @@ def generate_launch_description():
         description='Launch the Parrot drone instance in namespace /parrot1',
     )
     ld.add_action(parrot_launch_arg)
+
+    ld.add_action(DeclareLaunchArgument(
+        'conf_threshold', default_value='0.6',
+        description='Confidence threshold for the mushroom detector. Held '
+                    'well above the usual 0.25 because the model was trained '
+                    'only on scenes containing mushrooms - anything it has '
+                    'never seen, a person especially, draws low-confidence '
+                    'false positives. Real mushrooms score above 0.9, so this '
+                    'costs about 1% of true detections.'))
+    ld.add_action(DeclareLaunchArgument(
+        'hazard_conf', default_value='0.65',
+        description='Confidence threshold for the person detector'))
+    ld.add_action(DeclareLaunchArgument(
+        'stop_height_px', default_value='120.0',
+        description='Person height in frame that triggers the hazard stop'))
+    ld.add_action(DeclareLaunchArgument(
+        'hazard',
+        default_value='False',
+        description='Launch the COCO person detector for hazard awareness. '
+                    'Off by default: it is a second inference pass per camera '
+                    '(~90 ms of a 333 ms budget) and the mission path does not '
+                    'need it.',
+    ))
 
     yolo_launch_arg = DeclareLaunchArgument(
         'yolo',

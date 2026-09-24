@@ -113,6 +113,11 @@ def generate_launch_description():
         description='Drive husky1 by hand via keyboard teleop instead of the autonomous controller',
     ))
     ld.add_action(DeclareLaunchArgument(
+        'hazard',
+        default_value='False',
+        description='Also run the COCO person detector on husky1/hazards',
+    ))
+    ld.add_action(DeclareLaunchArgument(
         'detection_view',
         default_value='True',
         description='Pop up a standalone rqt_image_view window on husky1/detections/image',
@@ -136,6 +141,8 @@ def generate_launch_description():
             'parrot': 'False',
             # Starts perception/yolo_node -> husky1/detections.
             'yolo': yolo,
+            # Starts the COCO person detector -> husky1/hazards.
+            'hazard': LaunchConfiguration('hazard'),
         }.items(),
     ))
 

@@ -51,6 +51,12 @@ class YoloNode(Node):
         self.declare_parameter('image_topic', 'camera/image')
         self.declare_parameter('model_path', DEFAULT_MODEL_PATH)
         self.declare_parameter('conf_threshold', 0.25)
+        # Class indices to keep, or [-1] for all. Only useful with a
+        # multi-class model: the stock COCO weights detect 80 things, of which
+        # a forest mission cares about one. Filtering here rather than
+        # downstream keeps the detections topic meaningful and lets the
+        # confidence threshold be tuned for that class alone.
+        self.declare_parameter('classes', [-1])
         self.declare_parameter('publish_annotated', True)
         # Capped so CPU inference does not starve Gazebo's physics thread.
         self.declare_parameter('num_threads', 2)
@@ -58,6 +64,8 @@ class YoloNode(Node):
         image_topic = self.get_parameter('image_topic').value
         model_path = self.get_parameter('model_path').value or DEFAULT_MODEL_PATH
         self.conf_threshold = self.get_parameter('conf_threshold').value
+        wanted = list(self.get_parameter('classes').value)
+        self.classes = None if wanted == [-1] else wanted
         self.publish_annotated = self.get_parameter('publish_annotated').value
         torch.set_num_threads(self.get_parameter('num_threads').value)
 
@@ -74,13 +82,14 @@ class YoloNode(Node):
 
         self.get_logger().info(
             f'YOLO model {model_path} '
-            f'(classes: {sorted(self.model.names.values())}, '
+            f'(classes: {sorted(self.model.names[c] for c in self.classes) if self.classes else sorted(self.model.names.values())}, '
             f'conf>={self.conf_threshold}) on {image_topic}')
 
     def image_callback(self, msg: Image):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         result = self.model.predict(
-            frame, conf=self.conf_threshold, verbose=False)[0]
+            frame, conf=self.conf_threshold, classes=self.classes,
+            verbose=False)[0]
 
         detections = Detection2DArray()
         detections.header = msg.header
