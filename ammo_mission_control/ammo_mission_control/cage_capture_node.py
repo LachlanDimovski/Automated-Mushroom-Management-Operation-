@@ -107,6 +107,7 @@ class CageCapture(Node):
         self.nav_handle = self.nav_result = None
         self.nav_tries = self.nav_rejects = 0
         self.state, self.state_since = 'DRIVE', 0.0
+        self.idle_stopped = False
 
         # Transit nudges go through collision_guard (cmd_vel_raw); the final creep
         # writes cmd_vel directly - the guard's 1 m stop would veto approaching the
@@ -155,6 +156,7 @@ class CageCapture(Node):
                 self.get_logger().info(f'Waypoint ({tx:.2f},{ty:.2f}) updated to ({x:.2f},{y:.2f}).')
                 return
         self.targets.append((x, y))
+        self.idle_stopped = False
         self.get_logger().info(f'Waypoint queued ({x:.2f},{y:.2f}); {len(self.targets)} in queue.')
 
     def _done(self, x, y):
@@ -217,7 +219,9 @@ class CageCapture(Node):
         self.claw_pubs[1].publish(Float64(data=-self.claw))
         self.pitch_pub.publish(Float64(data=self.pitch))
         if not self.targets:
-            self.cmd_pub.publish(Twist())
+            if not self.idle_stopped:  # one stop, then quiet: a steady stream fought Nav2 goals sent by anyone else
+                self.cmd_pub.publish(Twist())
+                self.idle_stopped = True
             if self.get_parameter('exit_on_done').value and self.state != 'DRIVE':
                 raise KeyboardInterrupt
             return
