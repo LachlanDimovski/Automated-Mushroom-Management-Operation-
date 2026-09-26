@@ -148,6 +148,8 @@ def generate_launch_description():
         package='skidsteer_controller', executable='collision_guard_node',
         name='collision_guard', output='screen',
         parameters=[{'use_sim_time': use_sim_time}],
+        # the depth check reads the camera pose from husky1's TF tree
+        remappings=[('/tf', '/husky1/tf'), ('/tf_static', '/husky1/tf_static')],
         condition=IfCondition(LaunchConfiguration('guard')))]))
 
     # One view with both detectors drawn on it.
