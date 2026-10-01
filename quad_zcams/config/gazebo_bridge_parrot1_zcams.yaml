@@ -1,0 +1,12 @@
+# Down and up depth cameras (parrot_zcams.urdf.xacro); the rest of the Parrot uses gazebo_bridge_parrot1.yaml
+- ros_topic_name: "down_depth/image"
+  gz_topic_name: "/model/parrot1/down_depth"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "ignition.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "up_depth/image"
+  gz_topic_name: "/model/parrot1/up_depth"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "ignition.msgs.Image"
+  direction: GZ_TO_ROS
