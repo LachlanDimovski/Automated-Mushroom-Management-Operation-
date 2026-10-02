@@ -44,7 +44,7 @@
     <!-- trees (65) -->
     <model name="tree_0000_pine">
       <static>true</static>
-      <pose>7.9921 13.0480 1.4929 0 0 4.8092</pose>
+      <pose>7.9921 13.0480 0.7783 0 0 4.8092</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.9949 0 0 0</pose><geometry><cylinder><radius>0.2854</radius><length>9.9899</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.4271 1.4271 1.4271</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -53,7 +53,7 @@
     </model>
     <model name="tree_0001_oak">
       <static>true</static>
-      <pose>-11.3515 21.8929 2.2804 0 0 6.2446</pose>
+      <pose>-11.3515 21.8929 1.3532 0 0 6.2446</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.1556 0 0 0</pose><geometry><cylinder><radius>0.2038</radius><length>4.3113</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.7839 0.7839 0.7839</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -62,7 +62,7 @@
     </model>
     <model name="tree_0002_pine">
       <static>true</static>
-      <pose>26.2808 -4.2104 1.3570 0 0 2.2165</pose>
+      <pose>26.2808 -4.2104 0.6689 0 0 2.2165</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.2950 0 0 0</pose><geometry><cylinder><radius>0.2454</radius><length>8.5899</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2271 1.2271 1.2271</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -71,7 +71,7 @@
     </model>
     <model name="tree_0003_pine">
       <static>true</static>
-      <pose>11.7021 -12.9750 1.3834 0 0 3.7234</pose>
+      <pose>11.7021 -12.9750 0.6953 0 0 3.7234</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.1647 0 0 0</pose><geometry><cylinder><radius>0.2380</radius><length>8.3294</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1899 1.1899 1.1899</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -80,7 +80,7 @@
     </model>
     <model name="tree_0004_oak">
       <static>true</static>
-      <pose>-3.7968 -23.8786 2.0728 0 0 1.3457</pose>
+      <pose>-3.7968 -23.8786 1.3847 0 0 1.3457</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.3441 0 0 0</pose><geometry><cylinder><radius>0.3162</radius><length>6.6881</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2160 1.2160 1.2160</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -89,7 +89,7 @@
     </model>
     <model name="tree_0005_oak">
       <static>true</static>
-      <pose>-0.3284 16.4916 1.8622 0 0 5.2297</pose>
+      <pose>-0.3284 16.4916 1.1741 0 0 5.2297</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.0482 0 0 0</pose><geometry><cylinder><radius>0.2882</radius><length>6.0964</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1084 1.1084 1.1084</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -98,7 +98,7 @@
     </model>
     <model name="tree_0006_oak">
       <static>true</static>
-      <pose>-5.9811 16.2722 1.6678 0 0 0.9385</pose>
+      <pose>-5.9811 16.2722 0.9797 0 0 0.9385</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.5610 0 0 0</pose><geometry><cylinder><radius>0.2421</radius><length>5.1219</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9313 0.9313 0.9313</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -107,7 +107,7 @@
     </model>
     <model name="tree_0007_pine">
       <static>true</static>
-      <pose>19.5008 12.6667 1.4042 0 0 0.7893</pose>
+      <pose>19.5008 12.6667 0.6572 0 0 0.7893</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.6884 0 0 0</pose><geometry><cylinder><radius>0.2679</radius><length>9.3768</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.3395 1.3395 1.3395</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -116,7 +116,7 @@
     </model>
     <model name="tree_0008_pine">
       <static>true</static>
-      <pose>-28.3959 -13.1964 1.7405 0 0 0.6708</pose>
+      <pose>-28.3959 -13.1964 1.0524 0 0 0.6708</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.1223 0 0 0</pose><geometry><cylinder><radius>0.2356</radius><length>8.2446</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1778 1.1778 1.1778</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -125,7 +125,7 @@
     </model>
     <model name="tree_0009_pine">
       <static>true</static>
-      <pose>25.9984 6.2139 1.2543 0 0 1.2511</pose>
+      <pose>25.9984 6.2139 0.5662 0 0 1.2511</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.4661 0 0 0</pose><geometry><cylinder><radius>0.1981</radius><length>6.9322</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9903 0.9903 0.9903</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -134,7 +134,7 @@
     </model>
     <model name="tree_0010_snag">
       <static>true</static>
-      <pose>28.6061 -5.7909 1.5250 0 0 3.8871</pose>
+      <pose>28.6061 -5.7909 0.8369 0 0 3.8871</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 1.8510 0 0 0</pose><geometry><cylinder><radius>0.1526</radius><length>3.7020</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 1.8510 0 0 0</pose><geometry><cylinder><radius>0.1526</radius><length>3.7020</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -142,7 +142,7 @@
     </model>
     <model name="tree_0011_oak">
       <static>true</static>
-      <pose>3.0693 -9.0448 0.9086 0 0 5.4428</pose>
+      <pose>3.0693 -9.0448 0.2260 0 0 5.4428</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.0920 0 0 0</pose><geometry><cylinder><radius>0.1978</radius><length>4.1840</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.7607 0.7607 0.7607</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -151,7 +151,7 @@
     </model>
     <model name="tree_0012_oak">
       <static>true</static>
-      <pose>19.5507 -19.4477 1.9325 0 0 5.7085</pose>
+      <pose>19.5507 -19.4477 1.2445 0 0 5.7085</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.7424 0 0 0</pose><geometry><cylinder><radius>0.2593</radius><length>5.4849</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9972 0.9972 0.9972</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -160,7 +160,7 @@
     </model>
     <model name="tree_0013_snag">
       <static>true</static>
-      <pose>-4.3845 27.6548 2.8528 0 0 4.6755</pose>
+      <pose>-4.3845 27.6548 2.1647 0 0 4.6755</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 1.9693 0 0 0</pose><geometry><cylinder><radius>0.2681</radius><length>3.9385</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 1.9693 0 0 0</pose><geometry><cylinder><radius>0.2681</radius><length>3.9385</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -168,7 +168,7 @@
     </model>
     <model name="tree_0014_pine">
       <static>true</static>
-      <pose>23.7930 -11.0304 1.6777 0 0 6.0913</pose>
+      <pose>23.7930 -11.0304 0.9896 0 0 6.0913</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.2832 0 0 0</pose><geometry><cylinder><radius>0.1876</radius><length>6.5665</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9381 0.9381 0.9381</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -177,7 +177,7 @@
     </model>
     <model name="tree_0015_oak">
       <static>true</static>
-      <pose>-18.2702 25.1092 2.1150 0 0 1.5019</pose>
+      <pose>-18.2702 25.1092 1.4019 0 0 1.5019</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.1477 0 0 0</pose><geometry><cylinder><radius>0.2976</radius><length>6.2955</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1446 1.1446 1.1446</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -186,7 +186,7 @@
     </model>
     <model name="tree_0016_oak">
       <static>true</static>
-      <pose>2.4270 -11.2048 1.0106 0 0 5.9195</pose>
+      <pose>2.4270 -11.2048 0.3225 0 0 5.9195</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.2890 0 0 0</pose><geometry><cylinder><radius>0.2164</radius><length>4.5779</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8324 0.8324 0.8324</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -195,7 +195,7 @@
     </model>
     <model name="tree_0017_oak">
       <static>true</static>
-      <pose>5.4119 -13.5934 1.2461 0 0 1.0412</pose>
+      <pose>5.4119 -13.5934 0.5580 0 0 1.0412</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.5681 0 0 0</pose><geometry><cylinder><radius>0.3373</radius><length>7.1362</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2975 1.2975 1.2975</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -204,7 +204,7 @@
     </model>
     <model name="tree_0018_oak">
       <static>true</static>
-      <pose>21.9703 -8.0127 1.2679 0 0 6.2074</pose>
+      <pose>21.9703 -8.0127 0.5798 0 0 6.2074</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.4114 0 0 0</pose><geometry><cylinder><radius>0.2280</radius><length>4.8229</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8769 0.8769 0.8769</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -213,7 +213,7 @@
     </model>
     <model name="tree_0019_oak">
       <static>true</static>
-      <pose>7.5615 2.2296 0.4399 0 0 1.8878</pose>
+      <pose>7.5615 2.2296 -0.1214 0 0 1.8878</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.4834 0 0 0</pose><geometry><cylinder><radius>0.3293</radius><length>6.9669</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2667 1.2667 1.2667</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -222,7 +222,7 @@
     </model>
     <model name="tree_0020_snag">
       <static>true</static>
-      <pose>-8.7632 6.4500 1.2011 0 0 3.2040</pose>
+      <pose>-8.7632 6.4500 0.5130 0 0 3.2040</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 1.7117 0 0 0</pose><geometry><cylinder><radius>0.2450</radius><length>3.4234</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 1.7117 0 0 0</pose><geometry><cylinder><radius>0.2450</radius><length>3.4234</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -230,7 +230,7 @@
     </model>
     <model name="tree_0021_oak">
       <static>true</static>
-      <pose>28.1969 17.3401 1.5651 0 0 0.1653</pose>
+      <pose>28.1969 17.3401 0.8770 0 0 0.1653</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.7344 0 0 0</pose><geometry><cylinder><radius>0.2585</radius><length>5.4687</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9943 0.9943 0.9943</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -239,7 +239,7 @@
     </model>
     <model name="tree_0022_pine">
       <static>true</static>
-      <pose>24.1007 -26.9850 2.2747 0 0 1.7079</pose>
+      <pose>24.1007 -26.9850 1.5866 0 0 1.7079</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.2536 0 0 0</pose><geometry><cylinder><radius>0.2431</radius><length>8.5073</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2153 1.2153 1.2153</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -248,7 +248,7 @@
     </model>
     <model name="tree_0023_oak">
       <static>true</static>
-      <pose>24.0603 0.5056 0.9372 0 0 0.7848</pose>
+      <pose>24.0603 0.5056 0.2491 0 0 0.7848</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.6119 0 0 0</pose><geometry><cylinder><radius>0.3415</radius><length>7.2238</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.3134 1.3134 1.3134</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -257,7 +257,7 @@
     </model>
     <model name="tree_0024_oak">
       <static>true</static>
-      <pose>-26.3390 -26.8697 1.9075 0 0 2.4081</pose>
+      <pose>-26.3390 -26.8697 1.2194 0 0 2.4081</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.1044 0 0 0</pose><geometry><cylinder><radius>0.1990</radius><length>4.2088</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.7652 0.7652 0.7652</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -266,7 +266,7 @@
     </model>
     <model name="tree_0025_oak">
       <static>true</static>
-      <pose>-28.0569 -24.1234 1.9138 0 0 2.0336</pose>
+      <pose>-28.0569 -24.1234 1.2257 0 0 2.0336</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.9428 0 0 0</pose><geometry><cylinder><radius>0.2782</radius><length>5.8856</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0701 1.0701 1.0701</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -275,7 +275,7 @@
     </model>
     <model name="tree_0026_oak">
       <static>true</static>
-      <pose>20.1069 -15.9107 1.6951 0 0 1.7525</pose>
+      <pose>20.1069 -15.9107 1.0070 0 0 1.7525</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.3590 0 0 0</pose><geometry><cylinder><radius>0.3176</radius><length>6.7181</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2215 1.2215 1.2215</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -284,7 +284,7 @@
     </model>
     <model name="tree_0027_oak">
       <static>true</static>
-      <pose>-15.9765 -17.0530 1.6540 0 0 1.7204</pose>
+      <pose>-15.9765 -17.0530 0.9659 0 0 1.7204</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.8728 0 0 0</pose><geometry><cylinder><radius>0.2716</radius><length>5.7456</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0447 1.0447 1.0447</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -293,7 +293,7 @@
     </model>
     <model name="tree_0028_pine">
       <static>true</static>
-      <pose>-21.0185 -4.5704 1.7752 0 0 2.0304</pose>
+      <pose>-21.0185 -4.5704 1.0871 0 0 2.0304</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.0058 0 0 0</pose><geometry><cylinder><radius>0.1718</radius><length>6.0116</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8588 0.8588 0.8588</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -302,7 +302,7 @@
     </model>
     <model name="tree_0029_oak">
       <static>true</static>
-      <pose>7.4337 -25.7895 2.2972 0 0 5.2771</pose>
+      <pose>7.4337 -25.7895 1.6091 0 0 5.2771</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.4883 0 0 0</pose><geometry><cylinder><radius>0.2353</radius><length>4.9766</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9048 0.9048 0.9048</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -311,7 +311,7 @@
     </model>
     <model name="tree_0030_oak">
       <static>true</static>
-      <pose>-22.2098 -13.3395 1.8136 0 0 2.9456</pose>
+      <pose>-22.2098 -13.3395 1.1255 0 0 2.9456</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.7566 0 0 0</pose><geometry><cylinder><radius>0.2606</radius><length>5.5131</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0024 1.0024 1.0024</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -320,7 +320,7 @@
     </model>
     <model name="tree_0031_pine">
       <static>true</static>
-      <pose>25.3038 -7.3461 1.4933 0 0 5.2075</pose>
+      <pose>25.3038 -7.3461 0.8052 0 0 5.2075</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.3358 0 0 0</pose><geometry><cylinder><radius>0.1906</radius><length>6.6716</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9531 0.9531 0.9531</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -329,7 +329,7 @@
     </model>
     <model name="tree_0032_snag">
       <static>true</static>
-      <pose>8.5962 -7.0666 0.9614 0 0 4.9558</pose>
+      <pose>8.5962 -7.0666 0.2734 0 0 4.9558</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 1.5463 0 0 0</pose><geometry><cylinder><radius>0.1772</radius><length>3.0925</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 1.5463 0 0 0</pose><geometry><cylinder><radius>0.1772</radius><length>3.0925</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -337,7 +337,7 @@
     </model>
     <model name="tree_0033_oak">
       <static>true</static>
-      <pose>8.8275 10.7626 1.1066 0 0 0.4905</pose>
+      <pose>8.8275 10.7626 0.4185 0 0 0.4905</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.4377 0 0 0</pose><geometry><cylinder><radius>0.2305</radius><length>4.8755</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8865 0.8865 0.8865</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -346,7 +346,7 @@
     </model>
     <model name="tree_0034_pine">
       <static>true</static>
-      <pose>-3.7087 15.4058 1.7709 0 0 5.5372</pose>
+      <pose>-3.7087 15.4058 1.0828 0 0 5.5372</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.0955 0 0 0</pose><geometry><cylinder><radius>0.2912</radius><length>10.1910</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.4559 1.4559 1.4559</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -355,7 +355,7 @@
     </model>
     <model name="tree_0035_pine">
       <static>true</static>
-      <pose>18.7716 -26.5637 2.3156 0 0 6.1348</pose>
+      <pose>18.7716 -26.5637 1.6275 0 0 6.1348</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.8746 0 0 0</pose><geometry><cylinder><radius>0.2214</radius><length>7.7492</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1070 1.1070 1.1070</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -364,7 +364,7 @@
     </model>
     <model name="tree_0036_pine">
       <static>true</static>
-      <pose>12.9314 -16.7531 1.7780 0 0 4.3242</pose>
+      <pose>12.9314 -16.7531 1.0899 0 0 4.3242</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.1427 0 0 0</pose><geometry><cylinder><radius>0.2939</radius><length>10.2853</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.4693 1.4693 1.4693</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -373,7 +373,7 @@
     </model>
     <model name="tree_0037_pine">
       <static>true</static>
-      <pose>3.5812 -28.3394 2.4862 0 0 0.7896</pose>
+      <pose>3.5812 -28.3394 1.7981 0 0 0.7896</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.5176 0 0 0</pose><geometry><cylinder><radius>0.2581</radius><length>9.0352</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2907 1.2907 1.2907</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -382,7 +382,7 @@
     </model>
     <model name="tree_0038_oak">
       <static>true</static>
-      <pose>10.0316 9.1067 0.9535 0 0 5.8591</pose>
+      <pose>10.0316 9.1067 0.2654 0 0 5.8591</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.1711 0 0 0</pose><geometry><cylinder><radius>0.2053</radius><length>4.3421</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.7895 0.7895 0.7895</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -391,7 +391,7 @@
     </model>
     <model name="tree_0039_snag">
       <static>true</static>
-      <pose>21.4552 -19.6467 2.0321 0 0 0.7814</pose>
+      <pose>21.4552 -19.6467 1.3440 0 0 0.7814</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 1.5230 0 0 0</pose><geometry><cylinder><radius>0.2247</radius><length>3.0460</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 1.5230 0 0 0</pose><geometry><cylinder><radius>0.2247</radius><length>3.0460</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -399,7 +399,7 @@
     </model>
     <model name="tree_0040_oak">
       <static>true</static>
-      <pose>19.9602 -1.3331 0.7526 0 0 1.2293</pose>
+      <pose>19.9602 -1.3331 0.0645 0 0 1.2293</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.7073 0 0 0</pose><geometry><cylinder><radius>0.2560</radius><length>5.4147</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9845 0.9845 0.9845</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -408,7 +408,7 @@
     </model>
     <model name="tree_0041_oak">
       <static>true</static>
-      <pose>-28.2976 8.1348 1.4350 0 0 4.9782</pose>
+      <pose>-28.2976 8.1348 0.7469 0 0 4.9782</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.1307 0 0 0</pose><geometry><cylinder><radius>0.2960</radius><length>6.2614</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1384 1.1384 1.1384</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -417,7 +417,7 @@
     </model>
     <model name="tree_0042_oak">
       <static>true</static>
-      <pose>-3.4523 -10.0927 0.8438 0 0 1.8876</pose>
+      <pose>-3.4523 -10.0927 0.1557 0 0 1.8876</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.5732 0 0 0</pose><geometry><cylinder><radius>0.2433</radius><length>5.1464</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9357 0.9357 0.9357</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -426,7 +426,7 @@
     </model>
     <model name="tree_0043_pine">
       <static>true</static>
-      <pose>-17.3126 23.5486 2.2451 0 0 2.5791</pose>
+      <pose>-17.3126 23.5486 1.4041 0 0 2.5791</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.2811 0 0 0</pose><geometry><cylinder><radius>0.2446</radius><length>8.5622</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2232 1.2232 1.2232</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -435,7 +435,7 @@
     </model>
     <model name="tree_0044_pine">
       <static>true</static>
-      <pose>-28.6797 -0.9467 1.4813 0 0 1.9061</pose>
+      <pose>-28.6797 -0.9467 0.7932 0 0 1.9061</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.7574 0 0 0</pose><geometry><cylinder><radius>0.2147</radius><length>7.5149</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0736 1.0736 1.0736</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -444,7 +444,7 @@
     </model>
     <model name="tree_0045_pine">
       <static>true</static>
-      <pose>8.9319 -17.4917 1.8019 0 0 5.5129</pose>
+      <pose>8.9319 -17.4917 1.1138 0 0 5.5129</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.8627 0 0 0</pose><geometry><cylinder><radius>0.2779</radius><length>9.7255</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.3894 1.3894 1.3894</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -453,7 +453,7 @@
     </model>
     <model name="tree_0046_oak">
       <static>true</static>
-      <pose>13.5627 -6.5387 0.9008 0 0 2.9066</pose>
+      <pose>13.5627 -6.5387 0.2127 0 0 2.9066</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.3875 0 0 0</pose><geometry><cylinder><radius>0.2257</radius><length>4.7750</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8682 0.8682 0.8682</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -462,7 +462,7 @@
     </model>
     <model name="tree_0047_snag">
       <static>true</static>
-      <pose>6.2401 -21.3462 2.2066 0 0 2.0526</pose>
+      <pose>6.2401 -21.3462 1.5185 0 0 2.0526</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.3409 0 0 0</pose><geometry><cylinder><radius>0.2269</radius><length>4.6818</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 2.3409 0 0 0</pose><geometry><cylinder><radius>0.2269</radius><length>4.6818</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -470,7 +470,7 @@
     </model>
     <model name="tree_0048_snag">
       <static>true</static>
-      <pose>-0.5954 25.7951 2.7512 0 0 4.2405</pose>
+      <pose>-0.5954 25.7951 2.0631 0 0 4.2405</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.2288 0 0 0</pose><geometry><cylinder><radius>0.1656</radius><length>4.4575</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 2.2288 0 0 0</pose><geometry><cylinder><radius>0.1656</radius><length>4.4575</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -478,7 +478,7 @@
     </model>
     <model name="tree_0049_pine">
       <static>true</static>
-      <pose>18.9723 -23.3760 2.2448 0 0 2.4286</pose>
+      <pose>18.9723 -23.3760 1.5568 0 0 2.4286</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.7930 0 0 0</pose><geometry><cylinder><radius>0.2739</radius><length>9.5860</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.3694 1.3694 1.3694</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -487,7 +487,7 @@
     </model>
     <model name="tree_0050_oak">
       <static>true</static>
-      <pose>13.2697 -10.9976 1.1727 0 0 3.4742</pose>
+      <pose>13.2697 -10.9976 0.4847 0 0 3.4742</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.6791 0 0 0</pose><geometry><cylinder><radius>0.3478</radius><length>7.3582</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.3379 1.3379 1.3379</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -496,7 +496,7 @@
     </model>
     <model name="tree_0051_oak">
       <static>true</static>
-      <pose>-23.4248 13.9747 1.7862 0 0 5.0466</pose>
+      <pose>-23.4248 13.9747 1.1375 0 0 5.0466</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.2907 0 0 0</pose><geometry><cylinder><radius>0.2166</radius><length>4.5813</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8330 0.8330 0.8330</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -505,7 +505,7 @@
     </model>
     <model name="tree_0052_pine">
       <static>true</static>
-      <pose>-17.0437 -22.4205 1.2485 0 0 2.4127</pose>
+      <pose>-17.0437 -22.4205 0.5604 0 0 2.4127</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.1960 0 0 0</pose><geometry><cylinder><radius>0.2398</radius><length>8.3920</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1989 1.1989 1.1989</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -514,7 +514,7 @@
     </model>
     <model name="tree_0053_pine">
       <static>true</static>
-      <pose>-26.9338 4.3448 1.5847 0 0 3.6337</pose>
+      <pose>-26.9338 4.3448 0.8966 0 0 3.6337</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.2013 0 0 0</pose><geometry><cylinder><radius>0.2972</radius><length>10.4025</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.4861 1.4861 1.4861</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -523,7 +523,7 @@
     </model>
     <model name="tree_0054_pine">
       <static>true</static>
-      <pose>23.7115 21.5980 1.8219 0 0 4.7555</pose>
+      <pose>23.7115 21.5980 1.1337 0 0 4.7555</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.9610 0 0 0</pose><geometry><cylinder><radius>0.2835</radius><length>9.9221</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.4174 1.4174 1.4174</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -532,7 +532,7 @@
     </model>
     <model name="tree_0055_pine">
       <static>true</static>
-      <pose>10.9631 -18.4211 1.9748 0 0 4.3765</pose>
+      <pose>10.9631 -18.4211 1.2868 0 0 4.3765</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.2369 0 0 0</pose><geometry><cylinder><radius>0.1850</radius><length>6.4737</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9248 0.9248 0.9248</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -541,7 +541,7 @@
     </model>
     <model name="tree_0056_pine">
       <static>true</static>
-      <pose>13.3446 4.0211 0.8277 0 0 0.9568</pose>
+      <pose>13.3446 4.0211 0.1396 0 0 0.9568</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.1590 0 0 0</pose><geometry><cylinder><radius>0.2948</radius><length>10.3180</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.4740 1.4740 1.4740</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -550,7 +550,7 @@
     </model>
     <model name="tree_0057_oak">
       <static>true</static>
-      <pose>0.7560 -23.5143 2.2657 0 0 5.1969</pose>
+      <pose>0.7560 -23.5143 1.5777 0 0 5.1969</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.1123 0 0 0</pose><geometry><cylinder><radius>0.2943</radius><length>6.2246</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1317 1.1317 1.1317</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -559,7 +559,7 @@
     </model>
     <model name="tree_0058_oak">
       <static>true</static>
-      <pose>27.2595 -28.8699 2.1430 0 0 1.6737</pose>
+      <pose>27.2595 -28.8699 1.4549 0 0 1.6737</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.0757 0 0 0</pose><geometry><cylinder><radius>0.2908</radius><length>6.1513</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1184 1.1184 1.1184</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -568,7 +568,7 @@
     </model>
     <model name="tree_0059_snag">
       <static>true</static>
-      <pose>25.1176 15.5828 1.5800 0 0 4.9178</pose>
+      <pose>25.1176 15.5828 0.8919 0 0 4.9178</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 1.3934 0 0 0</pose><geometry><cylinder><radius>0.1906</radius><length>2.7869</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 1.3934 0 0 0</pose><geometry><cylinder><radius>0.1906</radius><length>2.7869</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -576,7 +576,7 @@
     </model>
     <model name="tree_0060_oak">
       <static>true</static>
-      <pose>-14.6065 23.9225 2.2154 0 0 0.8202</pose>
+      <pose>-14.6065 23.9225 1.3667 0 0 0.8202</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.7540 0 0 0</pose><geometry><cylinder><radius>0.2604</radius><length>5.5081</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0015 1.0015 1.0015</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -585,7 +585,7 @@
     </model>
     <model name="tree_0061_oak">
       <static>true</static>
-      <pose>15.4874 -6.0441 0.9806 0 0 1.6170</pose>
+      <pose>15.4874 -6.0441 0.2925 0 0 1.6170</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.2824 0 0 0</pose><geometry><cylinder><radius>0.2158</radius><length>4.5649</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8300 0.8300 0.8300</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -594,7 +594,7 @@
     </model>
     <model name="tree_0062_pine">
       <static>true</static>
-      <pose>24.5019 25.6891 1.9237 0 0 4.1939</pose>
+      <pose>24.5019 25.6891 1.2356 0 0 4.1939</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.5325 0 0 0</pose><geometry><cylinder><radius>0.2019</radius><length>7.0649</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0093 1.0093 1.0093</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -603,7 +603,7 @@
     </model>
     <model name="tree_0063_snag">
       <static>true</static>
-      <pose>7.5088 -27.9345 2.3471 0 0 6.0306</pose>
+      <pose>7.5088 -27.9345 1.6590 0 0 6.0306</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 1.3002 0 0 0</pose><geometry><cylinder><radius>0.2207</radius><length>2.6004</length></cylinder></geometry></collision>
         <visual name="trunk_visual"><pose>0 0 1.3002 0 0 0</pose><geometry><cylinder><radius>0.2207</radius><length>2.6004</length></cylinder></geometry><material><ambient>0.3000 0.2400 0.1800 1.0000</ambient><diffuse>0.3000 0.2400 0.1800 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -611,7 +611,7 @@
     </model>
     <model name="tree_0064_oak">
       <static>true</static>
-      <pose>-7.1917 -18.8857 0.8902 0 0 3.3082</pose>
+      <pose>-7.1917 -18.8857 0.2021 0 0 3.3082</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.6337 0 0 0</pose><geometry><cylinder><radius>0.2490</radius><length>5.2673</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9577 0.9577 0.9577</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -622,7 +622,7 @@
     <!-- fallen logs (23) -->
     <model name="fallentree_0000_oak">
       <static>true</static>
-      <pose>21.3790 1.5581 1.1577 0 -1.3798 2.8722</pose>
+      <pose>21.3790 1.5581 0.4696 0 -1.3798 2.8722</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.8885 0 0 0</pose><geometry><cylinder><radius>0.2731</radius><length>5.7769</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0503 1.0503 1.0503</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -632,7 +632,7 @@
     </model>
     <model name="fallentree_0001_oak">
       <static>true</static>
-      <pose>23.2338 -30.3116 2.5763 0 -1.3347 4.0768</pose>
+      <pose>23.2338 -30.3116 1.8882 0 -1.3347 4.0768</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.6418 0 0 0</pose><geometry><cylinder><radius>0.2498</radius><length>5.2835</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9606 0.9606 0.9606</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -642,7 +642,7 @@
     </model>
     <model name="fallentree_0003_oak">
       <static>true</static>
-      <pose>-22.5419 2.2938 1.8778 0 -1.3485 6.2379</pose>
+      <pose>-22.5419 2.2938 1.1897 0 -1.3485 6.2379</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.4554 0 0 0</pose><geometry><cylinder><radius>0.2322</radius><length>4.9109</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8929 0.8929 0.8929</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -652,7 +652,7 @@
     </model>
     <model name="fallentree_0005_oak">
       <static>true</static>
-      <pose>-30.1753 1.5597 1.6490 0 -1.2564 4.1565</pose>
+      <pose>-30.1753 1.5597 0.9609 0 -1.2564 4.1565</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.4693 0 0 0</pose><geometry><cylinder><radius>0.2335</radius><length>4.9385</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8979 0.8979 0.8979</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -662,7 +662,7 @@
     </model>
     <model name="fallentree_0006_oak">
       <static>true</static>
-      <pose>13.6271 -5.5155 1.0227 0 -1.5400 2.1076</pose>
+      <pose>13.6271 -5.5155 0.3346 0 -1.5400 2.1076</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.6549 0 0 0</pose><geometry><cylinder><radius>0.2510</radius><length>5.3097</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9654 0.9654 0.9654</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -672,7 +672,7 @@
     </model>
     <model name="log_0007">
       <static>true</static>
-      <pose>15.9674 -14.5722 1.7614 0 1.4551 2.5888</pose>
+      <pose>15.9674 -14.5722 1.0733 0 1.4551 2.5888</pose>
       <link name="link">
         <collision name="log">
           <geometry><cylinder><radius>0.1776</radius><length>4.4312</length></cylinder></geometry>
@@ -685,7 +685,7 @@
     </model>
     <model name="fallentree_0008_pine">
       <static>true</static>
-      <pose>11.7321 -14.2255 1.8813 0 -1.3422 5.8205</pose>
+      <pose>11.7321 -14.2255 1.1932 0 -1.3422 5.8205</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.8718 0 0 0</pose><geometry><cylinder><radius>0.2212</radius><length>7.7436</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1062 1.1062 1.1062</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -695,7 +695,7 @@
     </model>
     <model name="fallentree_0009_pine">
       <static>true</static>
-      <pose>-27.0177 -20.6931 2.1575 0 -1.1855 3.6211</pose>
+      <pose>-27.0177 -20.6931 1.4695 0 -1.1855 3.6211</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.3715 0 0 0</pose><geometry><cylinder><radius>0.2498</radius><length>8.7430</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2490 1.2490 1.2490</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -705,7 +705,7 @@
     </model>
     <model name="fallentree_0010_pine">
       <static>true</static>
-      <pose>19.4003 -17.6977 2.1749 0 -1.2727 3.1080</pose>
+      <pose>19.4003 -17.6977 1.4868 0 -1.2727 3.1080</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.9205 0 0 0</pose><geometry><cylinder><radius>0.1669</radius><length>5.8411</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8344 0.8344 0.8344</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -715,7 +715,7 @@
     </model>
     <model name="log_0011">
       <static>true</static>
-      <pose>-5.3884 29.9591 3.1223 0 1.4599 4.3783</pose>
+      <pose>-5.3884 29.9591 2.4342 0 1.4599 4.3783</pose>
       <link name="link">
         <collision name="log">
           <geometry><cylinder><radius>0.3239</radius><length>5.2930</length></cylinder></geometry>
@@ -728,7 +728,7 @@
     </model>
     <model name="fallentree_0012_pine">
       <static>true</static>
-      <pose>21.8701 -12.4773 1.5165 0 -1.2033 1.5541</pose>
+      <pose>21.8701 -12.4773 0.8284 0 -1.2033 1.5541</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 4.3455 0 0 0</pose><geometry><cylinder><radius>0.2483</radius><length>8.6910</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.2416 1.2416 1.2416</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -738,7 +738,7 @@
     </model>
     <model name="fallentree_0013_oak">
       <static>true</static>
-      <pose>26.5836 -6.8256 1.8875 0 -1.5223 0.5184</pose>
+      <pose>26.5836 -6.8256 1.1994 0 -1.5223 0.5184</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.7046 0 0 0</pose><geometry><cylinder><radius>0.2557</radius><length>5.4092</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9835 0.9835 0.9835</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -748,7 +748,7 @@
     </model>
     <model name="log_0015">
       <static>true</static>
-      <pose>20.5945 -17.2647 2.1794 0 1.4659 0.7027</pose>
+      <pose>20.5945 -17.2647 1.4913 0 1.4659 0.7027</pose>
       <link name="link">
         <collision name="log">
           <geometry><cylinder><radius>0.1790</radius><length>3.9262</length></cylinder></geometry>
@@ -766,7 +766,7 @@
     </model>
     <model name="fallentree_0016_oak">
       <static>true</static>
-      <pose>20.5525 -0.0041 1.1559 0 -1.3463 4.4126</pose>
+      <pose>20.5525 -0.0041 0.4678 0 -1.3463 4.4126</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.4897 0 0 0</pose><geometry><cylinder><radius>0.2354</radius><length>4.9794</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9053 0.9053 0.9053</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -776,7 +776,7 @@
     </model>
     <model name="fallentree_0017_pine">
       <static>true</static>
-      <pose>23.3958 -4.4374 1.3878 0 -1.3207 1.5474</pose>
+      <pose>23.3958 -4.4374 0.6997 0 -1.3207 1.5474</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.6138 0 0 0</pose><geometry><cylinder><radius>0.2065</radius><length>7.2276</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0325 1.0325 1.0325</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -786,7 +786,7 @@
     </model>
     <model name="fallentree_0018_pine">
       <static>true</static>
-      <pose>24.6361 28.6888 2.1055 0 -1.3924 4.4603</pose>
+      <pose>24.6361 28.6888 1.4174 0 -1.3924 4.4603</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.2690 0 0 0</pose><geometry><cylinder><radius>0.1868</radius><length>6.5380</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9340 0.9340 0.9340</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -796,7 +796,7 @@
     </model>
     <model name="log_0019">
       <static>true</static>
-      <pose>-19.0878 -23.0206 1.9843 0 1.5621 3.3858</pose>
+      <pose>-19.0878 -23.0206 1.2963 0 1.5621 3.3858</pose>
       <link name="link">
         <collision name="log">
           <geometry><cylinder><radius>0.2884</radius><length>2.1617</length></cylinder></geometry>
@@ -809,7 +809,7 @@
     </model>
     <model name="fallentree_0020_oak">
       <static>true</static>
-      <pose>-28.0596 2.5923 1.6886 0 -1.2574 4.1128</pose>
+      <pose>-28.0596 2.5923 1.0005 0 -1.2574 4.1128</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 2.2891 0 0 0</pose><geometry><cylinder><radius>0.2164</radius><length>4.5781</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.8324 0.8324 0.8324</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -819,7 +819,7 @@
     </model>
     <model name="fallentree_0021_pine">
       <static>true</static>
-      <pose>22.5911 -21.8657 2.4084 0 -1.1926 3.3898</pose>
+      <pose>22.5911 -21.8657 1.7203 0 -1.1926 3.3898</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.4286 0 0 0</pose><geometry><cylinder><radius>0.1959</radius><length>6.8572</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>0.9796 0.9796 0.9796</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -829,7 +829,7 @@
     </model>
     <model name="log_0022">
       <static>true</static>
-      <pose>-18.6154 -3.5296 1.9758 0 1.3456 0.9420</pose>
+      <pose>-18.6154 -3.5296 1.2877 0 1.3456 0.9420</pose>
       <link name="link">
         <collision name="log">
           <geometry><cylinder><radius>0.2919</radius><length>2.3300</length></cylinder></geometry>
@@ -847,7 +847,7 @@
     </model>
     <model name="fallentree_0023_oak">
       <static>true</static>
-      <pose>10.8631 -16.6450 2.1539 0 -1.3865 0.0996</pose>
+      <pose>10.8631 -16.6450 1.4658 0 -1.3865 0.0996</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.1684 0 0 0</pose><geometry><cylinder><radius>0.2996</radius><length>6.3368</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_oak/meshes/oak_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.1521 1.1521 1.1521</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_oak/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -857,7 +857,7 @@
     </model>
     <model name="fallentree_0024_pine">
       <static>true</static>
-      <pose>25.2307 15.6279 1.6069 0 -1.3661 3.9212</pose>
+      <pose>25.2307 15.6279 0.9188 0 -1.3661 3.9212</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 3.6223 0 0 0</pose><geometry><cylinder><radius>0.2070</radius><length>7.2446</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.0349 1.0349 1.0349</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -867,7 +867,7 @@
     </model>
     <model name="log_0025">
       <static>true</static>
-      <pose>-24.0551 -23.5832 2.2586 0 1.5677 4.9598</pose>
+      <pose>-24.0551 -23.5832 1.5706 0 1.5677 4.9598</pose>
       <link name="link">
         <collision name="log">
           <geometry><cylinder><radius>0.1648</radius><length>2.1781</length></cylinder></geometry>
@@ -882,7 +882,7 @@
     <!-- rocks, stumps and clutter (32) -->
     <model name="stump_0000">
       <static>true</static>
-      <pose>-20.6469 3.4964 2.1433 0 0 0.5321</pose>
+      <pose>-20.6469 3.4964 1.4552 0 0 0.5321</pose>
       <link name="link">
         <collision name="collision"><geometry><cylinder><radius>0.3580</radius><length>0.6298</length></cylinder></geometry></collision>
         <visual name="visual"><geometry><cylinder><radius>0.3580</radius><length>0.6298</length></cylinder></geometry><material><ambient>0.2600 0.1800 0.1000 1.0000</ambient><diffuse>0.2600 0.1800 0.1000 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -890,7 +890,7 @@
     </model>
     <model name="rock_0001">
       <static>true</static>
-      <pose>9.3363 -27.6138 2.7055 0 0 3.7374</pose>
+      <pose>9.3363 -27.6138 2.0174 0 0 3.7374</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3731</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3731</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -898,7 +898,7 @@
     </model>
     <model name="rock_0002">
       <static>true</static>
-      <pose>21.0966 -14.1034 2.0974 0 0 5.6585</pose>
+      <pose>21.0966 -14.1034 1.4093 0 0 5.6585</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3468</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3468</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -906,7 +906,7 @@
     </model>
     <model name="stump_0003">
       <static>true</static>
-      <pose>3.0768 -8.3392 1.4013 0 0 4.0567</pose>
+      <pose>3.0768 -8.3392 0.7132 0 0 4.0567</pose>
       <link name="link">
         <collision name="collision"><geometry><cylinder><radius>0.4062</radius><length>0.5619</length></cylinder></geometry></collision>
         <visual name="visual"><geometry><cylinder><radius>0.4062</radius><length>0.5619</length></cylinder></geometry><material><ambient>0.2600 0.1800 0.1000 1.0000</ambient><diffuse>0.2600 0.1800 0.1000 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -914,7 +914,7 @@
     </model>
     <model name="stump_0004">
       <static>true</static>
-      <pose>-8.9338 -5.5087 1.3817 0 0 5.6280</pose>
+      <pose>-8.9338 -5.5087 0.6936 0 0 5.6280</pose>
       <link name="link">
         <collision name="collision"><geometry><cylinder><radius>0.2972</radius><length>0.3355</length></cylinder></geometry></collision>
         <visual name="visual"><geometry><cylinder><radius>0.2972</radius><length>0.3355</length></cylinder></geometry><material><ambient>0.2600 0.1800 0.1000 1.0000</ambient><diffuse>0.2600 0.1800 0.1000 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -922,7 +922,7 @@
     </model>
     <model name="rock_0005">
       <static>true</static>
-      <pose>-28.2885 -4.0593 1.8645 0 0 1.3389</pose>
+      <pose>-28.2885 -4.0593 1.1764 0 0 1.3389</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.2803</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.2803</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -930,7 +930,7 @@
     </model>
     <model name="rock_0006">
       <static>true</static>
-      <pose>-13.3940 -8.1278 1.9453 0 0 4.5687</pose>
+      <pose>-13.3940 -8.1278 1.2572 0 0 4.5687</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.4506</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.4506</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -938,7 +938,7 @@
     </model>
     <model name="stump_0007">
       <static>true</static>
-      <pose>-19.2147 -9.4124 2.0781 0 0 5.7292</pose>
+      <pose>-19.2147 -9.4124 1.3900 0 0 5.7292</pose>
       <link name="link">
         <collision name="collision"><geometry><cylinder><radius>0.3134</radius><length>0.5017</length></cylinder></geometry></collision>
         <visual name="visual"><geometry><cylinder><radius>0.3134</radius><length>0.5017</length></cylinder></geometry><material><ambient>0.2600 0.1800 0.1000 1.0000</ambient><diffuse>0.2600 0.1800 0.1000 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -946,7 +946,7 @@
     </model>
     <model name="rock_0008">
       <static>true</static>
-      <pose>11.3677 27.5754 2.8127 0 0 1.5593</pose>
+      <pose>11.3677 27.5754 2.1246 0 0 1.5593</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3158</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3158</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -954,7 +954,7 @@
     </model>
     <model name="stump_0009">
       <static>true</static>
-      <pose>6.5411 -22.7428 2.5914 0 0 3.2073</pose>
+      <pose>6.5411 -22.7428 1.9033 0 0 3.2073</pose>
       <link name="link">
         <collision name="collision"><geometry><cylinder><radius>0.3085</radius><length>0.3872</length></cylinder></geometry></collision>
         <visual name="visual"><geometry><cylinder><radius>0.3085</radius><length>0.3872</length></cylinder></geometry><material><ambient>0.2600 0.1800 0.1000 1.0000</ambient><diffuse>0.2600 0.1800 0.1000 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -962,7 +962,7 @@
     </model>
     <model name="rock_0010">
       <static>true</static>
-      <pose>-27.6624 21.8894 2.3525 0 0 3.5778</pose>
+      <pose>-27.6624 21.8894 1.6644 0 0 3.5778</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.5840</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.5840</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -970,7 +970,7 @@
     </model>
     <model name="rock_0011">
       <static>true</static>
-      <pose>8.8671 11.7764 1.7667 0 0 1.2570</pose>
+      <pose>8.8671 11.7764 1.0786 0 0 1.2570</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3034</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3034</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -978,7 +978,7 @@
     </model>
     <model name="rock_0012">
       <static>true</static>
-      <pose>22.5188 0.0181 1.2929 0 0 1.4710</pose>
+      <pose>22.5188 0.0181 0.6048 0 0 1.4710</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3634</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3634</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -986,7 +986,7 @@
     </model>
     <model name="rock_0013">
       <static>true</static>
-      <pose>-10.7181 -10.3596 1.5447 0 0 5.8398</pose>
+      <pose>-10.7181 -10.3596 0.8566 0 0 5.8398</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.4550</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.4550</radius></sphere></geometry><material><ambient>0.4200 0.4200 0.4400 1.0000</ambient><diffuse>0.4200 0.4200 0.4400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -994,7 +994,7 @@
     </model>
     <model name="clutter_0000">
       <static>true</static>
-      <pose>-9.7361 -10.0809 1.2844 0 0 3.4593</pose>
+      <pose>-9.7361 -10.0809 0.5963 0 0 3.4593</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3040</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3040</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1002,7 +1002,7 @@
     </model>
     <model name="clutter_0001">
       <static>true</static>
-      <pose>11.1713 -0.7106 0.9224 0 0 0.9341</pose>
+      <pose>11.1713 -0.7106 0.2343 0 0 0.9341</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3484</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3484</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1010,7 +1010,7 @@
     </model>
     <model name="clutter_0002">
       <static>true</static>
-      <pose>13.0383 -20.1331 2.3421 0 0 0.0204</pose>
+      <pose>13.0383 -20.1331 1.6540 0 0 0.0204</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.1834</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.1834</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1018,7 +1018,7 @@
     </model>
     <model name="clutter_0003">
       <static>true</static>
-      <pose>-6.4645 20.7137 2.6625 0 0 3.1403</pose>
+      <pose>-6.4645 20.7137 1.9744 0 0 3.1403</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.2492</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.2492</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1026,7 +1026,7 @@
     </model>
     <model name="clutter_0004">
       <static>true</static>
-      <pose>-15.4572 -15.0661 2.0778 0 0 0.7162</pose>
+      <pose>-15.4572 -15.0661 1.3897 0 0 0.7162</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.4234</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.4234</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1034,7 +1034,7 @@
     </model>
     <model name="clutter_0005">
       <static>true</static>
-      <pose>21.0686 -8.0212 1.6310 0 0 1.8299</pose>
+      <pose>21.0686 -8.0212 0.9430 0 0 1.8299</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.2233</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.2233</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1042,7 +1042,7 @@
     </model>
     <model name="clutter_0006">
       <static>true</static>
-      <pose>-22.6313 -16.2226 2.3132 0 0 2.0193</pose>
+      <pose>-22.6313 -16.2226 1.6251 0 0 2.0193</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3030</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3030</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1050,7 +1050,7 @@
     </model>
     <model name="clutter_0007">
       <static>true</static>
-      <pose>15.6345 -13.6039 1.7603 0 0 3.4317</pose>
+      <pose>15.6345 -13.6039 1.0723 0 0 3.4317</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3596</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3596</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1058,7 +1058,7 @@
     </model>
     <model name="clutter_0008">
       <static>true</static>
-      <pose>3.2354 19.4076 2.6140 0 0 3.5927</pose>
+      <pose>3.2354 19.4076 1.9260 0 0 3.5927</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.4250</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.4250</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1066,7 +1066,7 @@
     </model>
     <model name="clutter_0009">
       <static>true</static>
-      <pose>6.4045 14.6560 2.0023 0 0 1.8700</pose>
+      <pose>6.4045 14.6560 1.3142 0 0 1.8700</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.4454</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.4454</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1074,7 +1074,7 @@
     </model>
     <model name="clutter_0010">
       <static>true</static>
-      <pose>27.6625 -11.6458 2.0390 0 0 5.1489</pose>
+      <pose>27.6625 -11.6458 1.3509 0 0 5.1489</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3010</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3010</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1082,7 +1082,7 @@
     </model>
     <model name="clutter_0011">
       <static>true</static>
-      <pose>21.8203 2.9616 1.1478 0 0 4.3974</pose>
+      <pose>21.8203 2.9616 0.4597 0 0 4.3974</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3008</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3008</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1090,7 +1090,7 @@
     </model>
     <model name="clutter_0012">
       <static>true</static>
-      <pose>-17.3179 -21.3444 1.9068 0 0 1.3320</pose>
+      <pose>-17.3179 -21.3444 1.2187 0 0 1.3320</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.2401</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.2401</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1098,7 +1098,7 @@
     </model>
     <model name="clutter_0013">
       <static>true</static>
-      <pose>15.7601 3.3313 1.0264 0 0 1.9011</pose>
+      <pose>15.7601 3.3313 0.3383 0 0 1.9011</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.2598</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.2598</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1106,7 +1106,7 @@
     </model>
     <model name="clutter_0014">
       <static>true</static>
-      <pose>-26.4344 21.9413 2.1183 0 0 0.3045</pose>
+      <pose>-26.4344 21.9413 1.4302 0 0 0.3045</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3423</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3423</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1114,7 +1114,7 @@
     </model>
     <model name="clutter_0015">
       <static>true</static>
-      <pose>5.5682 -3.3134 0.7719 0 0 0.6844</pose>
+      <pose>5.5682 -3.3134 0.2923 0 0 0.6844</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.3383</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.3383</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1122,7 +1122,7 @@
     </model>
     <model name="clutter_0016">
       <static>true</static>
-      <pose>-20.8256 -1.7487 1.9237 0 0 0.1064</pose>
+      <pose>-20.8256 -1.7487 1.2356 0 0 0.1064</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.2945</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.2945</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
@@ -1130,41 +1130,120 @@
     </model>
     <model name="clutter_0017">
       <static>true</static>
-      <pose>24.2049 4.8964 1.3280 0 0 5.4995</pose>
+      <pose>24.2049 4.8964 0.6399 0 0 5.4995</pose>
       <link name="link">
         <collision name="collision"><geometry><sphere><radius>0.2811</radius></sphere></geometry></collision>
         <visual name="visual"><geometry><sphere><radius>0.2811</radius></sphere></geometry><material><ambient>0.2000 0.3000 0.1400 1.0000</ambient><diffuse>0.2000 0.3000 0.1400 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
       </link>
     </model>
 
-    <!-- ponds (2) -->
+    <!-- ponds (4) -->
     <model name="pond_00">
       <static>true</static>
-      <pose>13.9393 19.5196 1.3346 0 0 0</pose>
+      <pose>13.9393 19.5196 1.3944 0 0 0</pose>
       <link name="link">
-        <visual name="surface">
-          <transparency>0.25</transparency>
-          <geometry><cylinder><radius>3.4450</radius><length>0.06</length></cylinder></geometry>
-          <material><ambient>0.10 0.19 0.27 0.75</ambient><diffuse>0.13 0.28 0.40 0.75</diffuse><specular>0.6 0.7 0.8 1</specular><pbr><metal><metalness>0.0</metalness><roughness>0.08</roughness></metal></pbr></material>
-        </visual>
+        <visual name="mud"><pose>0 0 0.012 0 0 0</pose><geometry><mesh><uri>model://forest_pond/meshes/forest_random_pond_00_mud.obj</uri></mesh></geometry><material><ambient>0.3000 0.2400 0.1600 1.0000</ambient><diffuse>0.3000 0.2400 0.1600 1.0000</diffuse><specular>0.2000 0.2000 0.2000 1</specular><pbr><metal><albedo_map>model://forest_pond/materials/textures/mud_albedo.png</albedo_map><roughness>0.5500</roughness><metalness>0.0</metalness></metal></pbr></material></visual>
+        <visual name="water"><pose>0 0 0.03 0 0 0</pose><geometry><mesh><uri>model://forest_pond/meshes/forest_random_pond_00_water.obj</uri></mesh></geometry><material><ambient>0.3200 0.4200 0.4400 1.0000</ambient><diffuse>0.3200 0.4200 0.4400 1.0000</diffuse><specular>1.0000 1.0000 1.0000 1</specular><pbr><metal><albedo_map>model://forest_pond/materials/textures/water_albedo.png</albedo_map><normal_map>model://forest_pond/materials/textures/water_normal.png</normal_map><roughness>0.0300</roughness><metalness>0.0</metalness></metal></pbr></material><cast_shadows>false</cast_shadows></visual>
+      </link>
+    </model>
+    <model name="reeds_00">
+      <static>true</static>
+      <pose>13.9393 19.5196 1.3944 0 0 0</pose>
+      <link name="link">
+        <collision name="ct0"><pose>5.0355 0.0527 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct1"><pose>4.8299 0.6409 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct2"><pose>4.7558 1.8512 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct3"><pose>4.1746 2.2994 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct4"><pose>3.8586 3.3274 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct5"><pose>3.1794 4.0940 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct6"><pose>2.7239 4.8834 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct7"><pose>1.5051 5.2738 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct8"><pose>0.9607 5.1862 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct9"><pose>-0.0289 5.6666 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct10"><pose>-1.2010 5.0249 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct11"><pose>-2.2213 4.6912 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct12"><pose>-2.4866 4.2226 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct13"><pose>-3.9282 3.9111 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct14"><pose>-4.3817 2.8990 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct15"><pose>-4.8321 2.1880 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct16"><pose>-5.1211 1.1905 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct17"><pose>-5.4366 0.2228 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct18"><pose>-5.2337 -0.2217 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct19"><pose>-5.7369 -1.3263 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct20"><pose>-4.9670 -2.6212 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct21"><pose>-4.5984 -3.0194 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct22"><pose>-3.3106 -3.4587 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct23"><pose>-2.8227 -3.9830 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct24"><pose>-2.1089 -4.6399 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct25"><pose>-0.8520 -4.8576 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct26"><pose>-0.3311 -4.9481 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct27"><pose>0.5871 -5.2487 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct28"><pose>1.5667 -5.2223 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct29"><pose>2.9556 -4.9552 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct30"><pose>3.4418 -4.3904 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct31"><pose>4.0539 -3.4732 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct32"><pose>4.7193 -3.1007 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct33"><pose>5.0550 -2.0568 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct34"><pose>5.5824 -0.7850 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <visual name="shore"><geometry><mesh><uri>model://forest_pond/meshes/forest_random_reeds_00.obj</uri></mesh></geometry></visual>
       </link>
     </model>
     <model name="pond_01">
       <static>true</static>
-      <pose>-16.6763 16.1546 1.1054 0 0 0</pose>
+      <pose>-16.6763 16.1546 1.4661 0 0 0</pose>
       <link name="link">
-        <visual name="surface">
-          <transparency>0.25</transparency>
-          <geometry><cylinder><radius>3.5091</radius><length>0.06</length></cylinder></geometry>
-          <material><ambient>0.10 0.19 0.27 0.75</ambient><diffuse>0.13 0.28 0.40 0.75</diffuse><specular>0.6 0.7 0.8 1</specular><pbr><metal><metalness>0.0</metalness><roughness>0.08</roughness></metal></pbr></material>
-        </visual>
+        <visual name="mud"><pose>0 0 0.012 0 0 0</pose><geometry><mesh><uri>model://forest_pond/meshes/forest_random_pond_01_mud.obj</uri></mesh></geometry><material><ambient>0.3000 0.2400 0.1600 1.0000</ambient><diffuse>0.3000 0.2400 0.1600 1.0000</diffuse><specular>0.2000 0.2000 0.2000 1</specular><pbr><metal><albedo_map>model://forest_pond/materials/textures/mud_albedo.png</albedo_map><roughness>0.5500</roughness><metalness>0.0</metalness></metal></pbr></material></visual>
+        <visual name="water"><pose>0 0 0.03 0 0 0</pose><geometry><mesh><uri>model://forest_pond/meshes/forest_random_pond_01_water.obj</uri></mesh></geometry><material><ambient>0.3200 0.4200 0.4400 1.0000</ambient><diffuse>0.3200 0.4200 0.4400 1.0000</diffuse><specular>1.0000 1.0000 1.0000 1</specular><pbr><metal><albedo_map>model://forest_pond/materials/textures/water_albedo.png</albedo_map><normal_map>model://forest_pond/materials/textures/water_normal.png</normal_map><roughness>0.0300</roughness><metalness>0.0</metalness></metal></pbr></material><cast_shadows>false</cast_shadows></visual>
+      </link>
+    </model>
+    <model name="reeds_01">
+      <static>true</static>
+      <pose>-16.6763 16.1546 1.4661 0 0 0</pose>
+      <link name="link">
+        <collision name="ct0"><pose>5.3303 -0.1781 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct1"><pose>5.1427 0.6807 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct2"><pose>5.0354 1.5743 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct3"><pose>5.1303 2.7468 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct4"><pose>4.2502 3.8416 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct5"><pose>3.6396 4.6351 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct6"><pose>2.7152 5.0962 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct7"><pose>2.1002 5.0867 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct8"><pose>1.1718 5.6985 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct9"><pose>-0.2345 6.1392 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct10"><pose>-1.0365 5.7196 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct11"><pose>-1.9162 5.2578 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct12"><pose>-2.4279 4.0561 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct13"><pose>-3.1651 3.5950 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct14"><pose>-4.1395 3.1786 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct15"><pose>-4.4800 2.7207 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct16"><pose>-5.0674 1.7346 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct17"><pose>-4.9806 1.0977 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct18"><pose>-5.3447 0.0799 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct19"><pose>-5.4772 -0.9430 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct20"><pose>-5.4511 -1.8401 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct21"><pose>-4.7521 -2.6256 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct22"><pose>-3.7031 -3.4076 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct23"><pose>-3.4807 -4.4664 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct24"><pose>-2.8481 -4.8599 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct25"><pose>-2.1238 -5.2612 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct26"><pose>-1.1135 -5.6208 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct27"><pose>-0.2257 -5.5404 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct28"><pose>0.7834 -5.3757 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct29"><pose>1.6734 -5.2712 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct30"><pose>3.0236 -4.7043 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct31"><pose>3.5852 -4.3315 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct32"><pose>4.1387 -3.2652 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct33"><pose>4.6103 -2.6182 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct34"><pose>4.7000 -1.8614 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <collision name="ct35"><pose>5.2107 -0.8822 0.2 0 0 0</pose><geometry><sphere><radius>0.32</radius></sphere></geometry></collision>
+        <visual name="shore"><geometry><mesh><uri>model://forest_pond/meshes/forest_random_reeds_01.obj</uri></mesh></geometry></visual>
       </link>
     </model>
 
-    <!-- boundary (31) -->
+    <!-- boundary (32) -->
     <model name="edge_0000">
       <static>true</static>
-      <pose>30.5473 0.0000 1.5428 0 0 2.6188</pose>
+      <pose>30.5473 0.0000 0.8547 0 0 2.6188</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.7906 0 0 0</pose><geometry><cylinder><radius>0.3880</radius><length>13.5813</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.9402 1.9402 1.9402</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1173,7 +1252,7 @@
     </model>
     <model name="edge_0001">
       <static>true</static>
-      <pose>31.5924 6.4924 1.6772 0 0 0.3328</pose>
+      <pose>31.5924 6.4924 0.9891 0 0 0.3328</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.7800 0 0 0</pose><geometry><cylinder><radius>0.3303</radius><length>11.5600</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6514 1.6514 1.6514</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1182,7 +1261,7 @@
     </model>
     <model name="edge_0002">
       <static>true</static>
-      <pose>30.9413 13.2780 1.6167 0 0 4.5484</pose>
+      <pose>30.9413 13.2780 0.9286 0 0 4.5484</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.5379 0 0 0</pose><geometry><cylinder><radius>0.3165</radius><length>11.0759</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.5823 1.5823 1.5823</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1191,7 +1270,7 @@
     </model>
     <model name="edge_0003">
       <static>true</static>
-      <pose>26.3478 18.3386 1.7344 0 0 1.0120</pose>
+      <pose>26.3478 18.3386 1.0463 0 0 1.0120</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.8683 0 0 0</pose><geometry><cylinder><radius>0.3353</radius><length>11.7367</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6767 1.6767 1.6767</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1200,7 +1279,7 @@
     </model>
     <model name="edge_0004">
       <static>true</static>
-      <pose>22.9405 24.1334 1.9124 0 0 4.7217</pose>
+      <pose>22.9405 24.1334 1.2245 0 0 4.7217</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.8712 0 0 0</pose><geometry><cylinder><radius>0.3355</radius><length>11.7425</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6775 1.6775 1.6775</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1209,7 +1288,7 @@
     </model>
     <model name="edge_0005">
       <static>true</static>
-      <pose>16.6853 26.7691 2.1607 0 0 3.3134</pose>
+      <pose>16.6853 26.7691 1.4040 0 0 3.3134</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.6181 0 0 0</pose><geometry><cylinder><radius>0.3210</radius><length>11.2361</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6052 1.6052 1.6052</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1218,7 +1297,7 @@
     </model>
     <model name="edge_0006">
       <static>true</static>
-      <pose>11.2468 30.3673 2.6042 0 0 0.2895</pose>
+      <pose>11.2468 30.3673 1.9161 0 0 0.2895</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.8762 0 0 0</pose><geometry><cylinder><radius>0.3929</radius><length>13.7525</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.9646 1.9646 1.9646</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1227,7 +1306,7 @@
     </model>
     <model name="edge_0007">
       <static>true</static>
-      <pose>4.9079 32.0369 3.0597 0 0 3.4308</pose>
+      <pose>4.9079 32.0369 2.3716 0 0 3.4308</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.3565 0 0 0</pose><geometry><cylinder><radius>0.3061</radius><length>10.7129</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.5304 1.5304 1.5304</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1236,7 +1315,7 @@
     </model>
     <model name="edge_0008">
       <static>true</static>
-      <pose>-1.6229 32.0012 3.1294 0 0 3.9232</pose>
+      <pose>-1.6229 32.0012 2.4413 0 0 3.9232</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.3792 0 0 0</pose><geometry><cylinder><radius>0.3645</radius><length>12.7584</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.8226 1.8226 1.8226</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1245,7 +1324,7 @@
     </model>
     <model name="edge_0009">
       <static>true</static>
-      <pose>-8.2622 31.9103 2.9575 0 0 6.2734</pose>
+      <pose>-8.2622 31.9103 2.2695 0 0 6.2734</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.6288 0 0 0</pose><geometry><cylinder><radius>0.3788</radius><length>13.2576</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.8939 1.8939 1.8939</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1254,7 +1333,7 @@
     </model>
     <model name="edge_0010">
       <static>true</static>
-      <pose>-14.4568 29.4722 2.6903 0 0 0.4452</pose>
+      <pose>-14.4568 29.4722 2.0022 0 0 0.4452</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.5591 0 0 0</pose><geometry><cylinder><radius>0.3177</radius><length>11.1182</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.5883 1.5883 1.5883</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1263,7 +1342,7 @@
     </model>
     <model name="edge_0011">
       <static>true</static>
-      <pose>-19.2439 24.8610 2.2234 0 0 4.3301</pose>
+      <pose>-19.2439 24.8610 1.5178 0 0 4.3301</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.6852 0 0 0</pose><geometry><cylinder><radius>0.3820</radius><length>13.3704</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.9101 1.9101 1.9101</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1272,7 +1351,7 @@
     </model>
     <model name="edge_0012">
       <static>true</static>
-      <pose>-24.7675 21.2622 1.9313 0 0 1.6293</pose>
+      <pose>-24.7675 21.2622 1.2419 0 0 1.6293</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.2242 0 0 0</pose><geometry><cylinder><radius>0.3557</radius><length>12.4484</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.7783 1.7783 1.7783</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1281,7 +1360,7 @@
     </model>
     <model name="edge_0013">
       <static>true</static>
-      <pose>-29.4788 16.3621 1.6912 0 0 3.5972</pose>
+      <pose>-29.4788 16.3621 1.0031 0 0 3.5972</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.9232 0 0 0</pose><geometry><cylinder><radius>0.3385</radius><length>11.8465</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6924 1.6924 1.6924</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1290,7 +1369,7 @@
     </model>
     <model name="edge_0014">
       <static>true</static>
-      <pose>-29.7045 9.3199 1.5047 0 0 2.3272</pose>
+      <pose>-29.7045 9.3199 0.8166 0 0 2.3272</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.2589 0 0 0</pose><geometry><cylinder><radius>0.3577</radius><length>12.5178</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.7883 1.7883 1.7883</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1299,7 +1378,7 @@
     </model>
     <model name="edge_0015">
       <static>true</static>
-      <pose>-30.5623 3.1079 1.4036 0 0 1.7661</pose>
+      <pose>-30.5623 3.1079 0.7155 0 0 1.7661</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.4883 0 0 0</pose><geometry><cylinder><radius>0.3708</radius><length>12.9765</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.8538 1.8538 1.8538</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1308,7 +1387,7 @@
     </model>
     <model name="edge_0016">
       <static>true</static>
-      <pose>-30.5007 -3.1016 1.4549 0 0 5.3153</pose>
+      <pose>-30.5007 -3.1016 0.7668 0 0 5.3153</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.8882 0 0 0</pose><geometry><cylinder><radius>0.3365</radius><length>11.7764</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6823 1.6823 1.6823</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1317,7 +1396,7 @@
     </model>
     <model name="edge_0017">
       <static>true</static>
-      <pose>-31.4115 -9.8554 1.4684 0 0 5.0868</pose>
+      <pose>-31.4115 -9.8554 0.7803 0 0 5.0868</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 7.1194 0 0 0</pose><geometry><cylinder><radius>0.4068</radius><length>14.2388</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>2.0341 2.0341 2.0341</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1326,7 +1405,7 @@
     </model>
     <model name="edge_0018">
       <static>true</static>
-      <pose>-27.6752 -15.3610 1.9159 0 0 1.2656</pose>
+      <pose>-27.6752 -15.3610 1.2278 0 0 1.2656</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.7936 0 0 0</pose><geometry><cylinder><radius>0.3311</radius><length>11.5873</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6553 1.6553 1.6553</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1335,7 +1414,7 @@
     </model>
     <model name="edge_0019">
       <static>true</static>
-      <pose>-23.6888 -20.3362 2.1161 0 0 1.4111</pose>
+      <pose>-23.6888 -20.3362 1.4280 0 0 1.4111</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.7520 0 0 0</pose><geometry><cylinder><radius>0.3287</radius><length>11.5040</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6434 1.6434 1.6434</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1344,7 +1423,7 @@
     </model>
     <model name="edge_0020">
       <static>true</static>
-      <pose>-20.1101 -25.9801 1.3564 0 0 2.6477</pose>
+      <pose>-20.1101 -25.9801 0.6683 0 0 2.6477</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.3480 0 0 0</pose><geometry><cylinder><radius>0.3056</radius><length>10.6960</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.5280 1.5280 1.5280</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1353,7 +1432,7 @@
     </model>
     <model name="edge_0021">
       <static>true</static>
-      <pose>-13.7418 -28.0145 1.3078 0 0 3.4978</pose>
+      <pose>-13.7418 -28.0145 0.6197 0 0 3.4978</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.7156 0 0 0</pose><geometry><cylinder><radius>0.3266</radius><length>11.4312</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.6330 1.6330 1.6330</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1362,7 +1441,7 @@
     </model>
     <model name="edge_0022">
       <static>true</static>
-      <pose>-7.7993 -30.1228 2.4428 0 0 1.9046</pose>
+      <pose>-7.7993 -30.1228 1.7547 0 0 1.9046</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 7.0712 0 0 0</pose><geometry><cylinder><radius>0.4041</radius><length>14.1423</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>2.0203 2.0203 2.0203</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1371,7 +1450,7 @@
     </model>
     <model name="edge_0023">
       <static>true</static>
-      <pose>-1.6383 -32.3037 2.7353 0 0 0.1298</pose>
+      <pose>-1.6383 -32.3037 2.0472 0 0 0.1298</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.3970 0 0 0</pose><geometry><cylinder><radius>0.3084</radius><length>10.7941</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.5420 1.5420 1.5420</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1380,7 +1459,7 @@
     </model>
     <model name="edge_0024">
       <static>true</static>
-      <pose>5.0651 -33.0629 2.4594 0 0 2.5917</pose>
+      <pose>5.0651 -33.0629 1.7713 0 0 2.5917</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.6907 0 0 0</pose><geometry><cylinder><radius>0.3823</radius><length>13.3815</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.9116 1.9116 1.9116</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1389,7 +1468,7 @@
     </model>
     <model name="edge_0025">
       <static>true</static>
-      <pose>11.6118 -31.3529 2.2756 0 0 3.4439</pose>
+      <pose>11.6118 -31.3529 1.5875 0 0 3.4439</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.2660 0 0 0</pose><geometry><cylinder><radius>0.3581</radius><length>12.5321</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.7903 1.7903 1.7903</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1398,7 +1477,7 @@
     </model>
     <model name="edge_0026">
       <static>true</static>
-      <pose>17.6026 -28.2408 2.3484 0 0 2.9841</pose>
+      <pose>17.6026 -28.2408 1.6604 0 0 2.9841</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.0111 0 0 0</pose><geometry><cylinder><radius>0.3435</radius><length>12.0223</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.7175 1.7175 1.7175</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1407,7 +1486,7 @@
     </model>
     <model name="edge_0027">
       <static>true</static>
-      <pose>22.4334 -23.5999 2.2258 0 0 4.3549</pose>
+      <pose>22.4334 -23.5999 1.5377 0 0 4.3549</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.3915 0 0 0</pose><geometry><cylinder><radius>0.3652</radius><length>12.7831</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.8262 1.8262 1.8262</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1416,7 +1495,7 @@
     </model>
     <model name="edge_0028">
       <static>true</static>
-      <pose>27.1391 -18.8894 1.9449 0 0 1.8712</pose>
+      <pose>27.1391 -18.8894 1.2568 0 0 1.8712</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 6.1757 0 0 0</pose><geometry><cylinder><radius>0.3529</radius><length>12.3513</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.7645 1.7645 1.7645</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1425,7 +1504,7 @@
     </model>
     <model name="edge_0029">
       <static>true</static>
-      <pose>29.2750 -12.5629 1.8702 0 0 0.0841</pose>
+      <pose>29.2750 -12.5629 1.1821 0 0 0.0841</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 7.2348 0 0 0</pose><geometry><cylinder><radius>0.4134</radius><length>14.4695</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>2.0671 2.0671 2.0671</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
@@ -1434,11 +1513,322 @@
     </model>
     <model name="edge_0030">
       <static>true</static>
-      <pose>33.1248 -6.8073 1.7118 0 0 1.2938</pose>
+      <pose>33.1248 -6.8073 1.0237 0 0 1.2938</pose>
       <link name="link">
         <collision name="trunk"><pose>0 0 5.4136 0 0 0</pose><geometry><cylinder><radius>0.3094</radius><length>10.8273</length></cylinder></geometry></collision>
         <visual name="bark"><geometry><mesh><uri>model://tree_pine/meshes/pine_tree.dae</uri><submesh><name>Bark</name></submesh><scale>1.5468 1.5468 1.5468</scale></mesh></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>model://tree_pine/materials/textures/bark_diffuse.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr></material></visual>
         <visual name="canopy"><pose>0 0 8.4453 0 0 0</pose><geometry><capsule><radius>1.4694</radius><length>7.1151</length></capsule></geometry><material><ambient>0.1400 0.2900 0.1500 1.0000</ambient><diffuse>0.1400 0.2900 0.1500 1.0000</diffuse><specular>0.05 0.05 0.05 1</specular></material></visual>
+      </link>
+    </model>
+    <model name="hedge">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="c0"><pose>-30.3000 -30.3000 1.8473 0 0 0</pose><geometry><sphere><radius>0.7540</radius></sphere></geometry></collision>
+        <collision name="c1"><pose>-29.5026 -30.3000 1.7616 0 0 0</pose><geometry><sphere><radius>0.6224</radius></sphere></geometry></collision>
+        <collision name="c2"><pose>-28.7053 -30.3000 1.7552 0 0 0</pose><geometry><sphere><radius>0.6378</radius></sphere></geometry></collision>
+        <collision name="c3"><pose>-27.9079 -30.3000 1.7323 0 0 0</pose><geometry><sphere><radius>0.6320</radius></sphere></geometry></collision>
+        <collision name="c4"><pose>-27.1105 -30.3000 1.7422 0 0 0</pose><geometry><sphere><radius>0.6864</radius></sphere></geometry></collision>
+        <collision name="c5"><pose>-26.3132 -30.3000 1.7296 0 0 0</pose><geometry><sphere><radius>0.7003</radius></sphere></geometry></collision>
+        <collision name="c6"><pose>-25.5158 -30.3000 1.8127 0 0 0</pose><geometry><sphere><radius>0.7986</radius></sphere></geometry></collision>
+        <collision name="c7"><pose>-24.7184 -30.3000 1.7704 0 0 0</pose><geometry><sphere><radius>0.6613</radius></sphere></geometry></collision>
+        <collision name="c8"><pose>-23.9211 -30.3000 1.7914 0 0 0</pose><geometry><sphere><radius>0.6652</radius></sphere></geometry></collision>
+        <collision name="c9"><pose>-23.1237 -30.3000 1.7083 0 0 0</pose><geometry><sphere><radius>0.7049</radius></sphere></geometry></collision>
+        <collision name="c10"><pose>-22.3263 -30.3000 1.5025 0 0 0</pose><geometry><sphere><radius>0.6494</radius></sphere></geometry></collision>
+        <collision name="c11"><pose>-21.5289 -30.3000 1.3468 0 0 0</pose><geometry><sphere><radius>0.6071</radius></sphere></geometry></collision>
+        <collision name="c12"><pose>-20.7316 -30.3000 1.3567 0 0 0</pose><geometry><sphere><radius>0.7565</radius></sphere></geometry></collision>
+        <collision name="c13"><pose>-19.9342 -30.3000 1.3529 0 0 0</pose><geometry><sphere><radius>0.7814</radius></sphere></geometry></collision>
+        <collision name="c14"><pose>-19.1368 -30.3000 1.3456 0 0 0</pose><geometry><sphere><radius>0.7692</radius></sphere></geometry></collision>
+        <collision name="c15"><pose>-18.3395 -30.3000 1.2902 0 0 0</pose><geometry><sphere><radius>0.6685</radius></sphere></geometry></collision>
+        <collision name="c16"><pose>-17.5421 -30.3000 1.2924 0 0 0</pose><geometry><sphere><radius>0.6725</radius></sphere></geometry></collision>
+        <collision name="c17"><pose>-16.7447 -30.3000 1.3079 0 0 0</pose><geometry><sphere><radius>0.7043</radius></sphere></geometry></collision>
+        <collision name="c18"><pose>-15.9474 -30.3000 1.2765 0 0 0</pose><geometry><sphere><radius>0.6419</radius></sphere></geometry></collision>
+        <collision name="c19"><pose>-15.1500 -30.3000 1.3616 0 0 0</pose><geometry><sphere><radius>0.7352</radius></sphere></geometry></collision>
+        <collision name="c20"><pose>-14.3526 -30.3000 1.4569 0 0 0</pose><geometry><sphere><radius>0.6905</radius></sphere></geometry></collision>
+        <collision name="c21"><pose>-13.5553 -30.3000 1.7419 0 0 0</pose><geometry><sphere><radius>0.7030</radius></sphere></geometry></collision>
+        <collision name="c22"><pose>-12.7579 -30.3000 1.9680 0 0 0</pose><geometry><sphere><radius>0.6152</radius></sphere></geometry></collision>
+        <collision name="c23"><pose>-11.9605 -30.3000 2.0776 0 0 0</pose><geometry><sphere><radius>0.6771</radius></sphere></geometry></collision>
+        <collision name="c24"><pose>-11.1632 -30.3000 2.0845 0 0 0</pose><geometry><sphere><radius>0.6257</radius></sphere></geometry></collision>
+        <collision name="c25"><pose>-10.3658 -30.3000 2.1063 0 0 0</pose><geometry><sphere><radius>0.6046</radius></sphere></geometry></collision>
+        <collision name="c26"><pose>-9.5684 -30.3000 2.1681 0 0 0</pose><geometry><sphere><radius>0.6740</radius></sphere></geometry></collision>
+        <collision name="c27"><pose>-8.7711 -30.3000 2.1616 0 0 0</pose><geometry><sphere><radius>0.6185</radius></sphere></geometry></collision>
+        <collision name="c28"><pose>-7.9737 -30.3000 2.1981 0 0 0</pose><geometry><sphere><radius>0.6403</radius></sphere></geometry></collision>
+        <collision name="c29"><pose>-7.1763 -30.3000 2.2053 0 0 0</pose><geometry><sphere><radius>0.6105</radius></sphere></geometry></collision>
+        <collision name="c30"><pose>-6.3789 -30.3000 2.3136 0 0 0</pose><geometry><sphere><radius>0.7637</radius></sphere></geometry></collision>
+        <collision name="c31"><pose>-5.5816 -30.3000 2.3556 0 0 0</pose><geometry><sphere><radius>0.7953</radius></sphere></geometry></collision>
+        <collision name="c32"><pose>-4.7842 -30.3000 2.2989 0 0 0</pose><geometry><sphere><radius>0.6214</radius></sphere></geometry></collision>
+        <collision name="c33"><pose>-3.9868 -30.3000 2.4037 0 0 0</pose><geometry><sphere><radius>0.7220</radius></sphere></geometry></collision>
+        <collision name="c34"><pose>-3.1895 -30.3000 2.4684 0 0 0</pose><geometry><sphere><radius>0.7486</radius></sphere></geometry></collision>
+        <collision name="c35"><pose>-2.3921 -30.3000 2.4846 0 0 0</pose><geometry><sphere><radius>0.6904</radius></sphere></geometry></collision>
+        <collision name="c36"><pose>-1.5947 -30.3000 2.4842 0 0 0</pose><geometry><sphere><radius>0.6123</radius></sphere></geometry></collision>
+        <collision name="c37"><pose>-0.7974 -30.3000 2.5454 0 0 0</pose><geometry><sphere><radius>0.6451</radius></sphere></geometry></collision>
+        <collision name="c38"><pose>0.0000 -30.3000 2.6268 0 0 0</pose><geometry><sphere><radius>0.7134</radius></sphere></geometry></collision>
+        <collision name="c39"><pose>0.7974 -30.3000 2.5899 0 0 0</pose><geometry><sphere><radius>0.7322</radius></sphere></geometry></collision>
+        <collision name="c40"><pose>1.5947 -30.3000 2.5492 0 0 0</pose><geometry><sphere><radius>0.7429</radius></sphere></geometry></collision>
+        <collision name="c41"><pose>2.3921 -30.3000 2.4993 0 0 0</pose><geometry><sphere><radius>0.7359</radius></sphere></geometry></collision>
+        <collision name="c42"><pose>3.1895 -30.3000 2.4128 0 0 0</pose><geometry><sphere><radius>0.6929</radius></sphere></geometry></collision>
+        <collision name="c43"><pose>3.9868 -30.3000 2.3439 0 0 0</pose><geometry><sphere><radius>0.6942</radius></sphere></geometry></collision>
+        <collision name="c44"><pose>4.7842 -30.3000 2.2662 0 0 0</pose><geometry><sphere><radius>0.6781</radius></sphere></geometry></collision>
+        <collision name="c45"><pose>5.5816 -30.3000 2.1829 0 0 0</pose><geometry><sphere><radius>0.6156</radius></sphere></geometry></collision>
+        <collision name="c46"><pose>6.3789 -30.3000 2.2488 0 0 0</pose><geometry><sphere><radius>0.7737</radius></sphere></geometry></collision>
+        <collision name="c47"><pose>7.1763 -30.3000 2.1953 0 0 0</pose><geometry><sphere><radius>0.7139</radius></sphere></geometry></collision>
+        <collision name="c48"><pose>7.9737 -30.3000 2.1312 0 0 0</pose><geometry><sphere><radius>0.6370</radius></sphere></geometry></collision>
+        <collision name="c49"><pose>8.7711 -30.3000 2.1612 0 0 0</pose><geometry><sphere><radius>0.7534</radius></sphere></geometry></collision>
+        <collision name="c50"><pose>9.5684 -30.3000 2.0607 0 0 0</pose><geometry><sphere><radius>0.6317</radius></sphere></geometry></collision>
+        <collision name="c51"><pose>10.3658 -30.3000 2.0468 0 0 0</pose><geometry><sphere><radius>0.6669</radius></sphere></geometry></collision>
+        <collision name="c52"><pose>11.1632 -30.3000 2.0975 0 0 0</pose><geometry><sphere><radius>0.7441</radius></sphere></geometry></collision>
+        <collision name="c53"><pose>11.9605 -30.3000 2.0447 0 0 0</pose><geometry><sphere><radius>0.6171</radius></sphere></geometry></collision>
+        <collision name="c54"><pose>12.7579 -30.3000 2.1523 0 0 0</pose><geometry><sphere><radius>0.7816</radius></sphere></geometry></collision>
+        <collision name="c55"><pose>13.5553 -30.3000 2.1243 0 0 0</pose><geometry><sphere><radius>0.7067</radius></sphere></geometry></collision>
+        <collision name="c56"><pose>14.3526 -30.3000 2.1563 0 0 0</pose><geometry><sphere><radius>0.7473</radius></sphere></geometry></collision>
+        <collision name="c57"><pose>15.1500 -30.3000 2.0914 0 0 0</pose><geometry><sphere><radius>0.6115</radius></sphere></geometry></collision>
+        <collision name="c58"><pose>15.9474 -30.3000 2.1860 0 0 0</pose><geometry><sphere><radius>0.7755</radius></sphere></geometry></collision>
+        <collision name="c59"><pose>16.7447 -30.3000 2.1050 0 0 0</pose><geometry><sphere><radius>0.6508</radius></sphere></geometry></collision>
+        <collision name="c60"><pose>17.5421 -30.3000 2.1581 0 0 0</pose><geometry><sphere><radius>0.7698</radius></sphere></geometry></collision>
+        <collision name="c61"><pose>18.3395 -30.3000 2.1568 0 0 0</pose><geometry><sphere><radius>0.7901</radius></sphere></geometry></collision>
+        <collision name="c62"><pose>19.1368 -30.3000 2.1352 0 0 0</pose><geometry><sphere><radius>0.7522</radius></sphere></geometry></collision>
+        <collision name="c63"><pose>19.9342 -30.3000 2.0526 0 0 0</pose><geometry><sphere><radius>0.6024</radius></sphere></geometry></collision>
+        <collision name="c64"><pose>20.7316 -30.3000 2.1182 0 0 0</pose><geometry><sphere><radius>0.7226</radius></sphere></geometry></collision>
+        <collision name="c65"><pose>21.5289 -30.3000 2.0727 0 0 0</pose><geometry><sphere><radius>0.6483</radius></sphere></geometry></collision>
+        <collision name="c66"><pose>22.3263 -30.3000 2.1154 0 0 0</pose><geometry><sphere><radius>0.7389</radius></sphere></geometry></collision>
+        <collision name="c67"><pose>23.1237 -30.3000 2.1118 0 0 0</pose><geometry><sphere><radius>0.7455</radius></sphere></geometry></collision>
+        <collision name="c68"><pose>23.9211 -30.3000 2.1243 0 0 0</pose><geometry><sphere><radius>0.7824</radius></sphere></geometry></collision>
+        <collision name="c69"><pose>24.7184 -30.3000 2.0493 0 0 0</pose><geometry><sphere><radius>0.6614</radius></sphere></geometry></collision>
+        <collision name="c70"><pose>25.5158 -30.3000 2.0449 0 0 0</pose><geometry><sphere><radius>0.6694</radius></sphere></geometry></collision>
+        <collision name="c71"><pose>26.3132 -30.3000 2.0113 0 0 0</pose><geometry><sphere><radius>0.6242</radius></sphere></geometry></collision>
+        <collision name="c72"><pose>27.1105 -30.3000 2.0478 0 0 0</pose><geometry><sphere><radius>0.7020</radius></sphere></geometry></collision>
+        <collision name="c73"><pose>27.9079 -30.3000 2.0479 0 0 0</pose><geometry><sphere><radius>0.7140</radius></sphere></geometry></collision>
+        <collision name="c74"><pose>28.7053 -30.3000 2.0610 0 0 0</pose><geometry><sphere><radius>0.7502</radius></sphere></geometry></collision>
+        <collision name="c75"><pose>29.5026 -30.3000 2.0500 0 0 0</pose><geometry><sphere><radius>0.7228</radius></sphere></geometry></collision>
+        <collision name="c76"><pose>30.3000 -30.3000 2.0278 0 0 0</pose><geometry><sphere><radius>0.6702</radius></sphere></geometry></collision>
+        <collision name="c77"><pose>30.3000 -29.5026 2.0699 0 0 0</pose><geometry><sphere><radius>0.7581</radius></sphere></geometry></collision>
+        <collision name="c78"><pose>30.3000 -28.7053 2.0843 0 0 0</pose><geometry><sphere><radius>0.7917</radius></sphere></geometry></collision>
+        <collision name="c79"><pose>30.3000 -27.9079 2.0355 0 0 0</pose><geometry><sphere><radius>0.6934</radius></sphere></geometry></collision>
+        <collision name="c80"><pose>30.3000 -27.1105 2.0215 0 0 0</pose><geometry><sphere><radius>0.6590</radius></sphere></geometry></collision>
+        <collision name="c81"><pose>30.3000 -26.3132 2.0738 0 0 0</pose><geometry><sphere><radius>0.7456</radius></sphere></geometry></collision>
+        <collision name="c82"><pose>30.3000 -25.5158 1.9631 0 0 0</pose><geometry><sphere><radius>0.6213</radius></sphere></geometry></collision>
+        <collision name="c83"><pose>30.3000 -24.7184 1.9202 0 0 0</pose><geometry><sphere><radius>0.6278</radius></sphere></geometry></collision>
+        <collision name="c84"><pose>30.3000 -23.9211 1.9455 0 0 0</pose><geometry><sphere><radius>0.7591</radius></sphere></geometry></collision>
+        <collision name="c85"><pose>30.3000 -23.1237 1.8975 0 0 0</pose><geometry><sphere><radius>0.7591</radius></sphere></geometry></collision>
+        <collision name="c86"><pose>30.3000 -22.3263 1.7698 0 0 0</pose><geometry><sphere><radius>0.6155</radius></sphere></geometry></collision>
+        <collision name="c87"><pose>30.3000 -21.5289 1.7887 0 0 0</pose><geometry><sphere><radius>0.7390</radius></sphere></geometry></collision>
+        <collision name="c88"><pose>30.3000 -20.7316 1.6903 0 0 0</pose><geometry><sphere><radius>0.6117</radius></sphere></geometry></collision>
+        <collision name="c89"><pose>30.3000 -19.9342 1.7957 0 0 0</pose><geometry><sphere><radius>0.7804</radius></sphere></geometry></collision>
+        <collision name="c90"><pose>30.3000 -19.1368 1.7769 0 0 0</pose><geometry><sphere><radius>0.7236</radius></sphere></geometry></collision>
+        <collision name="c91"><pose>30.3000 -18.3395 1.7788 0 0 0</pose><geometry><sphere><radius>0.7068</radius></sphere></geometry></collision>
+        <collision name="c92"><pose>30.3000 -17.5421 1.7851 0 0 0</pose><geometry><sphere><radius>0.7441</radius></sphere></geometry></collision>
+        <collision name="c93"><pose>30.3000 -16.7447 1.7308 0 0 0</pose><geometry><sphere><radius>0.6713</radius></sphere></geometry></collision>
+        <collision name="c94"><pose>30.3000 -15.9474 1.7672 0 0 0</pose><geometry><sphere><radius>0.7632</radius></sphere></geometry></collision>
+        <collision name="c95"><pose>30.3000 -15.1500 1.6840 0 0 0</pose><geometry><sphere><radius>0.6420</radius></sphere></geometry></collision>
+        <collision name="c96"><pose>30.3000 -14.3526 1.7144 0 0 0</pose><geometry><sphere><radius>0.7285</radius></sphere></geometry></collision>
+        <collision name="c97"><pose>30.3000 -13.5553 1.6707 0 0 0</pose><geometry><sphere><radius>0.6799</radius></sphere></geometry></collision>
+        <collision name="c98"><pose>30.3000 -12.7579 1.6824 0 0 0</pose><geometry><sphere><radius>0.7425</radius></sphere></geometry></collision>
+        <collision name="c99"><pose>30.3000 -11.9605 1.5958 0 0 0</pose><geometry><sphere><radius>0.6382</radius></sphere></geometry></collision>
+        <collision name="c100"><pose>30.3000 -11.1632 1.6206 0 0 0</pose><geometry><sphere><radius>0.7362</radius></sphere></geometry></collision>
+        <collision name="c101"><pose>30.3000 -10.3658 1.5982 0 0 0</pose><geometry><sphere><radius>0.7421</radius></sphere></geometry></collision>
+        <collision name="c102"><pose>30.3000 -9.5684 1.5308 0 0 0</pose><geometry><sphere><radius>0.6380</radius></sphere></geometry></collision>
+        <collision name="c103"><pose>30.3000 -8.7711 1.5477 0 0 0</pose><geometry><sphere><radius>0.6867</radius></sphere></geometry></collision>
+        <collision name="c104"><pose>30.3000 -7.9737 1.5082 0 0 0</pose><geometry><sphere><radius>0.6318</radius></sphere></geometry></collision>
+        <collision name="c105"><pose>30.3000 -7.1763 1.5565 0 0 0</pose><geometry><sphere><radius>0.7464</radius></sphere></geometry></collision>
+        <collision name="c106"><pose>30.3000 -6.3789 1.5238 0 0 0</pose><geometry><sphere><radius>0.7142</radius></sphere></geometry></collision>
+        <collision name="c107"><pose>30.3000 -5.5816 1.5163 0 0 0</pose><geometry><sphere><radius>0.7267</radius></sphere></geometry></collision>
+        <collision name="c108"><pose>30.3000 -4.7842 1.4452 0 0 0</pose><geometry><sphere><radius>0.6322</radius></sphere></geometry></collision>
+        <collision name="c109"><pose>30.3000 -3.9868 1.4287 0 0 0</pose><geometry><sphere><radius>0.6427</radius></sphere></geometry></collision>
+        <collision name="c110"><pose>30.3000 -3.1895 1.4768 0 0 0</pose><geometry><sphere><radius>0.7693</radius></sphere></geometry></collision>
+        <collision name="c111"><pose>30.3000 -2.3921 1.4459 0 0 0</pose><geometry><sphere><radius>0.7501</radius></sphere></geometry></collision>
+        <collision name="c112"><pose>30.3000 -1.5947 1.4231 0 0 0</pose><geometry><sphere><radius>0.7419</radius></sphere></geometry></collision>
+        <collision name="c113"><pose>30.3000 -0.7974 1.3912 0 0 0</pose><geometry><sphere><radius>0.7159</radius></sphere></geometry></collision>
+        <collision name="c114"><pose>30.3000 0.0000 1.3733 0 0 0</pose><geometry><sphere><radius>0.7142</radius></sphere></geometry></collision>
+        <collision name="c115"><pose>30.3000 0.7974 1.3090 0 0 0</pose><geometry><sphere><radius>0.6152</radius></sphere></geometry></collision>
+        <collision name="c116"><pose>30.3000 1.5947 1.3241 0 0 0</pose><geometry><sphere><radius>0.6594</radius></sphere></geometry></collision>
+        <collision name="c117"><pose>30.3000 2.3921 1.3489 0 0 0</pose><geometry><sphere><radius>0.7200</radius></sphere></geometry></collision>
+        <collision name="c118"><pose>30.3000 3.1895 1.3546 0 0 0</pose><geometry><sphere><radius>0.7043</radius></sphere></geometry></collision>
+        <collision name="c119"><pose>30.3000 3.9868 1.3886 0 0 0</pose><geometry><sphere><radius>0.7222</radius></sphere></geometry></collision>
+        <collision name="c120"><pose>30.3000 4.7842 1.3688 0 0 0</pose><geometry><sphere><radius>0.6409</radius></sphere></geometry></collision>
+        <collision name="c121"><pose>30.3000 5.5816 1.4447 0 0 0</pose><geometry><sphere><radius>0.7637</radius></sphere></geometry></collision>
+        <collision name="c122"><pose>30.3000 6.3789 1.3573 0 0 0</pose><geometry><sphere><radius>0.6319</radius></sphere></geometry></collision>
+        <collision name="c123"><pose>30.3000 7.1763 1.4189 0 0 0</pose><geometry><sphere><radius>0.7701</radius></sphere></geometry></collision>
+        <collision name="c124"><pose>30.3000 7.9737 1.3677 0 0 0</pose><geometry><sphere><radius>0.7013</radius></sphere></geometry></collision>
+        <collision name="c125"><pose>30.3000 8.7711 1.3665 0 0 0</pose><geometry><sphere><radius>0.7162</radius></sphere></geometry></collision>
+        <collision name="c126"><pose>30.3000 9.5684 1.3937 0 0 0</pose><geometry><sphere><radius>0.7821</radius></sphere></geometry></collision>
+        <collision name="c127"><pose>30.3000 10.3658 1.3374 0 0 0</pose><geometry><sphere><radius>0.6955</radius></sphere></geometry></collision>
+        <collision name="c128"><pose>30.3000 11.1632 1.3946 0 0 0</pose><geometry><sphere><radius>0.7629</radius></sphere></geometry></collision>
+        <collision name="c129"><pose>30.3000 11.9605 1.4156 0 0 0</pose><geometry><sphere><radius>0.7536</radius></sphere></geometry></collision>
+        <collision name="c130"><pose>30.3000 12.7579 1.4425 0 0 0</pose><geometry><sphere><radius>0.7547</radius></sphere></geometry></collision>
+        <collision name="c131"><pose>30.3000 13.5553 1.4202 0 0 0</pose><geometry><sphere><radius>0.6732</radius></sphere></geometry></collision>
+        <collision name="c132"><pose>30.3000 14.3526 1.4884 0 0 0</pose><geometry><sphere><radius>0.7621</radius></sphere></geometry></collision>
+        <collision name="c133"><pose>30.3000 15.1500 1.4487 0 0 0</pose><geometry><sphere><radius>0.6547</radius></sphere></geometry></collision>
+        <collision name="c134"><pose>30.3000 15.9474 1.4984 0 0 0</pose><geometry><sphere><radius>0.7185</radius></sphere></geometry></collision>
+        <collision name="c135"><pose>30.3000 16.7447 1.4431 0 0 0</pose><geometry><sphere><radius>0.6184</radius></sphere></geometry></collision>
+        <collision name="c136"><pose>30.3000 17.5421 1.4604 0 0 0</pose><geometry><sphere><radius>0.6503</radius></sphere></geometry></collision>
+        <collision name="c137"><pose>30.3000 18.3395 1.4746 0 0 0</pose><geometry><sphere><radius>0.6767</radius></sphere></geometry></collision>
+        <collision name="c138"><pose>30.3000 19.1368 1.4485 0 0 0</pose><geometry><sphere><radius>0.6153</radius></sphere></geometry></collision>
+        <collision name="c139"><pose>30.3000 19.9342 1.4657 0 0 0</pose><geometry><sphere><radius>0.6323</radius></sphere></geometry></collision>
+        <collision name="c140"><pose>30.3000 20.7316 1.5239 0 0 0</pose><geometry><sphere><radius>0.7240</radius></sphere></geometry></collision>
+        <collision name="c141"><pose>30.3000 21.5289 1.4891 0 0 0</pose><geometry><sphere><radius>0.6234</radius></sphere></geometry></collision>
+        <collision name="c142"><pose>30.3000 22.3263 1.6059 0 0 0</pose><geometry><sphere><radius>0.7866</radius></sphere></geometry></collision>
+        <collision name="c143"><pose>30.3000 23.1237 1.5834 0 0 0</pose><geometry><sphere><radius>0.6971</radius></sphere></geometry></collision>
+        <collision name="c144"><pose>30.3000 23.9211 1.5903 0 0 0</pose><geometry><sphere><radius>0.6581</radius></sphere></geometry></collision>
+        <collision name="c145"><pose>30.3000 24.7184 1.6981 0 0 0</pose><geometry><sphere><radius>0.7969</radius></sphere></geometry></collision>
+        <collision name="c146"><pose>30.3000 25.5158 1.6942 0 0 0</pose><geometry><sphere><radius>0.7332</radius></sphere></geometry></collision>
+        <collision name="c147"><pose>30.3000 26.3132 1.7267 0 0 0</pose><geometry><sphere><radius>0.7363</radius></sphere></geometry></collision>
+        <collision name="c148"><pose>30.3000 27.1105 1.7800 0 0 0</pose><geometry><sphere><radius>0.7780</radius></sphere></geometry></collision>
+        <collision name="c149"><pose>30.3000 27.9079 1.7863 0 0 0</pose><geometry><sphere><radius>0.7349</radius></sphere></geometry></collision>
+        <collision name="c150"><pose>30.3000 28.7053 1.8215 0 0 0</pose><geometry><sphere><radius>0.7447</radius></sphere></geometry></collision>
+        <collision name="c151"><pose>30.3000 29.5026 1.7892 0 0 0</pose><geometry><sphere><radius>0.6412</radius></sphere></geometry></collision>
+        <collision name="c152"><pose>30.3000 30.3000 1.8994 0 0 0</pose><geometry><sphere><radius>0.7996</radius></sphere></geometry></collision>
+        <collision name="c153"><pose>29.5026 30.3000 1.8895 0 0 0</pose><geometry><sphere><radius>0.7698</radius></sphere></geometry></collision>
+        <collision name="c154"><pose>28.7053 30.3000 1.9039 0 0 0</pose><geometry><sphere><radius>0.7830</radius></sphere></geometry></collision>
+        <collision name="c155"><pose>27.9079 30.3000 1.8557 0 0 0</pose><geometry><sphere><radius>0.6762</radius></sphere></geometry></collision>
+        <collision name="c156"><pose>27.1105 30.3000 1.8878 0 0 0</pose><geometry><sphere><radius>0.7159</radius></sphere></geometry></collision>
+        <collision name="c157"><pose>26.3132 30.3000 1.8627 0 0 0</pose><geometry><sphere><radius>0.6522</radius></sphere></geometry></collision>
+        <collision name="c158"><pose>25.5158 30.3000 1.8602 0 0 0</pose><geometry><sphere><radius>0.6826</radius></sphere></geometry></collision>
+        <collision name="c159"><pose>24.7184 30.3000 1.8589 0 0 0</pose><geometry><sphere><radius>0.7201</radius></sphere></geometry></collision>
+        <collision name="c160"><pose>23.9211 30.3000 1.7774 0 0 0</pose><geometry><sphere><radius>0.6124</radius></sphere></geometry></collision>
+        <collision name="c161"><pose>23.1237 30.3000 1.8223 0 0 0</pose><geometry><sphere><radius>0.7205</radius></sphere></geometry></collision>
+        <collision name="c162"><pose>22.3263 30.3000 1.7839 0 0 0</pose><geometry><sphere><radius>0.6692</radius></sphere></geometry></collision>
+        <collision name="c163"><pose>21.5289 30.3000 1.7523 0 0 0</pose><geometry><sphere><radius>0.6306</radius></sphere></geometry></collision>
+        <collision name="c164"><pose>20.7316 30.3000 1.8138 0 0 0</pose><geometry><sphere><radius>0.7137</radius></sphere></geometry></collision>
+        <collision name="c165"><pose>19.9342 30.3000 1.8225 0 0 0</pose><geometry><sphere><radius>0.6062</radius></sphere></geometry></collision>
+        <collision name="c166"><pose>19.1368 30.3000 1.9276 0 0 0</pose><geometry><sphere><radius>0.6742</radius></sphere></geometry></collision>
+        <collision name="c167"><pose>18.3395 30.3000 2.0171 0 0 0</pose><geometry><sphere><radius>0.7147</radius></sphere></geometry></collision>
+        <collision name="c168"><pose>17.5421 30.3000 2.0622 0 0 0</pose><geometry><sphere><radius>0.6882</radius></sphere></geometry></collision>
+        <collision name="c169"><pose>16.7447 30.3000 2.1448 0 0 0</pose><geometry><sphere><radius>0.7297</radius></sphere></geometry></collision>
+        <collision name="c170"><pose>15.9474 30.3000 2.2195 0 0 0</pose><geometry><sphere><radius>0.7571</radius></sphere></geometry></collision>
+        <collision name="c171"><pose>15.1500 30.3000 2.2412 0 0 0</pose><geometry><sphere><radius>0.7070</radius></sphere></geometry></collision>
+        <collision name="c172"><pose>14.3526 30.3000 2.2726 0 0 0</pose><geometry><sphere><radius>0.6807</radius></sphere></geometry></collision>
+        <collision name="c173"><pose>13.5553 30.3000 2.2872 0 0 0</pose><geometry><sphere><radius>0.6236</radius></sphere></geometry></collision>
+        <collision name="c174"><pose>12.7579 30.3000 2.3845 0 0 0</pose><geometry><sphere><radius>0.7129</radius></sphere></geometry></collision>
+        <collision name="c175"><pose>11.9605 30.3000 2.4472 0 0 0</pose><geometry><sphere><radius>0.7343</radius></sphere></geometry></collision>
+        <collision name="c176"><pose>11.1632 30.3000 2.4461 0 0 0</pose><geometry><sphere><radius>0.6392</radius></sphere></geometry></collision>
+        <collision name="c177"><pose>10.3658 30.3000 2.5738 0 0 0</pose><geometry><sphere><radius>0.7818</radius></sphere></geometry></collision>
+        <collision name="c178"><pose>9.5684 30.3000 2.5916 0 0 0</pose><geometry><sphere><radius>0.7436</radius></sphere></geometry></collision>
+        <collision name="c179"><pose>8.7711 30.3000 2.6089 0 0 0</pose><geometry><sphere><radius>0.7039</radius></sphere></geometry></collision>
+        <collision name="c180"><pose>7.9737 30.3000 2.6485 0 0 0</pose><geometry><sphere><radius>0.7040</radius></sphere></geometry></collision>
+        <collision name="c181"><pose>7.1763 30.3000 2.6850 0 0 0</pose><geometry><sphere><radius>0.7021</radius></sphere></geometry></collision>
+        <collision name="c182"><pose>6.3789 30.3000 2.7410 0 0 0</pose><geometry><sphere><radius>0.7353</radius></sphere></geometry></collision>
+        <collision name="c183"><pose>5.5816 30.3000 2.7322 0 0 0</pose><geometry><sphere><radius>0.6496</radius></sphere></geometry></collision>
+        <collision name="c184"><pose>4.7842 30.3000 2.7429 0 0 0</pose><geometry><sphere><radius>0.6256</radius></sphere></geometry></collision>
+        <collision name="c185"><pose>3.9868 30.3000 2.7749 0 0 0</pose><geometry><sphere><radius>0.6587</radius></sphere></geometry></collision>
+        <collision name="c186"><pose>3.1895 30.3000 2.7990 0 0 0</pose><geometry><sphere><radius>0.6761</radius></sphere></geometry></collision>
+        <collision name="c187"><pose>2.3921 30.3000 2.7966 0 0 0</pose><geometry><sphere><radius>0.6320</radius></sphere></geometry></collision>
+        <collision name="c188"><pose>1.5947 30.3000 2.8843 0 0 0</pose><geometry><sphere><radius>0.7206</radius></sphere></geometry></collision>
+        <collision name="c189"><pose>0.7974 30.3000 2.9605 0 0 0</pose><geometry><sphere><radius>0.7871</radius></sphere></geometry></collision>
+        <collision name="c190"><pose>-0.0000 30.3000 2.9524 0 0 0</pose><geometry><sphere><radius>0.6990</radius></sphere></geometry></collision>
+        <collision name="c191"><pose>-0.7974 30.3000 2.9229 0 0 0</pose><geometry><sphere><radius>0.7018</radius></sphere></geometry></collision>
+        <collision name="c192"><pose>-1.5947 30.3000 2.8484 0 0 0</pose><geometry><sphere><radius>0.6215</radius></sphere></geometry></collision>
+        <collision name="c193"><pose>-2.3921 30.3000 2.8509 0 0 0</pose><geometry><sphere><radius>0.6800</radius></sphere></geometry></collision>
+        <collision name="c194"><pose>-3.1895 30.3000 2.8357 0 0 0</pose><geometry><sphere><radius>0.6941</radius></sphere></geometry></collision>
+        <collision name="c195"><pose>-3.9868 30.3000 2.8697 0 0 0</pose><geometry><sphere><radius>0.7920</radius></sphere></geometry></collision>
+        <collision name="c196"><pose>-4.7842 30.3000 2.8287 0 0 0</pose><geometry><sphere><radius>0.7521</radius></sphere></geometry></collision>
+        <collision name="c197"><pose>-5.5816 30.3000 2.7477 0 0 0</pose><geometry><sphere><radius>0.6355</radius></sphere></geometry></collision>
+        <collision name="c198"><pose>-6.3789 30.3000 2.7261 0 0 0</pose><geometry><sphere><radius>0.6217</radius></sphere></geometry></collision>
+        <collision name="c199"><pose>-7.1763 30.3000 2.8038 0 0 0</pose><geometry><sphere><radius>0.7876</radius></sphere></geometry></collision>
+        <collision name="c200"><pose>-7.9737 30.3000 2.7206 0 0 0</pose><geometry><sphere><radius>0.6636</radius></sphere></geometry></collision>
+        <collision name="c201"><pose>-8.7711 30.3000 2.7597 0 0 0</pose><geometry><sphere><radius>0.7897</radius></sphere></geometry></collision>
+        <collision name="c202"><pose>-9.5684 30.3000 2.6737 0 0 0</pose><geometry><sphere><radius>0.6873</radius></sphere></geometry></collision>
+        <collision name="c203"><pose>-10.3658 30.3000 2.6712 0 0 0</pose><geometry><sphere><radius>0.7361</radius></sphere></geometry></collision>
+        <collision name="c204"><pose>-11.1632 30.3000 2.6131 0 0 0</pose><geometry><sphere><radius>0.6482</radius></sphere></geometry></collision>
+        <collision name="c205"><pose>-11.9605 30.3000 2.6422 0 0 0</pose><geometry><sphere><radius>0.7110</radius></sphere></geometry></collision>
+        <collision name="c206"><pose>-12.7579 30.3000 2.5884 0 0 0</pose><geometry><sphere><radius>0.6227</radius></sphere></geometry></collision>
+        <collision name="c207"><pose>-13.5553 30.3000 2.6555 0 0 0</pose><geometry><sphere><radius>0.7752</radius></sphere></geometry></collision>
+        <collision name="c208"><pose>-14.3526 30.3000 2.6053 0 0 0</pose><geometry><sphere><radius>0.7324</radius></sphere></geometry></collision>
+        <collision name="c209"><pose>-15.1500 30.3000 2.5094 0 0 0</pose><geometry><sphere><radius>0.6063</radius></sphere></geometry></collision>
+        <collision name="c210"><pose>-15.9474 30.3000 2.5380 0 0 0</pose><geometry><sphere><radius>0.7127</radius></sphere></geometry></collision>
+        <collision name="c211"><pose>-16.7447 30.3000 2.4462 0 0 0</pose><geometry><sphere><radius>0.6200</radius></sphere></geometry></collision>
+        <collision name="c212"><pose>-17.5421 30.3000 2.4277 0 0 0</pose><geometry><sphere><radius>0.6605</radius></sphere></geometry></collision>
+        <collision name="c213"><pose>-18.3395 30.3000 2.4399 0 0 0</pose><geometry><sphere><radius>0.7569</radius></sphere></geometry></collision>
+        <collision name="c214"><pose>-19.1368 30.3000 2.3421 0 0 0</pose><geometry><sphere><radius>0.6136</radius></sphere></geometry></collision>
+        <collision name="c215"><pose>-19.9342 30.3000 2.3637 0 0 0</pose><geometry><sphere><radius>0.6856</radius></sphere></geometry></collision>
+        <collision name="c216"><pose>-20.7316 30.3000 2.3853 0 0 0</pose><geometry><sphere><radius>0.7578</radius></sphere></geometry></collision>
+        <collision name="c217"><pose>-21.5289 30.3000 2.3162 0 0 0</pose><geometry><sphere><radius>0.6574</radius></sphere></geometry></collision>
+        <collision name="c218"><pose>-22.3263 30.3000 2.3730 0 0 0</pose><geometry><sphere><radius>0.7819</radius></sphere></geometry></collision>
+        <collision name="c219"><pose>-23.1237 30.3000 2.3546 0 0 0</pose><geometry><sphere><radius>0.7702</radius></sphere></geometry></collision>
+        <collision name="c220"><pose>-23.9211 30.3000 2.3496 0 0 0</pose><geometry><sphere><radius>0.7692</radius></sphere></geometry></collision>
+        <collision name="c221"><pose>-24.7184 30.3000 2.3667 0 0 0</pose><geometry><sphere><radius>0.7851</radius></sphere></geometry></collision>
+        <collision name="c222"><pose>-25.5158 30.3000 2.2894 0 0 0</pose><geometry><sphere><radius>0.6296</radius></sphere></geometry></collision>
+        <collision name="c223"><pose>-26.3132 30.3000 2.3011 0 0 0</pose><geometry><sphere><radius>0.6359</radius></sphere></geometry></collision>
+        <collision name="c224"><pose>-27.1105 30.3000 2.3886 0 0 0</pose><geometry><sphere><radius>0.7715</radius></sphere></geometry></collision>
+        <collision name="c225"><pose>-27.9079 30.3000 2.3261 0 0 0</pose><geometry><sphere><radius>0.6350</radius></sphere></geometry></collision>
+        <collision name="c226"><pose>-28.7053 30.3000 2.3870 0 0 0</pose><geometry><sphere><radius>0.7236</radius></sphere></geometry></collision>
+        <collision name="c227"><pose>-29.5026 30.3000 2.4183 0 0 0</pose><geometry><sphere><radius>0.7653</radius></sphere></geometry></collision>
+        <collision name="c228"><pose>-30.3000 30.3000 2.4256 0 0 0</pose><geometry><sphere><radius>0.7660</radius></sphere></geometry></collision>
+        <collision name="c229"><pose>-30.3000 29.5026 2.3040 0 0 0</pose><geometry><sphere><radius>0.6851</radius></sphere></geometry></collision>
+        <collision name="c230"><pose>-30.3000 28.7053 2.1766 0 0 0</pose><geometry><sphere><radius>0.6044</radius></sphere></geometry></collision>
+        <collision name="c231"><pose>-30.3000 27.9079 2.1562 0 0 0</pose><geometry><sphere><radius>0.7567</radius></sphere></geometry></collision>
+        <collision name="c232"><pose>-30.3000 27.1105 2.0137 0 0 0</pose><geometry><sphere><radius>0.6873</radius></sphere></geometry></collision>
+        <collision name="c233"><pose>-30.3000 26.3132 1.8864 0 0 0</pose><geometry><sphere><radius>0.6462</radius></sphere></geometry></collision>
+        <collision name="c234"><pose>-30.3000 25.5158 1.8758 0 0 0</pose><geometry><sphere><radius>0.7559</radius></sphere></geometry></collision>
+        <collision name="c235"><pose>-30.3000 24.7184 1.7320 0 0 0</pose><geometry><sphere><radius>0.6186</radius></sphere></geometry></collision>
+        <collision name="c236"><pose>-30.3000 23.9211 1.6859 0 0 0</pose><geometry><sphere><radius>0.6596</radius></sphere></geometry></collision>
+        <collision name="c237"><pose>-30.3000 23.1237 1.6753 0 0 0</pose><geometry><sphere><radius>0.7640</radius></sphere></geometry></collision>
+        <collision name="c238"><pose>-30.3000 22.3263 1.5401 0 0 0</pose><geometry><sphere><radius>0.6416</radius></sphere></geometry></collision>
+        <collision name="c239"><pose>-30.3000 21.5289 1.5029 0 0 0</pose><geometry><sphere><radius>0.6979</radius></sphere></geometry></collision>
+        <collision name="c240"><pose>-30.3000 20.7316 1.4480 0 0 0</pose><geometry><sphere><radius>0.6798</radius></sphere></geometry></collision>
+        <collision name="c241"><pose>-30.3000 19.9342 1.4547 0 0 0</pose><geometry><sphere><radius>0.6907</radius></sphere></geometry></collision>
+        <collision name="c242"><pose>-30.3000 19.1368 1.4997 0 0 0</pose><geometry><sphere><radius>0.7713</radius></sphere></geometry></collision>
+        <collision name="c243"><pose>-30.3000 18.3395 1.4280 0 0 0</pose><geometry><sphere><radius>0.6402</radius></sphere></geometry></collision>
+        <collision name="c244"><pose>-30.3000 17.5421 1.5083 0 0 0</pose><geometry><sphere><radius>0.7865</radius></sphere></geometry></collision>
+        <collision name="c245"><pose>-30.3000 16.7447 1.4750 0 0 0</pose><geometry><sphere><radius>0.7262</radius></sphere></geometry></collision>
+        <collision name="c246"><pose>-30.3000 15.9474 1.4622 0 0 0</pose><geometry><sphere><radius>0.7032</radius></sphere></geometry></collision>
+        <collision name="c247"><pose>-30.3000 15.1500 1.4275 0 0 0</pose><geometry><sphere><radius>0.6552</radius></sphere></geometry></collision>
+        <collision name="c248"><pose>-30.3000 14.3526 1.4314 0 0 0</pose><geometry><sphere><radius>0.6820</radius></sphere></geometry></collision>
+        <collision name="c249"><pose>-30.3000 13.5553 1.4307 0 0 0</pose><geometry><sphere><radius>0.7000</radius></sphere></geometry></collision>
+        <collision name="c250"><pose>-30.3000 12.7579 1.4120 0 0 0</pose><geometry><sphere><radius>0.6957</radius></sphere></geometry></collision>
+        <collision name="c251"><pose>-30.3000 11.9605 1.3466 0 0 0</pose><geometry><sphere><radius>0.6189</radius></sphere></geometry></collision>
+        <collision name="c252"><pose>-30.3000 11.1632 1.4216 0 0 0</pose><geometry><sphere><radius>0.7966</radius></sphere></geometry></collision>
+        <collision name="c253"><pose>-30.3000 10.3658 1.3393 0 0 0</pose><geometry><sphere><radius>0.6856</radius></sphere></geometry></collision>
+        <collision name="c254"><pose>-30.3000 9.5684 1.2778 0 0 0</pose><geometry><sphere><radius>0.6012</radius></sphere></geometry></collision>
+        <collision name="c255"><pose>-30.3000 8.7711 1.3325 0 0 0</pose><geometry><sphere><radius>0.7274</radius></sphere></geometry></collision>
+        <collision name="c256"><pose>-30.3000 7.9737 1.2548 0 0 0</pose><geometry><sphere><radius>0.6122</radius></sphere></geometry></collision>
+        <collision name="c257"><pose>-30.3000 7.1763 1.3277 0 0 0</pose><geometry><sphere><radius>0.7606</radius></sphere></geometry></collision>
+        <collision name="c258"><pose>-30.3000 6.3789 1.2751 0 0 0</pose><geometry><sphere><radius>0.6785</radius></sphere></geometry></collision>
+        <collision name="c259"><pose>-30.3000 5.5816 1.3134 0 0 0</pose><geometry><sphere><radius>0.7606</radius></sphere></geometry></collision>
+        <collision name="c260"><pose>-30.3000 4.7842 1.3248 0 0 0</pose><geometry><sphere><radius>0.7969</radius></sphere></geometry></collision>
+        <collision name="c261"><pose>-30.3000 3.9868 1.2508 0 0 0</pose><geometry><sphere><radius>0.6798</radius></sphere></geometry></collision>
+        <collision name="c262"><pose>-30.3000 3.1895 1.2076 0 0 0</pose><geometry><sphere><radius>0.6174</radius></sphere></geometry></collision>
+        <collision name="c263"><pose>-30.3000 2.3921 1.1906 0 0 0</pose><geometry><sphere><radius>0.6003</radius></sphere></geometry></collision>
+        <collision name="c264"><pose>-30.3000 1.5947 1.2482 0 0 0</pose><geometry><sphere><radius>0.7155</radius></sphere></geometry></collision>
+        <collision name="c265"><pose>-30.3000 0.7974 1.2383 0 0 0</pose><geometry><sphere><radius>0.7067</radius></sphere></geometry></collision>
+        <collision name="c266"><pose>-30.3000 -0.0000 1.1957 0 0 0</pose><geometry><sphere><radius>0.6372</radius></sphere></geometry></collision>
+        <collision name="c267"><pose>-30.3000 -0.7974 1.2236 0 0 0</pose><geometry><sphere><radius>0.6668</radius></sphere></geometry></collision>
+        <collision name="c268"><pose>-30.3000 -1.5947 1.2519 0 0 0</pose><geometry><sphere><radius>0.6960</radius></sphere></geometry></collision>
+        <collision name="c269"><pose>-30.3000 -2.3921 1.2267 0 0 0</pose><geometry><sphere><radius>0.6266</radius></sphere></geometry></collision>
+        <collision name="c270"><pose>-30.3000 -3.1895 1.3272 0 0 0</pose><geometry><sphere><radius>0.7645</radius></sphere></geometry></collision>
+        <collision name="c271"><pose>-30.3000 -3.9868 1.3727 0 0 0</pose><geometry><sphere><radius>0.7930</radius></sphere></geometry></collision>
+        <collision name="c272"><pose>-30.3000 -4.7842 1.3474 0 0 0</pose><geometry><sphere><radius>0.6914</radius></sphere></geometry></collision>
+        <collision name="c273"><pose>-30.3000 -5.5816 1.4079 0 0 0</pose><geometry><sphere><radius>0.7681</radius></sphere></geometry></collision>
+        <collision name="c274"><pose>-30.3000 -6.3789 1.3837 0 0 0</pose><geometry><sphere><radius>0.7227</radius></sphere></geometry></collision>
+        <collision name="c275"><pose>-30.3000 -7.1763 1.4183 0 0 0</pose><geometry><sphere><radius>0.7831</radius></sphere></geometry></collision>
+        <collision name="c276"><pose>-30.3000 -7.9737 1.3478 0 0 0</pose><geometry><sphere><radius>0.6546</radius></sphere></geometry></collision>
+        <collision name="c277"><pose>-30.3000 -8.7711 1.3891 0 0 0</pose><geometry><sphere><radius>0.7517</radius></sphere></geometry></collision>
+        <collision name="c278"><pose>-30.3000 -9.5684 1.3455 0 0 0</pose><geometry><sphere><radius>0.6936</radius></sphere></geometry></collision>
+        <collision name="c279"><pose>-30.3000 -10.3658 1.3829 0 0 0</pose><geometry><sphere><radius>0.7822</radius></sphere></geometry></collision>
+        <collision name="c280"><pose>-30.3000 -11.1632 1.4072 0 0 0</pose><geometry><sphere><radius>0.7501</radius></sphere></geometry></collision>
+        <collision name="c281"><pose>-30.3000 -11.9605 1.4259 0 0 0</pose><geometry><sphere><radius>0.6877</radius></sphere></geometry></collision>
+        <collision name="c282"><pose>-30.3000 -12.7579 1.4657 0 0 0</pose><geometry><sphere><radius>0.6633</radius></sphere></geometry></collision>
+        <collision name="c283"><pose>-30.3000 -13.5553 1.5006 0 0 0</pose><geometry><sphere><radius>0.6346</radius></sphere></geometry></collision>
+        <collision name="c284"><pose>-30.3000 -14.3526 1.5480 0 0 0</pose><geometry><sphere><radius>0.6327</radius></sphere></geometry></collision>
+        <collision name="c285"><pose>-30.3000 -15.1500 1.5828 0 0 0</pose><geometry><sphere><radius>0.6077</radius></sphere></geometry></collision>
+        <collision name="c286"><pose>-30.3000 -15.9474 1.6817 0 0 0</pose><geometry><sphere><radius>0.7172</radius></sphere></geometry></collision>
+        <collision name="c287"><pose>-30.3000 -16.7447 1.6791 0 0 0</pose><geometry><sphere><radius>0.6976</radius></sphere></geometry></collision>
+        <collision name="c288"><pose>-30.3000 -17.5421 1.6348 0 0 0</pose><geometry><sphere><radius>0.6023</radius></sphere></geometry></collision>
+        <collision name="c289"><pose>-30.3000 -18.3395 1.7214 0 0 0</pose><geometry><sphere><radius>0.7449</radius></sphere></geometry></collision>
+        <collision name="c290"><pose>-30.3000 -19.1368 1.6650 0 0 0</pose><geometry><sphere><radius>0.6290</radius></sphere></geometry></collision>
+        <collision name="c291"><pose>-30.3000 -19.9342 1.7560 0 0 0</pose><geometry><sphere><radius>0.7816</radius></sphere></geometry></collision>
+        <collision name="c292"><pose>-30.3000 -20.7316 1.7578 0 0 0</pose><geometry><sphere><radius>0.7720</radius></sphere></geometry></collision>
+        <collision name="c293"><pose>-30.3000 -21.5289 1.6812 0 0 0</pose><geometry><sphere><radius>0.6068</radius></sphere></geometry></collision>
+        <collision name="c294"><pose>-30.3000 -22.3263 1.7241 0 0 0</pose><geometry><sphere><radius>0.6523</radius></sphere></geometry></collision>
+        <collision name="c295"><pose>-30.3000 -23.1237 1.7452 0 0 0</pose><geometry><sphere><radius>0.6587</radius></sphere></geometry></collision>
+        <collision name="c296"><pose>-30.3000 -23.9211 1.8257 0 0 0</pose><geometry><sphere><radius>0.7640</radius></sphere></geometry></collision>
+        <collision name="c297"><pose>-30.3000 -24.7184 1.8045 0 0 0</pose><geometry><sphere><radius>0.6691</radius></sphere></geometry></collision>
+        <collision name="c298"><pose>-30.3000 -25.5158 1.8747 0 0 0</pose><geometry><sphere><radius>0.7410</radius></sphere></geometry></collision>
+        <collision name="c299"><pose>-30.3000 -26.3132 1.8393 0 0 0</pose><geometry><sphere><radius>0.6283</radius></sphere></geometry></collision>
+        <collision name="c300"><pose>-30.3000 -27.1105 1.8629 0 0 0</pose><geometry><sphere><radius>0.7038</radius></sphere></geometry></collision>
+        <collision name="c301"><pose>-30.3000 -27.9079 1.8146 0 0 0</pose><geometry><sphere><radius>0.6489</radius></sphere></geometry></collision>
+        <collision name="c302"><pose>-30.3000 -28.7053 1.7976 0 0 0</pose><geometry><sphere><radius>0.6515</radius></sphere></geometry></collision>
+        <collision name="c303"><pose>-30.3000 -29.5026 1.8403 0 0 0</pose><geometry><sphere><radius>0.7382</radius></sphere></geometry></collision>
+        <visual name="core"><geometry><mesh><uri>model://forest_pond/meshes/forest_random_hedge_core.obj</uri></mesh></geometry></visual>
       </link>
     </model>
 
@@ -1446,47 +1836,47 @@
     <include>
       <uri>model://mushroom_amanita</uri>
       <name>mushroom_00</name>
-      <pose>-11.5109 19.3177 2.3808 0 0 0.0000</pose>
+      <pose>-5.9551 -26.1449 1.7687 0 0 0.0000</pose>
     </include>
     <include>
       <uri>model://mushroom_amanita</uri>
       <name>mushroom_01</name>
-      <pose>18.4232 23.4626 2.0400 0 0 0.0000</pose>
+      <pose>6.7943 21.5555 1.6437 0 0 0.0000</pose>
     </include>
     <include>
       <uri>model://mushroom_amanita</uri>
       <name>mushroom_02</name>
-      <pose>-5.9551 -26.1449 2.4568 0 0 0.0000</pose>
+      <pose>-0.3626 22.0462 2.0365 0 0 0.0000</pose>
     </include>
     <include>
       <uri>model://mushroom_amanita</uri>
       <name>mushroom_03</name>
-      <pose>6.7943 21.5555 2.4576 0 0 0.0000</pose>
+      <pose>-7.5300 -4.9392 0.4013 0 0 0.0000</pose>
     </include>
     <include>
       <uri>model://mushroom_amanita</uri>
       <name>mushroom_04</name>
-      <pose>-21.1983 17.7008 2.1591 0 0 0.0000</pose>
+      <pose>-11.7061 -23.6289 0.7514 0 0 0.0000</pose>
     </include>
     <include>
       <uri>model://decoy_box</uri>
       <name>decoy_00</name>
-      <pose>-26.9036 12.5450 2.1601 0 0 0.0000</pose>
+      <pose>18.5800 -0.6146 0.5981 0 0 0.0000</pose>
     </include>
     <include>
-      <uri>model://decoy_box</uri>
+      <uri>model://decoy_cylinder</uri>
       <name>decoy_01</name>
-      <pose>-0.3626 22.0462 3.0245 0 0 0.0000</pose>
+      <pose>5.4859 20.8158 2.0759 0 0 0.0000</pose>
     </include>
     <include>
       <uri>model://decoy_box</uri>
       <name>decoy_02</name>
-      <pose>20.2492 -24.4891 2.6586 0 0 0.0000</pose>
+      <pose>-0.2834 -12.0800 1.0904 0 0 0.0000</pose>
     </include>
     <include>
-      <uri>model://decoy_box</uri>
+      <uri>model://decoy_cylinder</uri>
       <name>decoy_03</name>
-      <pose>-0.0999 -13.9284 1.8940 0 0 0.0000</pose>
+      <pose>-10.8634 -14.4846 0.8584 0 0 0.0000</pose>
     </include>
   </world>
 </sdf>

@@ -5,12 +5,12 @@
     <link name="link">
       <collision name="collision">
         <geometry>
-          <heightmap><uri>model://forest_random_terrain/heightmap.png</uri><size>84.0000 84.0000 3.9001</size><pos>0 0 0</pos><sampling>2</sampling></heightmap>
+          <heightmap><uri>model://forest_random_terrain/heightmap.png</uri><size>84.0000 84.0000 3.2120</size><pos>0 0 0</pos><sampling>2</sampling></heightmap>
         </geometry>
       </collision>
       <visual name="visual">
         <geometry>
-          <heightmap><uri>model://forest_random_terrain/heightmap.png</uri><size>84.0000 84.0000 3.9001</size><pos>0 0 0</pos><sampling>2</sampling>
+          <heightmap><uri>model://forest_random_terrain/heightmap.png</uri><size>84.0000 84.0000 3.2120</size><pos>0 0 0</pos><sampling>2</sampling>
             <texture>
               <diffuse>model://forest_random_terrain/terrain_diffuse.png</diffuse>
               <normal>model://forest_random_terrain/flat_normal.png</normal>
