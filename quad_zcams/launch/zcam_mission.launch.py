@@ -79,7 +79,6 @@ def _quad(context):
                               'world_sdf': sdf if planner and os.path.exists(sdf) else '',
                               'cruise_alt': float(LaunchConfiguration('cruise_alt').perform(context)),
                               'clearance': float(LaunchConfiguration('clearance').perform(context)),
-                              'allow_climb': LaunchConfiguration('allow_climb').perform(context).lower() == 'true',
                               'strafe': LaunchConfiguration('strafe').perform(context).lower() == 'true',
                               'eager_hold': LaunchConfiguration('eager_hold').perform(context).lower() == 'true',
                               'center_out': LaunchConfiguration('center_out').perform(context).lower() == 'true',
@@ -97,7 +96,6 @@ def generate_launch_description():
                           ('mushrooms', ''), ('husky_yolo', 'false'), ('hazard', 'false'), ('use_sim_time', 'True'),
                           ('planner', 'true'),         # false = the first z-camera trial (straight legs)
                           ('cruise_alt', '1.0'), ('clearance', '0.6'),  # under the leaf-mesh canopies
-                          ('allow_climb', 'false'),    # true = climb over / into pockets when there is no way round
                           ('imgsz', '640'),            # quad YOLO input; at 384 caps further than ~2 m were missed
                           # quad search (defaults: the 24/24 configuration)
                           ('row_spacing', '3.0'),      # lawnmower rows (center_out loops use it too)
