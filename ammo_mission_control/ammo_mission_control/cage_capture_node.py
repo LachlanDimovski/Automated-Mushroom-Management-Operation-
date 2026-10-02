@@ -84,7 +84,7 @@ class CageCapture(Node):
         self.declare_parameter('exit_on_done', False)
         self.declare_parameter('goals_x', [0.0])  # optional initial waypoints (world frame)
         self.declare_parameter('goals_y', [0.0])
-        # ponytail: trunk list from the world file; should come off the costmap
+        # Trunk list from the world file; should come off the costmap
         self.declare_parameter('trunks', [0.0, 3.0, 5.0, 0.0])
         self.declare_parameter('tool', 'gripper')  # gripper | cage (cage needs the sim launched with cage:=true)
         self.tool = self.get_parameter('tool').value
