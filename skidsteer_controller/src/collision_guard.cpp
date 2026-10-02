@@ -99,6 +99,8 @@ void CollisionGuard::depthCallback(const sensor_msgs::msg::Image::SharedPtr msg)
   obstacle_pub_->publish(cloud);
 
   depthForwardMin_ = r.obstacle_dist;
+  depthLeft_ = r.left_dist;
+  depthRight_ = r.right_dist;
   cliffDetected_ = r.cliff;
   depthStamp_ = now();
   haveDepth_ = true;
@@ -124,13 +126,67 @@ bool CollisionGuard::depthBlocksForward(double vx)
   return false;
 }
 
+// Nav2's costmap keeps it off what the lidar sees; on top of that: depth stops forward motion, the rear stops
+// reversing, a near flank stops turning into it, and a depth stop that persists backs the rover out.
 void CollisionGuard::navCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
 {
   geometry_msgs::msg::Twist cmd = *msg;
+  const auto t = now();
+  const Sectors s = scanSectors();
+
+  if (escaping_) {
+    return;  // the timer drives the escape, so it ends even if Nav2 stops publishing
+  }
   if (depthBlocksForward(cmd.linear.x)) {
     cmd.linear.x = 0.0;
+    if (!blocked_) {
+      blocked_ = true;
+      blockedSince_ = t;
+    } else if ((t - blockedSince_).seconds() > ESCAPE_AFTER_S) {
+      escapes_.erase(std::remove_if(escapes_.begin(), escapes_.end(),
+        [&](const rclcpp::Time & e) {return (t - e).seconds() > ESCAPE_WINDOW_S;}), escapes_.end());
+      if (static_cast<int>(escapes_.size()) < ESCAPE_MAX && s.rear >= REAR_STOP_DIST_M) {
+        escapes_.push_back(t);
+        // reversing with +w swings the front left: turn the front toward the more open flank
+        escapeTurn_ = (leftClear(s) >= rightClear(s) ? 1.0 : -1.0) * ESCAPE_TURN;
+        escapeUntil_ = t + rclcpp::Duration::from_seconds(ESCAPE_S);
+        escaping_ = true;
+        blocked_ = false;
+        RCLCPP_WARN(get_logger(), "Collision guard: blocked %.1fs ahead (depth %.2fm) - backing out toward the %s "
+          "(left %.2fm, right %.2fm, rear %.2fm)", ESCAPE_AFTER_S, depthForwardMin_,
+          escapeTurn_ > 0 ? "left" : "right", leftClear(s), rightClear(s), s.rear);
+      }
+    }
+  } else {
+    blocked_ = false;
+  }
+  if (cmd.linear.x < 0.0 && s.rear < REAR_STOP_DIST_M) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+      "Collision guard: blocking Nav2 reverse, obstacle %.2fm behind", s.rear);
+    cmd.linear.x = 0.0;
+  }
+  // lidar flanks only: the depth flank also sees leaf cards off the front corners, and blocking turns on it held
+  // Nav2's turns 195 times in one run (it could not take the turn its path needed). Depth picks the escape side.
+  if ((cmd.angular.z > 0.0 && s.left < SIDE_STOP_DIST_M) || (cmd.angular.z < 0.0 && s.right < SIDE_STOP_DIST_M)) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+      "Collision guard: blocking Nav2 turn into the %s flank (%.2fm)", cmd.angular.z > 0 ? "left" : "right",
+      cmd.angular.z > 0 ? s.left : s.right);
+    cmd.angular.z = 0.0;
   }
   cmd_vel_pub_->publish(cmd);
+}
+
+// Lidar flank, or the depth camera's flank gap past the front corner when fresh - whichever is nearer.
+float CollisionGuard::leftClear(const Sectors & s) const
+{
+  const bool fresh = haveDepth_ && (now() - depthStamp_).seconds() < DEPTH_STALE_S;
+  return fresh ? std::min(s.left, depthLeft_) : s.left;
+}
+
+float CollisionGuard::rightClear(const Sectors & s) const
+{
+  const bool fresh = haveDepth_ && (now() - depthStamp_).seconds() < DEPTH_STALE_S;
+  return fresh ? std::min(s.right, depthRight_) : s.right;
 }
 
 void CollisionGuard::cmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
@@ -147,6 +203,17 @@ void CollisionGuard::cmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
 // instant a command is issued.
 void CollisionGuard::guardTimerCallback()
 {
+  if (escaping_) {
+    geometry_msgs::msg::Twist cmd;
+    if (now() < escapeUntil_) {
+      cmd.linear.x = scanSectors().rear >= REAR_STOP_DIST_M ? -ESCAPE_SPEED : 0.0;
+      cmd.angular.z = escapeTurn_;
+    } else {
+      escaping_ = false;  // one stop, then Nav2 has cmd_vel again
+    }
+    cmd_vel_pub_->publish(cmd);
+    return;
+  }
   if (!haveRawCmd_) {
     return;
   }
@@ -168,23 +235,14 @@ void CollisionGuard::guardTimerCallback()
 //   rear  - gates reverse motion
 //   left/right sides - gate turning into something already at the flank
 // so nothing approaching from any direction can be driven into unchecked.
-geometry_msgs::msg::Twist CollisionGuard::applyGuard(geometry_msgs::msg::Twist cmd)
+CollisionGuard::Sectors CollisionGuard::scanSectors() const
 {
+  const float inf = std::numeric_limits<float>::infinity();
+  Sectors s{inf, inf, inf, inf, inf, inf};
   if (!haveScan_ || scanRanges_.empty() || scanAngleIncrement_ == 0.0f) {
-    return cmd;
+    return s;
   }
-
-  float frontMin = std::numeric_limits<float>::infinity();
-  float rearMin = std::numeric_limits<float>::infinity();
-  float leftSideMin = std::numeric_limits<float>::infinity();
-  float rightSideMin = std::numeric_limits<float>::infinity();
-  // Left/right split within just the front cone, used only to pick which
-  // way the steering assist should nudge (not the scrape guard below).
-  float frontLeftMin = std::numeric_limits<float>::infinity();
-  float frontRightMin = std::numeric_limits<float>::infinity();
-
   const float pi = static_cast<float>(M_PI);
-
   for (size_t i = 0; i < scanRanges_.size(); ++i) {
     float range = scanRanges_[i];
     if (!std::isfinite(range) || range <= 0.0f) {
@@ -198,20 +256,31 @@ geometry_msgs::msg::Twist CollisionGuard::applyGuard(geometry_msgs::msg::Twist c
     float absAngle = std::fabs(angle);
 
     if (absAngle <= FRONT_HALF_ARC_RAD) {
-      frontMin = std::min(frontMin, range);
+      s.front = std::min(s.front, range);
       if (angle >= 0.0f) {
-        frontLeftMin = std::min(frontLeftMin, range);
+        s.frontLeft = std::min(s.frontLeft, range);
       } else {
-        frontRightMin = std::min(frontRightMin, range);
+        s.frontRight = std::min(s.frontRight, range);
       }
     } else if (absAngle >= pi - REAR_HALF_ARC_RAD) {
-      rearMin = std::min(rearMin, range);
+      s.rear = std::min(s.rear, range);
     } else if (angle > 0.0f) {
-      leftSideMin = std::min(leftSideMin, range);
+      s.left = std::min(s.left, range);
     } else {
-      rightSideMin = std::min(rightSideMin, range);
+      s.right = std::min(s.right, range);
     }
   }
+  return s;
+}
+
+geometry_msgs::msg::Twist CollisionGuard::applyGuard(geometry_msgs::msg::Twist cmd)
+{
+  if (!haveScan_ || scanRanges_.empty() || scanAngleIncrement_ == 0.0f) {
+    return cmd;
+  }
+  const Sectors sec = scanSectors();
+  const float frontMin = sec.front, frontLeftMin = sec.frontLeft, frontRightMin = sec.frontRight;
+  const float rearMin = sec.rear, leftSideMin = sec.left, rightSideMin = sec.right;
 
   if (cmd.linear.x > 0.0) {
     if (frontMin < ASSIST_START_DIST_M) {

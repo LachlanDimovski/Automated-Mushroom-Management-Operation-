@@ -39,11 +39,16 @@ struct Limits
   double max_ground_slope = 0.36;     // tan(20 deg); a steeper fit is distrusted -> wheel plane
   double mark_range = 3.0;            // points published for Nav2's costmap only this far past the front:
                                       // (= ground_fit_range: heights past the fitted plane are not trusted)
+  double flank_reach = 1.0;           // flank obstacles: this far past the front, outside the corridor...
+  double flank_width = 1.5;           // ...and within this of the centreline
+  double half_width = 0.35;           // chassis half-width: flank distances are measured from its side
 };
 
 struct Result
 {
   float obstacle_dist = std::numeric_limits<float>::infinity();  // ahead of self_front_x, m
+  float left_dist = std::numeric_limits<float>::infinity();      // flank gap ahead-left / ahead-right of the chassis side, m
+  float right_dist = std::numeric_limits<float>::infinity();
   bool cliff = false;
   int floor_pixels = 0;   // cliff-band pixels that saw a floor
   int band_pixels = 0;    // cliff-band pixels (ray would hit flat ground in the band)
@@ -62,6 +67,7 @@ inline Result check(
   const double cx = (width - 1) / 2.0, cy = (height - 1) / 2.0;
   const double ground = -g.base_height;
   std::vector<std::array<double, 3>> pts;  // every valid point ahead of the robot, base_link
+  std::vector<std::array<double, 3>> band;  // where each cliff-band ray landed (z = -inf: no return)
 
   for (uint32_t v = 0; v < height; v += stride) {
     const uint8_t * row = data + static_cast<size_t>(v) * step;
@@ -82,9 +88,8 @@ inline Result check(
         const double gx = g.t[0] + s * r[0], gy = g.t[1] + s * r[1];
         if (gx > lim.cliff_near_x && gx < lim.cliff_far_x && std::fabs(gy) < lim.corridor_half_width) {
           ++res.band_pixels;
-          if (valid && g.t[2] + d * r[2] > ground - lim.cliff_drop) {
-            ++res.floor_pixels;
-          }
+          band.push_back(valid ? std::array<double, 3>{g.t[0] + d * r[0], g.t[1] + d * r[1], g.t[2] + d * r[2]} :
+            std::array<double, 3>{gx, gy, -std::numeric_limits<double>::infinity()});
         }
       }
       if (valid) {
@@ -125,8 +130,16 @@ inline Result check(
     a = na; b = nb; c0 = nc;
   }
   res.ground_slope = std::hypot(a, b);
+  // floor = the fitted ground, not the wheel plane: cresting a 15 deg slope read the ground ahead as a drop-off
+  // and the cliff stop fired 162 times in one run. A real drop has no points near the wheels to fit, so the
+  // fit falls back to the wheel plane and still flags it.
+  for (const auto & p : band) {
+    if (p[2] > a * p[0] + b * p[1] + c0 - lim.cliff_drop) {
+      ++res.floor_pixels;
+    }
+  }
 
-  std::vector<float> hits;
+  std::vector<float> hits, left, right;
   for (const auto & p : pts) {
     const double h = p[2] - (a * p[0] + b * p[1] + c0);
     if (h <= lim.min_obstacle_height || h >= lim.max_obstacle_height) {
@@ -134,6 +147,8 @@ inline Result check(
     }
     if (std::fabs(p[1]) < lim.corridor_half_width) {
       hits.push_back(static_cast<float>(p[0] - lim.self_front_x));
+    } else if (p[0] - lim.self_front_x < lim.flank_reach && std::fabs(p[1]) < lim.flank_width) {
+      (p[1] > 0 ? left : right).push_back(static_cast<float>(std::fabs(p[1]) - lim.half_width));
     }
     if (p[0] - lim.self_front_x < lim.mark_range) {
       res.points.push_back({static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2])});
@@ -143,11 +158,15 @@ inline Result check(
   if (static_cast<int>(res.points.size()) < lim.min_pixels) {
     res.points.clear();  // a few stray pixels are noise, not an obstacle to map
   }
-  if (static_cast<int>(hits.size()) >= lim.min_pixels) {
-    // nearest distance that at least min_pixels agree on, not a single noisy pixel
-    std::nth_element(hits.begin(), hits.begin() + (lim.min_pixels - 1), hits.end());
-    res.obstacle_dist = hits[lim.min_pixels - 1];
-  }
+  // nearest distance that at least min_pixels agree on, not a single noisy pixel
+  auto agreed = [&lim](std::vector<float> & v) {
+      if (static_cast<int>(v.size()) < lim.min_pixels) {return std::numeric_limits<float>::infinity();}
+      std::nth_element(v.begin(), v.begin() + (lim.min_pixels - 1), v.end());
+      return v[lim.min_pixels - 1];
+    };
+  res.obstacle_dist = agreed(hits);
+  res.left_dist = agreed(left);
+  res.right_dist = agreed(right);
   res.cliff = res.band_pixels >= lim.min_pixels && res.floor_pixels < res.band_pixels / 2;
   return res;
 }
