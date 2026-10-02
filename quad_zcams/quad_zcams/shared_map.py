@@ -30,8 +30,9 @@ HIT_SHARE = 0.3           # ...and in this share of the frames that saw the cell
 
 class QuadMap:
 
-    def __init__(self):
-        self.n = int(round(2 * HALF / RES))
+    def __init__(self, half=HALF):
+        self.half = half
+        self.n = int(round(2 * half / RES))
         self.hit = np.zeros((self.n, self.n), np.int32)
         self.open = np.zeros((self.n, self.n), np.int32)
         self._rays = None
@@ -54,8 +55,8 @@ class QuadMap:
         py = y + CAM_FWD_M * s + t * (bx * s + by * c)
         pz = z + CAM_UP_M + t * bz
         ok &= np.hypot(px - x, py - y) < MAX_RANGE_M
-        i = np.floor((px + HALF) / RES).astype(int)
-        j = np.floor((py + HALF) / RES).astype(int)
+        i = np.floor((px + self.half) / RES).astype(int)
+        j = np.floor((py + self.half) / RES).astype(int)
         ok &= (i >= 0) & (i < self.n) & (j >= 0) & (j < self.n)
         i, j, pz = i[ok], j[ok], pz[ok]
         low = np.full((self.n, self.n), np.inf)
@@ -83,7 +84,7 @@ class QuadMap:
         m.header.stamp, m.header.frame_id = stamp, frame
         m.info.resolution = RES
         m.info.width = m.info.height = self.n
-        m.info.origin.position.x = m.info.origin.position.y = -HALF
+        m.info.origin.position.x = m.info.origin.position.y = -self.half
         m.info.origin.orientation.w = 1.0
         m.data = self.grid().T.ravel().tolist()  # OccupancyGrid is row-major in y
         return m

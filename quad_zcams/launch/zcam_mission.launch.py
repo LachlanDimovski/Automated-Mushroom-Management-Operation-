@@ -50,7 +50,11 @@ def _cage_mission():
                            parameters=[{'use_sim_time': True, 'world': os.path.basename(world), 'trunks': trunks,
                                         'goals_x': goals_x, 'goals_y': goals_y,
                                         'count': int(LaunchConfiguration('count').perform(context)),
-                                        'tool': LaunchConfiguration('tool').perform(context)}])]
+                                        'tool': LaunchConfiguration('tool').perform(context),
+                                        'nearest_first': LaunchConfiguration('nearest_first').perform(context).lower() == 'true',
+                                        'fast_pickup': LaunchConfiguration('fast_pickup').perform(context).lower() == 'true',
+                                        'inflation': float(LaunchConfiguration('inflation').perform(context)),
+                                        'quad_routes': LaunchConfiguration('quad_routes').perform(context).lower() == 'true'}])]
     mod._nodes = _nodes
     return mod.generate_launch_description()
 
@@ -70,10 +74,20 @@ def _quad(context):
     planner = LaunchConfiguration('planner').perform(context).lower() == 'true'
     return [Node(package='quad_zcams', executable='zcam_quad_node', output='screen',
                  parameters=[{'use_sim_time': True, 'trunks': trunks, 'waypoints': qwp or [0.0], 'ground_z': ground_z,
-                              'search_area': [-half, half, -half, half, 3.0],
+                              'search_area': [-half, half, -half, half,
+                                              float(LaunchConfiguration('row_spacing').perform(context))],
                               'world_sdf': sdf if planner and os.path.exists(sdf) else '',
                               'cruise_alt': float(LaunchConfiguration('cruise_alt').perform(context)),
-                              'clearance': float(LaunchConfiguration('clearance').perform(context))}])]
+                              'clearance': float(LaunchConfiguration('clearance').perform(context)),
+                              'allow_climb': LaunchConfiguration('allow_climb').perform(context).lower() == 'true',
+                              'strafe': LaunchConfiguration('strafe').perform(context).lower() == 'true',
+                              'eager_hold': LaunchConfiguration('eager_hold').perform(context).lower() == 'true',
+                              'center_out': LaunchConfiguration('center_out').perform(context).lower() == 'true',
+                              'fast_dispatch': LaunchConfiguration('fast_dispatch').perform(context).lower() == 'true',
+                              'cruise_speed': float(LaunchConfiguration('cruise_speed').perform(context)),
+                              'cover_range': float(LaunchConfiguration('cover_range').perform(context)),
+                              'det_range': float(LaunchConfiguration('det_range').perform(context)),
+                              'max_aspect': float(LaunchConfiguration('max_aspect').perform(context))}])]
 
 
 def generate_launch_description():
@@ -81,8 +95,25 @@ def generate_launch_description():
     for name, default in (('world', 'simple_trees'), ('rviz', 'true'), ('headless', 'false'), ('count', '0'),
                           ('meta_goals', 'true'), ('yolo', 'true'), ('tool', 'gripper'), ('quad_waypoints', ''),
                           ('mushrooms', ''), ('husky_yolo', 'false'), ('hazard', 'false'), ('use_sim_time', 'True'),
-                          ('planner', 'true'),  # planner:=false = the first z-camera trial (straight legs)
-                          ('cruise_alt', '2.0'), ('clearance', '1.0')):  # leaf-mesh dense forest: 1.0 / 0.6
+                          ('planner', 'true'),         # false = the first z-camera trial (straight legs)
+                          ('cruise_alt', '1.0'), ('clearance', '0.6'),  # under the leaf-mesh canopies
+                          ('allow_climb', 'false'),    # true = climb over / into pockets when there is no way round
+                          ('imgsz', '640'),            # quad YOLO input; at 384 caps further than ~2 m were missed
+                          # quad search (defaults: the 24/24 configuration)
+                          ('row_spacing', '3.0'),      # lawnmower rows (center_out loops use it too)
+                          ('center_out', 'true'),      # square loops from the spawn outward instead of rows
+                          ('cover_range', '2.2'),      # ground counts as searched within this of the quad
+                          ('strafe', 'false'),         # true = keep moving while turning at corners (cost sightings)
+                          ('cruise_speed', '1.0'),     # quad top speed on planned paths (m/s)
+                          ('eager_hold', 'true'),      # hold on a lone sighting even while turning
+                          ('fast_dispatch', 'true'),   # shorter holds: 2 waypoints 1 s apart
+                          ('det_range', '3.0'),        # ignore sightings projecting farther than this (m); 0 = off
+                          ('max_aspect', '1.35'),      # ignore boxes taller than this times their width (cattails)
+                          # rover
+                          ('nearest_first', 'true'),   # take the nearest queued mushroom next
+                          ('fast_pickup', 'true'),     # looser creep tolerance, shorter settle and claw moves
+                          ('inflation', '0.9'),        # costmap inflation radius set at startup (Nav2 yaml: 1.5)
+                          ('quad_routes', 'true')):    # route on the quad's map from the first attempt
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
     # everything but the stock quad (its URDF and search node are swapped for the z-camera ones below)
     ld.add_action(IncludeLaunchDescription(LaunchDescriptionSource(_cage_mission()),

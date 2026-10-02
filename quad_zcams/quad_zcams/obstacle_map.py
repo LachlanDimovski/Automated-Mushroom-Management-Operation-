@@ -20,7 +20,7 @@ MESH_STEP = 0.07    # sampling step on meshes before their per-tree scale (up to
 RES = 0.25          # grid cell (m)
 PREFER_M = 1.8      # paths pay extra within this of an obstacle, so they keep off the clearance edge
 NEAR_COST = 0.5     # ...up to (1 + NEAR_COST) x the length there; more pushed the camera off ground by trees
-SKIP_PREFIXES = ('mushroom', 'decoy', 'demo_mushroom', 'cage_test')
+SKIP_PREFIXES = ('mushroom', 'decoy', 'demo_mushroom', 'cage_test', 'pond_')  # water is flown over
 
 
 def _rot(roll, pitch, yaw):
@@ -110,7 +110,49 @@ def _mesh_points(path, node_name):
     return _MESHES[key]
 
 
+FUEL_CACHE = os.path.expanduser('~/.ignition/fuel')
+
+
+def _fuel(uri):
+    """Local cache path of a Fuel URI (a model, or a file in one), latest cached version when none is given."""
+    m = re.match(r'https://([^/]+)/1\.0/([^/]+)/models/([^/]+)(?:/(\d+)(?:/files/(.*))?)?/?$', uri.strip())
+    if not m:
+        return None
+    host, owner, name, ver, rest = m.groups()
+    d = os.path.join(FUEL_CACHE, host, owner.lower(), 'models', name.lower())
+    if ver is None:
+        vers = sorted((v for v in os.listdir(d) if v.isdigit()), key=int) if os.path.isdir(d) else []
+        if not vers:
+            return None
+        ver = vers[-1]
+    p = os.path.join(d, ver, rest or 'model.sdf')
+    return p if os.path.exists(p) else None
+
+
+def _obj_points(path, step=0.1):
+    """Points every `step` along each triangle edge of an OBJ (the generator's merged hedge / shore meshes), cached."""
+    if path in _MESHES:
+        return _MESHES[path]
+    v, f = [], []
+    for line in open(path):
+        if line.startswith('v '):
+            v.append(line.split()[1:4])
+        elif line.startswith('f '):
+            f.append([int(t.split('/')[0]) - 1 for t in line.split()[1:4]])
+    v, f = np.array(v, float), np.array(f, int)
+    a, b = np.concatenate([v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]]), np.concatenate([v[f[:, 1]], v[f[:, 2]], v[f[:, 0]]])
+    k = np.maximum(1, np.ceil(np.linalg.norm(b - a, axis=1) / step)).astype(int)
+    seg = np.repeat(np.arange(len(a)), k + 1)
+    start = np.repeat(np.cumsum(k + 1) - (k + 1), k + 1)
+    t = ((np.arange(len(seg)) - start) / np.repeat(k, k + 1))[:, None]
+    _MESHES[path] = a[seg] + (b[seg] - a[seg]) * t
+    return _MESHES[path]
+
+
 def _resolve(uri, dirs):
+    uri = uri.strip()
+    if uri.startswith('https://'):
+        return _fuel(uri)
     if not uri.startswith('model://'):
         return uri if os.path.exists(uri) else None
     rel = uri[len('model://'):]
@@ -167,12 +209,30 @@ def boundary_ring(sdf_path):
     return min(r) if r else None
 
 
+def boundary_square(sdf_path):
+    """Half-size of the generator's square bush hedge, or None if the world has none. When it has one the
+    hedge, not the edge-tree ring, is the edge of the search (the ring cuts off the corners of the square)."""
+    m = re.search(r'<model name="hedge">(.*?)</model>', open(sdf_path).read(), re.S)
+    if not m:
+        return None
+    xy = [(abs(float(a)), abs(float(b))) for a, b in re.findall(r'<collision name="[^"]*"><pose>([-\d.e]+) ([-\d.e]+)', m.group(1))]
+    return min(max(a, b) for a, b in xy) if xy else None
+
+
 def world_obstacle_points(sdf_path, band=BAND, extra_dirs=(), skip_submeshes=()):
     """(N, 2) xy of every visual surface / volume sample lying within `band` above the local ground
     (leaving out mesh visuals whose submesh is in `skip_submeshes`, e.g. 'Branch' for the leaf cards)."""
     s = open(sdf_path).read()
     dirs = _model_dirs(sdf_path, extra_dirs)
     terrain = Terrain(s, dirs)
+    for inc in re.findall(r'<include>(.*?)</include>', s, re.S):  # included models, inlined at their pose
+        uri = re.search(r'<uri>([^<]+)</uri>', inc).group(1).strip()
+        path = _resolve(uri if uri.startswith('https://') else uri.rstrip('/') + '/model.sdf', dirs)
+        name = re.search(r'<name>([^<]+)</name>', inc)
+        pose = re.search(r'<pose>([^<]+)</pose>', inc)
+        if path and name:
+            body = re.search(r'<model[^>]*>(.*)</model>', open(path).read(), re.S).group(1)
+            s += f'<model name="{name.group(1).strip()}"><pose>{pose.group(1) if pose else "0 0 0 0 0 0"}</pose>{body}</model>'
     out = []
     for name, body in re.findall(r'<model name="([^"]+)">(.*?)</model>', s, re.S):
         if name.startswith(SKIP_PREFIXES) or name.endswith('_terrain'):
@@ -193,7 +253,8 @@ def world_obstacle_points(sdf_path, band=BAND, extra_dirs=(), skip_submeshes=())
                     continue
                 sc = re.search(r'<scale>([^<]+)</scale>', geom)
                 scale = np.array(sc.group(1).split(), float) if sc else np.ones(3)
-                local = _mesh_points(path, sub.group(1) if sub else None) * scale
+                local = (_obj_points(path) if path.endswith('.obj') else
+                         _mesh_points(path, sub.group(1) if sub else None)) * scale
             else:
                 local = _solid(kind, geom)
             if not len(local):
@@ -207,7 +268,7 @@ def world_obstacle_points(sdf_path, band=BAND, extra_dirs=(), skip_submeshes=())
 class ObstacleGrid:
     """Occupancy from the world file plus recent lidar returns; A* over it inflated by `clearance`."""
 
-    def __init__(self, pts, half, clearance, lidar_ttl=30.0, ring=None):
+    def __init__(self, pts, half, clearance, lidar_ttl=30.0, ring=None, square=None):
         self.half, self.clearance, self.lidar_ttl = half, clearance, lidar_ttl
         self.n = int(math.ceil(2 * half / RES))
         self.static = np.zeros((self.n, self.n), bool)
@@ -219,7 +280,11 @@ class ObstacleGrid:
             c = (np.arange(self.n) + 0.5) * RES - half  # not an obstacle, so no clearance off it - that sealed corridors)
             X, Y = np.meshgrid(c, c, indexing='ij')
             self.outside = np.hypot(X, Y) >= ring
-        self.lidar_seen = np.full((self.n, self.n), -1e9)
+        if square is not None:  # likewise the hedge square
+            c = (np.arange(self.n) + 0.5) * RES - half
+            X, Y = np.meshgrid(c, c, indexing='ij')
+            self.outside = np.maximum(abs(X), abs(Y)) >= square
+        self.lidar_seen = np.full((self.n, self.n), -np.inf)  # never seen: not "recent" for any ttl (the rover keeps marks for 1e12 s)
         self.now = 0.0
         self.rebuild(0.0)
 
