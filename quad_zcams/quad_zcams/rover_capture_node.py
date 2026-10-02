@@ -96,6 +96,7 @@ class RoverCapture(cc.CageCapture):
         self.via_queue = []
         self.stall_ref = None  # (t, x, y) while in NAV
         self.crumbs, self.wedged, self.unwedge, self.unwedge_since = [], 0, [], 0.0
+        self.given_up, self.idle_since = [], None
         if self.get_parameter('fast_pickup').value:  # the parent reads these at run time; the grab covers 0.6 m
             cc.CAGE_TOL_M, cc.SETTLE_S, cc.CLAW_MOVE_S = 0.12, 0.4, 0.8
         self.clear_since, self.clear_from, self.open_dir = None, None, None
@@ -321,7 +322,33 @@ class RoverCapture(cc.CageCapture):
         self.get_logger().info(f'Nav2 gave up at ({self.x:.1f},{self.y:.1f}) - later routes avoid it '
                                f'({len(self.bad)} spot(s)).')
 
+    def _next_target(self, why, requeue=False):
+        gx, gy = self.targets[0]
+        super()._next_target(why, requeue)
+        key = (round(gx, 1), round(gy, 1))
+        if requeue and self.defer_count.get(key, 0) > cc.MAX_DEFERS:
+            self.given_up.append((gx, gy))
+
+    def _retry_given_up(self):
+        """Given up is only for now: with the queue empty and the rover idle, try those again from wherever it is
+        (failed spots have expired by then). Two in the north-east cluster were abandoned with 10 min left (b1)."""
+        if self.targets or not self.given_up or self.state != 'DRIVE':
+            self.idle_since = None
+            return
+        now = self._now()
+        self.idle_since = self.idle_since or now
+        if now - self.idle_since < 10.0:
+            return
+        for gx, gy in self.given_up:
+            self.defer_count.pop((round(gx, 1), round(gy, 1)), None)
+            self.map_deferred.discard((round(gx, 1), round(gy, 1)))
+            self.checked.discard((round(gx, 1), round(gy, 1)))
+        self.targets, self.given_up, self.idle_since = list(self.given_up), [], None
+        self.nav_tries, self.idle_stopped = 0, False
+        self.get_logger().info(f'Queue empty - retrying the {len(self.targets)} mushroom(s) given up earlier.')
+
     def _step(self):
+        self._retry_given_up()
         if self.have_odom and self.state not in ('UNWEDGE',) and (
                 not self.crumbs or math.hypot(self.x - self.crumbs[-1][0], self.y - self.crumbs[-1][1]) >= CRUMB_M):
             self.crumbs = (self.crumbs + [(self.x, self.y)])[-CRUMBS:]
