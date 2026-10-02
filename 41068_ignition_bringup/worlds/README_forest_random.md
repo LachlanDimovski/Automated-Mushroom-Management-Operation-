@@ -92,8 +92,8 @@ and with a standoff point joined to the spawn clearing by a route at least 1.8 m
 than the requested number may fit. `--ground forest` colours the terrain green to olive with no bare soil: the
 mushroom detector scores a cap about 0.85 on grass but under 0.5 on brown soil.
 
-A closed square hedge of bushes (with collision) runs 0.3 m outside the playable
-edge, so the rover's sensors always see a wall there; `--no-hedge` leaves it out.
+A closed square hedge of bushes (with collision) runs round the map's outer edge, 1 m in from the end of the
+terrain and past the boundary trees, so the robots can never drive off the map; `--no-hedge` leaves it out.
 Ponds are solid water filling their basins to the rim (no hole), each ringed by
 reeds with collision so the rover drives round them; mushrooms and decoys are
 never placed within 1.5 m of a pond. Terrain `z_span` (actual height range,

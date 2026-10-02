@@ -60,7 +60,7 @@ Launch arguments:
 ## Mission flow
 
 1. **Search.** The quad cruises under the canopy at 1 m and flies a lawnmower
-   over the world (rows 3 m apart, 2.5 m in from the boundary hedge) or the given
+   over the world (square loops 3 m apart out to 2 m inside the playable area) or the given
    legs, on an A* path round everything in the world file and what the lidar sees.
    It never climbs over canopies: a sweep point it cannot reach is skipped.
 2. **Confirm.** On a YOLO hit it moves to a canopy-clear point facing the

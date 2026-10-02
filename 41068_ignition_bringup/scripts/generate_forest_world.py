@@ -563,10 +563,10 @@ def emit_hedge(name, bushes, rng, simple, models_dir, world):
     for i, (x, y, z, r) in enumerate(bushes):
         out.append(f'        <collision name="c{i}"><pose>{_f(x)} {_f(y)} {_f(z + r * 0.55)} 0 0 0</pose>'
                    f'<geometry><sphere><radius>{_f(r)}</radius></sphere></geometry></collision>')
-        for k in range(int(rng.integers(3, 6))):
+        for k in range(int(rng.integers(2, 5))):  # lumps per bush (low-poly: the hedge runs the whole map edge)
             a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0.0, 0.55 if simple else 0.3) * r
             br = r * (rng.uniform(0.5, 0.85) if simple else rng.uniform(0.38, 0.52))
-            sv, sf = _sphere(br)
+            sv, sf = _sphere(br, nu=6, nv=4)
             core.add(f'core{int(rng.integers(0, 3))}', sv, sf,
                      t=(x + d * math.cos(a), y + d * math.sin(a), z + br * rng.uniform(0.45, 0.9)))
         if not simple:
@@ -1139,8 +1139,8 @@ def generate(args):
                                                 f'wall_{i:02d}', sx, sy, 2.0, syaw))
 
     hedge_r = None
-    if args.hedge:  # a closed square of bushes round the playable area: the rover never drives off the map
-        hedge_r = playable_half + 0.3
+    if args.hedge:  # a closed square of bushes at the map's outer edge, past the boundary trees: never driven off
+        hedge_r = terrain_size / 2.0 - 1.0
         n = int(math.ceil(2 * hedge_r / 0.8))
         bushes, hrng = [], np.random.default_rng([args.seed, 1])  # own stream: the layout is unchanged
         for side in range(4):
@@ -1250,7 +1250,7 @@ def generate(args):
             occ |= np.hypot(GX - o['x'], GY - o['y']) < o['radius']
     for px, py, pr, _ in ponds:
         occ |= np.hypot(GX - px, GY - py) < pr * 1.25 + 1.0
-    occ |= np.maximum(abs(GX), abs(GY)) > playable_half - 0.5  # the hedge
+    occ |= np.maximum(abs(GX), abs(GY)) > playable_half - 0.5  # the playable edge
     free = ~ndimage.binary_dilation(occ, iterations=int(math.ceil(CLEAR / RES)))
     labels, _ = ndimage.label(free)
     spawn = labels[n_cells // 2, n_cells // 2]

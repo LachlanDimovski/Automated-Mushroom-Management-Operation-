@@ -144,7 +144,9 @@ class ZCamQuad(qs.QuadSearchController):
         self.cover, self.cover_t, self.footprint, self.n_skipped = None, -1.0, self._camera_footprint(), 0
         edge = self.square or self.ring if self.grid is not None else None
         if edge and self.area is not None:
-            h, sp = edge - RING_INSET_M, self.area[4]
+            # never past the launch's search square + RING_INSET_M: the hedge stands at the map's outer edge,
+            # metres beyond the playable area where mushrooms are placed
+            h, sp = min(edge, max(abs(v) for v in self.area[:4]) + 2 * RING_INSET_M) - RING_INSET_M, self.area[4]
             if h > max(abs(v) for v in self.area[:4]):
                 self.area = [-h, h, -h, h, sp]
                 self.waypoints = qs.build_lawnmower_waypoints(*self.area)
