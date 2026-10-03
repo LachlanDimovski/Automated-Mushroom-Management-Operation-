@@ -4,16 +4,45 @@ Realistic forest worlds for Ignition Gazebo Fortress: terrain from Forest3D's re
 three rocky fords, a hedge round the map edge, Poly Haven CC0 trees, shrubs, rocks and grass. Built to run on
 integrated graphics (about 2 M triangles, all physics in one static link).
 
-## Setup (once)
+## Run it on any laptop
 
-Needs internet, Blender 4.2 or newer (`sudo snap install blender --classic`), and python3 with numpy and pillow.
+Tested on Ubuntu 22.04 with ROS 2 Humble and Ignition Gazebo Fortress (6.x) on an Intel UHD 620 laptop with 8 cores.
+You need about 2.5 GB of free disk and an internet connection for the first build.
 
-```bash
-cd forest_worlds
-bash setup.sh          # ~20 min: downloads ~1.2 GB of assets, exports models, builds the four presets
-```
+1. Gazebo Fortress (skip if `ign gazebo --versions` already prints 6.x):
 
-Nothing it generates is committed (see `.gitignore`).
+   ```bash
+   sudo apt update && sudo apt install -y ignition-fortress
+   ```
+
+2. Blender 4.2 or newer and the Python libraries:
+
+   ```bash
+   sudo snap install blender --classic
+   sudo apt install -y python3-numpy python3-pil
+   ```
+
+3. Get the code and build the worlds (about 5 minutes; downloads about 1.2 GB of free CC0 assets):
+
+   ```bash
+   cd ~/41068_ws/src/RS1_Team5_        # wherever the repo is cloned
+   git pull
+   git checkout mushroom-cage
+   cd forest_worlds
+   bash setup.sh
+   ```
+
+   If Blender is not on your PATH, run `BLENDER=/path/to/blender bash setup.sh`.
+
+4. Open a world:
+
+   ```bash
+   ./view.sh moderate
+   ```
+
+   The window takes 20 to 60 seconds to load the meshes on integrated graphics; wait for the trees to appear.
+
+Nothing the build creates is committed (see `.gitignore`), so re-run `bash setup.sh` after pulling changes.
 
 ## Open a world
 
