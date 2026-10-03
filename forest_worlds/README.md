@@ -26,8 +26,9 @@ You need about 2.5 GB of free disk and an internet connection for the first buil
 
    ```bash
    cd ~/41068_ws/src/RS1_Team5_        # wherever the repo is cloned
-   git pull
+   git fetch
    git checkout mushroom-cage
+   git pull
    cd forest_worlds
    bash setup.sh
    ```
