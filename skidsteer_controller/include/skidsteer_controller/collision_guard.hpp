@@ -30,6 +30,13 @@ private:
   void cmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   void navCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   bool depthBlocksForward(double vx);
+  struct Sectors
+  {
+    float front, frontLeft, frontRight, rear, left, right;
+  };
+  Sectors scanSectors() const;
+  float leftClear(const Sectors & s) const;
+  float rightClear(const Sectors & s) const;
   void guardTimerCallback();
   geometry_msgs::msg::Twist applyGuard(geometry_msgs::msg::Twist cmd);
 
@@ -82,6 +89,16 @@ private:
   static constexpr double ASSIST_MAX_ANGULAR = 1.2;
   static constexpr double MAX_ASSISTED_ANGULAR = 2.5;  // clamp after adding the assist nudge
 
+  // Escape on the Nav2 path: when the depth check has held Nav2's forward command at zero this long, back out
+  // toward the more open side (lidar flanks and the depth camera's view past the front corners) so Nav2 can
+  // replan from somewhere it is not wedged, instead of timing out against the same spot.
+  static constexpr double ESCAPE_AFTER_S = 2.0;
+  static constexpr double ESCAPE_S = 2.0;
+  static constexpr double ESCAPE_SPEED = 0.2;
+  static constexpr double ESCAPE_TURN = 0.5;
+  static constexpr int ESCAPE_MAX = 3;           // escapes allowed within ESCAPE_WINDOW_S, then Nav2's own recovery
+  static constexpr double ESCAPE_WINDOW_S = 30.0;
+
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_pub_;  // depth obstacles for Nav2's costmap
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_raw_sub_;
@@ -104,6 +121,12 @@ private:
   bool haveDepth_ = false;
   rclcpp::Time depthStamp_;
   bool cliffDetected_ = false;
+  float depthLeft_ = 0.0f, depthRight_ = 0.0f;  // flank gaps past the front corners (depth camera)
+
+  rclcpp::Time blockedSince_, escapeUntil_;
+  bool blocked_ = false, escaping_ = false;
+  double escapeTurn_ = 0.0;
+  std::vector<rclcpp::Time> escapes_;
 
   geometry_msgs::msg::Twist lastRawCmd_;
   rclcpp::Time lastRawCmdStamp_;

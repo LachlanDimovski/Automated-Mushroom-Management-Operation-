@@ -46,7 +46,9 @@ Launch arguments:
 |---|---|---|
 | `world` | `simple_trees` | World name, or a path to a generated `.sdf` |
 | `headless` / `rviz` | `false` / `true` | No Gazebo GUI / RViz |
-| `parrot` | `true` | Spawn the quad and run `quad_search_node` |
+| `parrot` | `true` | Spawn the quad |
+| `quad` | `zcam` | `zcam`: the z-camera quad (`quad_zcams`), plans round every obstacle at 1 m and never climbs over canopies. `stock`: `quad_search_node` |
+| `imgsz`, `center_out`, `det_range`, `quad_routes`, ... | see `quad_zcams/launch/zcam_mission.launch.py` | Quad search and rover routing options for `quad:=zcam`. The defaults are the configuration that collected 24/24 in a 40 m leaf-mesh forest (three runs, 23-26 min each) |
 | `mushrooms` | empty | `x,y,x,y,...` mushrooms spawned for the quad to find |
 | `count` | `0` | Random test mushrooms queued straight to the rover |
 | `meta_goals` | `true` | Queue the world's own mushrooms (from `<world>.meta.json`) to the rover. `false` = the quad must find them |
@@ -57,9 +59,10 @@ Launch arguments:
 
 ## Mission flow
 
-1. **Search.** The quad cruises under the canopy at 2 m and flies a lawnmower
-   over the world (rows 3 m apart, 4.5 m in from the boundary) or the given
-   legs, detouring round known trunks and lidar returns.
+1. **Search.** The quad cruises under the canopy at 1 m and flies a lawnmower
+   over the world (square loops 3 m apart out to 2 m inside the playable area) or the given
+   legs, on an A* path round everything in the world file and what the lidar sees.
+   It never climbs over canopies: a sweep point it cannot reach is skipped.
 2. **Confirm.** On a YOLO hit it moves to a canopy-clear point facing the
    mushroom, drops to 1.2 m and holds still. A waypoint is published only when
    the quad has been still for 2 s, confidence is at least 0.5, two

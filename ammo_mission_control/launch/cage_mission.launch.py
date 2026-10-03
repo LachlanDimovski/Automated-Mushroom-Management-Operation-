@@ -8,9 +8,11 @@ YOLO/depth target selector and the cage capture node.
     ros2 launch ammo_mission_control cage_mission.launch.py parrot:=false count:=6  # husky-only, isolate capture debugging
     ros2 launch ammo_mission_control cage_mission.launch.py quad_waypoints:=4,-3,-3,-3.5   # quad flies these legs instead of the lawnmower
 
-With parrot:=true this also runs quad_search_node: the quad flies its legs
-(detouring round known trunks), holds on a YOLO hit, publishes the projected
-ground point once still, the rover collects it, the quad resumes.
+With parrot:=true the quad flies its legs, holds on a YOLO hit, publishes the
+projected ground point once still, the rover collects it, the quad resumes.
+quad:=zcam (default) runs quad_zcams' zcam_mission.launch.py: the z-camera quad
+plans round everything at cruise height and never climbs over canopies.
+quad:=stock runs quad_search_node (trunk detours, climb-over recovery).
 
 Give it waypoints with RViz Publish Point / 2D Goal Pose, or on
 husky1/cage/waypoints. In forest_random the world's own mushrooms (from
@@ -80,17 +82,25 @@ def generate_launch_description():
                           ('tool', 'gripper'),
                           # quad flight plan as 'x0,y0,x1,y1,...'; empty = lawnmower over the world
                           ('quad_waypoints', ''), ('mushrooms', ''), ('husky_yolo', 'false'),
-                          ('hazard', 'false')):  # hazard: Henry's COCO person detector + hazard_brake on the rover
+                          ('hazard', 'false'), ('quad', 'zcam')):  # hazard: Henry's COCO person detector + hazard_brake on the rover
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
+    ld.add_action(OpaqueFunction(function=_mission))
+    return ld
+
+
+def _mission(context):
+    if (LaunchConfiguration('quad').perform(context) == 'zcam'
+            and LaunchConfiguration('parrot').perform(context).lower() == 'true'):
+        # zcam_mission includes this file again with parrot:=false and adds its own quad
+        return [IncludeLaunchDescription(PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory('quad_zcams'), 'launch', 'zcam_mission.launch.py')))]
     # Nav2's smoothed output goes through collision_guard's depth check instead of straight to the wheels
-    ld.add_action(SetRemap(src='cmd_vel_smoothed', dst='cmd_vel_nav_guarded'))
-    ld.add_action(IncludeLaunchDescription(
+    return [SetRemap(src='cmd_vel_smoothed', dst='cmd_vel_nav_guarded'), IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(BRINGUP, 'launch', '41068_ignition.launch.py')),
         launch_arguments={'world': LaunchConfiguration('world'), 'nav2': 'true',
                           'parrot': LaunchConfiguration('parrot'), 'yolo': LaunchConfiguration('yolo'),
                           'husky_yolo': LaunchConfiguration('husky_yolo'),
                           'hazard': LaunchConfiguration('hazard'),
                           'ground_truth_localization': 'true', 'rviz': LaunchConfiguration('rviz'),
-                          'headless': LaunchConfiguration('headless')}.items()))
-    ld.add_action(OpaqueFunction(function=_nodes))
-    return ld
+                          'headless': LaunchConfiguration('headless')}.items()),
+            OpaqueFunction(function=lambda c: _nodes(c))]  # looked up at run time: zcam_mission swaps _nodes

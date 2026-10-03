@@ -1,13 +1,13 @@
 """quad_search_node with a down and an up depth camera and a planner that knows every obstacle.
 
-- z is height above whatever is directly below (down camera), so cruise, hold and climb
-  heights follow the ground instead of a fixed world height.
+- z is height above whatever is directly below (down camera), so cruise and hold heights
+  follow the ground instead of a fixed world height. It never climbs over canopies.
 - Legs are flown along an A* path over everything at cruise height: the world file's
   visuals (trunks, oak branches, tipped fallen crowns, boundary trees) plus what the
   lidar sees in flight. Hold points must be reachable and see the mushroom.
 - Stuck means no progress along that path, not slow. Then: replan around what the lidar
-  sees, then slide sideways, and only then climb over - never into foliage overhead (up
-  camera), crossing at the height the lidar is clear and descending once clear below.
+  sees, then slide sideways, then skip the sweep point. It never rises into foliage overhead
+  (up camera); walled-in pockets are looked into from the open forest.
 Without a world file (world_sdf empty) it keeps the straight legs and the parent's stuck rule.
 """
 import math
@@ -31,22 +31,9 @@ ZCAM_HFOV = 1.0472
 DOWN_CAM_Z = -0.12        # camera mounts below / above base_link (parrot_zcams.urdf.xacro)
 COLUMN_R_M = 0.8          # clearance is measured within this radius of the quad's vertical axis
 DEPTH_STALE_S = 1.0       # older than this: fall back to height above the spawn ground
-HEADROOM_M = 1.5          # never climb with anything closer than this overhead
-CLEAR_AHEAD_M = 4.0       # a climb ends once the front cone is clear this far...
-OVER_MARGIN_M = 1.0       # ...plus this much higher
-OVER_TRAVEL_M = 5.0       # cross this far at the climbed height before descending
-BELOW_MIN_M = 1.5         # clearance kept above the canopy while crossing
-DESCEND_CLEAR_M = 3.0     # descend only when nothing is this close below
-MAX_ALT_M = 22.0          # climb cap above the spawn ground (boundary 'edge' canopies reach 18.7 m)
-BACKOFF_SPEED = 0.4       # canopy overhead: reverse out from under it before climbing...
-BACKOFF_MAX_M = 4.0       # ...this far at most
-REAR_CLEAR_M = 1.0        # only with this much lidar clearance behind
-REAR_HALF_ARC_RAD = 0.6
-OVER_TIMEOUT_S = 90.0
-NO_WAY_DOWN_S = 10.0      # over the target pocket but never clear below for this long: foliage over it, give up on it
+HEADROOM_M = 1.5          # never rise with anything closer than this overhead
 HANDOVER_S = 15.0         # holding this long since the last waypoint went out with no new one: the rover already has
                           # it queued, so resume (the parent waited for 3 waypoints or 150 s, under foliage often 150 s)
-NO_CLIMB_S = 20.0         # after a climb ends under canopy, no new climb for this long (they alternated 6494 times)
 
 CLEARANCE_M = 1.0         # planned paths keep at least this far from anything at cruise height
 SNAP_M = 4.0              # a leg goal inside an obstacle moves to free space this close
@@ -64,10 +51,8 @@ SLIDE_SPEED = 0.4
 SLIDE_TIMEOUT_S = 8.0
 SIDE_CLEAR_M = 1.0        # stop sliding with this little room left on that side
 SIDE_ARC = (math.radians(60), math.radians(120))
-RING_INSET_M = 2.5        # the sweep reaches this close to the boundary ring (the launch's square, 4.5 m in from the
+RING_INSET_M = 2.5        # the sweep reaches this close to the boundary ring / hedge (the launch's square, 4.5 m in from the
                           # playable edge for the stock quad, left 4 of 6 dense-world mushrooms outside it)
-MIN_POCKET_M2 = 30.0      # walled-in open ground this big is searched by flying over into it (smaller pockets cost a
-                          # crossing each and, in the dense world, still left the mushrooms by the obstacles unseen)
 COVER_RES = 0.5           # ground the camera has seen this pass, on this grid
 COVER_RANGE_M = 3.5       # counts as seen within YOLO's range
 COVER_R_M = 1.5           # a sweep point is skipped once this much ground around it has been seen...
@@ -81,6 +66,9 @@ CRUMB_M = 0.5             # breadcrumbs this far apart: a quad cut off from the 
 CRUMBS = 400
 MAP_MAX_Z_M = 2.0         # depth frames go into the rover's map only from cruise height, level and not turning
 MAP_MAX_W = 0.3
+RECENTRE_M = 0.4          # a hold re-aims on a sighting at least this far from its target
+STRAFE_SPEED = 0.6        # strafe: along the path in the body frame while the yaw catches up...
+STRAFE_MAX_RAD = 2.0      # ...unless the next corner is this far round (then turn on the spot)
 
 
 class _LastPoint:
@@ -111,7 +99,26 @@ class ZCamQuad(qs.QuadSearchController):
         self.declare_parameter('world_sdf', '')
         self.declare_parameter('cruise_alt', qs.CRUISE_ALT_M)
         self.declare_parameter('clearance', CLEARANCE_M)
+        self.declare_parameter('strafe', False)
+        self.declare_parameter('eager_hold', False)
+        self.eager_hold = bool(self.get_parameter('eager_hold').value)
+        self.declare_parameter('cover_range', COVER_RANGE_M)  # YOLO at 1 m cruise only fires within ~2 m
+        self.cover_range = float(self.get_parameter('cover_range').value)
+        self.declare_parameter('det_range', 0.0)  # > 0: ignore sightings that project farther than this from the quad
+        self.det_range = float(self.get_parameter('det_range').value)
+        self.declare_parameter('max_aspect', 0.0)  # > 0: ignore boxes taller than this times their width
+        self.max_aspect = float(self.get_parameter('max_aspect').value)
+        self.declare_parameter('center_out', False)
+        self.declare_parameter('fast_dispatch', False)
+        self.declare_parameter('cruise_speed', qs.MAX_LINEAR_SPEED)
+        qs.MAX_LINEAR_SPEED = float(self.get_parameter('cruise_speed').value)  # the parent reads these at run time
+        if self.get_parameter('fast_dispatch').value:  # a hold was ~8 s once still, a failed viewpoint 20 s
+            qs.SETTLE_S, qs.REPUBLISH_S, qs.DISPATCH_PUBLISHES, qs.HOLD_NO_WP_S = 1.0, 1.0, 2, 12.0
+        self.strafe = bool(self.get_parameter('strafe').value)
         qs.CRUISE_ALT_M = float(self.get_parameter('cruise_alt').value)  # the parent reads it at run time
+        # hold no higher than cruise: under foliage the up camera kept the quad at ~1.0 m, so it never settled at the
+        # parent's 1.2 m and every hold there ended "no waypoint from 3 viewpoints" (t24l)
+        qs.HOLD_ALT_M = min(qs.HOLD_ALT_M, qs.CRUISE_ALT_M)
         self.clearance = float(self.get_parameter('clearance').value)
         lo, hi = sorted((qs.CRUISE_ALT_M, qs.HOLD_ALT_M))
         self.band = (lo - BAND_MARGIN_M, hi + BAND_MARGIN_M)  # also the top of what the lidar maps in flight
@@ -121,30 +128,32 @@ class ZCamQuad(qs.QuadSearchController):
         self.z_abs = 0.0
         self.agl = None       # (t, m) nearest surface below base_link
         self.headroom = None  # (t, m) nearest surface above the up camera
-        self.mode = 'cruise'  # cruise | slide | climb | over
-        self.over_z = None
-        self.over_from = None
+        self.mode = 'cruise'  # cruise | slide
         self.mode_since = 0.0
-        self.backoff_from = None
-        self.over_blocked_since = None
-        self.rear_min = self.left_min = self.right_min = math.inf
+        self.left_min = self.right_min = math.inf
         self._radius = {}
         self.path, self.path_goal, self.replan = [], None, True
         self.prog = None      # (t, path length left) at the last sign of progress
         self.rung, self.rung_xy = 0, (0.0, 0.0)
         self.slide_dir, self.slide_from = 1.0, (0.0, 0.0)
-        self.n_plans = self.n_stuck = self.n_slides = self.n_climbs = self.n_looks = 0
+        self.n_plans = self.n_stuck = self.n_slides = self.n_looks = 0
         self.look, self.look_done, self.looking = {}, set(), None
-        self.no_climb_until, self.n_unreached, self.n_escapes = -1.0, 0, 0
+        self.n_unreached, self.n_escapes = 0, 0
         self.crumbs, self.main_region, self.to_main, self.escaping = [], 0, None, False
         self.grid = self._build_map()
         self.cover, self.cover_t, self.footprint, self.n_skipped = None, -1.0, self._camera_footprint(), 0
-        if self.grid is not None and self.area is not None and self.ring:
-            h, sp = self.ring - RING_INSET_M, self.area[4]
+        edge = self.square or self.ring if self.grid is not None else None
+        if edge and self.area is not None:
+            # never past the launch's search square + RING_INSET_M: the hedge stands at the map's outer edge,
+            # metres beyond the playable area where mushrooms are placed
+            h, sp = min(edge, max(abs(v) for v in self.area[:4]) + 2 * RING_INSET_M) - RING_INSET_M, self.area[4]
             if h > max(abs(v) for v in self.area[:4]):
                 self.area = [-h, h, -h, h, sp]
                 self.waypoints = qs.build_lawnmower_waypoints(*self.area)
-                self.get_logger().info(f'Sweep widened to +-{h:.1f} m, {RING_INSET_M} m inside the boundary ring.')
+                self.get_logger().info(f'Sweep widened to +-{h:.1f} m, {RING_INSET_M} m inside the '
+                                       f'{"hedge" if self.square else "boundary ring"}.')
+        if self.get_parameter('center_out').value and self.area is not None:
+            self.waypoints = self._center_out(self.waypoints)
         if self.grid is not None:
             self.waypoints = self._prepare_sweep(self.waypoints)
             self._reset_cover()
@@ -153,7 +162,7 @@ class ZCamQuad(qs.QuadSearchController):
         self.agl_pub = self.create_publisher(Float32, 'parrot1/agl', 10)
         self.create_subscription(Image, 'parrot1/down_depth/image', lambda m: self._zcam(m, True), qs.LIVE_QOS)
         self.create_subscription(Image, 'parrot1/up_depth/image', lambda m: self._zcam(m, False), qs.LIVE_QOS)
-        self.shared = shared_map.QuadMap()
+        self.shared = shared_map.QuadMap(max(shared_map.HALF, self.grid.half if self.grid is not None else 0.0))
         self.shared_pub = self.create_publisher(OccupancyGrid, 'parrot1/ground_obstacles',
                                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_timer(1.0, lambda: self.shared_pub.publish(self.shared.message(self.get_clock().now().to_msg())))
@@ -170,7 +179,7 @@ class ZCamQuad(qs.QuadSearchController):
         sdf = self.get_parameter('world_sdf').value
         if not sdf or not os.path.exists(sdf):
             self.get_logger().warn('No world_sdf - flying straight legs with trunk detours (no planner).')
-            self.ring = None
+            self.ring = self.square = None
             return None
         extra = []
         try:
@@ -180,16 +189,19 @@ class ZCamQuad(qs.QuadSearchController):
             pass
         t0 = time.time()
         pts = obstacle_map.world_obstacle_points(sdf, band=self.band, extra_dirs=extra)
-        ring = self.ring = obstacle_map.boundary_ring(sdf)
+        square = self.square = obstacle_map.boundary_square(sdf)
+        ring = self.ring = None if square else obstacle_map.boundary_ring(sdf)
         xs = [abs(v) for w in self.waypoints for v in w] + ([abs(v) for v in self.area[:4]] if self.area else [])
-        grid = obstacle_map.ObstacleGrid(pts, max(xs) + 7.5, self.clearance, ring=ring)
+        grid = obstacle_map.ObstacleGrid(pts, max(max(xs) + 7.5, (square or 0.0) + 1.0), self.clearance,
+                                         ring=ring, square=square)
         c = (np.arange(grid.n) + 0.5) * obstacle_map.RES - grid.half
-        inside = np.hypot(*np.meshgrid(c, c, indexing='ij')) < (ring or 1e9)
+        X, Y = np.meshgrid(c, c, indexing='ij')
+        inside = np.maximum(abs(X), abs(Y)) < square if square else np.hypot(X, Y) < (ring or 1e9)
         self.get_logger().info(f'Planner map (cruise {qs.CRUISE_ALT_M:.1f} m, clearance {self.clearance:.1f} m): '
                                f'{len(pts)} samples at {self.band[0]:.1f}-{self.band[1]:.1f} m '
                                f'above ground, {grid.static[inside].mean() * 100:.1f}% occupied'
-                               + (f' inside the boundary ring (r {ring:.1f} m), the search stays within it'
-                                  if ring else '') + f', {time.time() - t0:.1f} s.')
+                               + (f' inside the hedge (+-{square:.1f} m), the search stays within it' if square else
+                                  f' inside the boundary ring (r {ring:.1f} m), the search stays within it' if ring else '') + f', {time.time() - t0:.1f} s.')
         return grid
 
     def _prepare_sweep(self, wps):
@@ -213,7 +225,7 @@ class ZCamQuad(qs.QuadSearchController):
             p = (x, y) if not self.grid.is_blocked(x, y) else \
                 self.grid.nearest_free(x, y, SWEEP_SNAP_M if self.area is not None else SNAP_M)
             r = int(self.labels[self.grid.cell(*p)]) if p else 0
-            if p is None or (r != main and area[r] < MIN_POCKET_M2):
+            if p is None or r != main:  # in a walled-in pocket: looked into from the open forest, or dropped
                 i, j = self.grid.cell(x, y)
                 if not self.grid.inside(i, j) or to_main[i, j] * obstacle_map.RES > LOOK_MAX_M:
                     small += p is not None
@@ -227,16 +239,25 @@ class ZCamQuad(qs.QuadSearchController):
             regions.setdefault(r, []).append(p)
         self.main_region = main
         out = regions.pop(main, [])
-        while regions:  # pockets after the main area, nearest first: one crossing into each
-            last = out[-1] if out else (self.x, self.y)
-            r = min(regions, key=lambda k: min(math.hypot(q[0] - last[0], q[1] - last[1]) for q in regions[k]))
-            out += regions.pop(r)
-        pockets = len({int(self.labels[self.grid.cell(*q)]) for q in out}) - 1
         looked = sum(len(v) for v in self.look.values())
         self.get_logger().info(f'Sweep: {len(wps)} points -> {len(dense)} along the rows, {moved} moved out of '
                                f'obstacles, {looked} inside the foliage looked at from {len(self.look)} points in open air, '
                                f'{len(dense) - len(out) - looked + len(self.look) - small} out of view and {small} in pockets '
-                               f'under {MIN_POCKET_M2:.0f} m2 dropped; {pockets} walled-in pockets are reached by flying over.')
+                               f'dropped.')
+        return out or wps
+
+    def _center_out(self, wps):
+        """Square loops from the spawn outward, row spacing apart: the first mushrooms found are the rover's nearest
+        (a middle row flown end to end sent it 16 m away for its first pickup)."""
+        h, step = max(abs(v) for v in self.area[:4]), self.area[4]
+        # evenly spaced loops, the last 1 m inside the sweep's edge: a loop on the edge itself flew past the outermost
+        # mushrooms at the side of the camera's view, where YOLO is weakest (t24i: 3 of the last 5 were there)
+        edge = h - 1.0
+        n = int(math.ceil(edge / step))
+        radii = [edge * (k + 1) / n for k in range(n)]
+        out = []
+        for r in radii:
+            out += [(r, -r), (r, r), (-r, r), (-r, -r), (r, -r)]
         return out or wps
 
     def _region(self, x, y):
@@ -247,8 +268,6 @@ class ZCamQuad(qs.QuadSearchController):
         return int(self.labels[self.grid.cell(*p)]) if p else 0
 
     def _advance_leg(self):
-        if self.grid is not None and self.mode in ('climb', 'over') and self.z > self.band[1]:
-            return  # passing over a sweep point up high is not searching it: it counts once reached at cruise height
         q = self.waypoints[self.wp_idx] if self.waypoints else None
         if q in self.look and q not in self.look_done and not self.holding and self.mode == 'cruise':
             if self.looking != q:
@@ -269,11 +288,12 @@ class ZCamQuad(qs.QuadSearchController):
         """Body-frame (forward, left) ground offsets inside the camera image and range at cruise height."""
         pts = []
         cp, sp = math.cos(CAM_PITCH_RAD), math.sin(CAM_PITCH_RAD)
-        for fx in np.arange(-1.0, COVER_RANGE_M + 0.01, COVER_RES / 2):
-            for ly in np.arange(-COVER_RANGE_M, COVER_RANGE_M + 0.01, COVER_RES / 2):
+        rng = getattr(self, 'cover_range', COVER_RANGE_M)
+        for fx in np.arange(-1.0, rng + 0.01, COVER_RES / 2):
+            for ly in np.arange(-rng, rng + 0.01, COVER_RES / 2):
                 bx, by, dz = fx - CAM_FWD_M, ly, 0.1 - (qs.CRUISE_ALT_M + CAM_UP_M)
                 rx, rz = bx * cp - dz * sp, bx * sp + dz * cp
-                if rx <= 0 or math.hypot(fx, ly) > COVER_RANGE_M:
+                if rx <= 0 or math.hypot(fx, ly) > rng:
                     continue
                 u, v = IMG_W / 2 - FOCAL_PX * by / rx, IMG_H / 2 - FOCAL_PX * rz / rx
                 if 0 <= u < IMG_W and 0 <= v < IMG_H:
@@ -325,14 +345,14 @@ class ZCamQuad(qs.QuadSearchController):
         return tot > 0 and hit >= COVER_FRAC * tot
 
     def _plan(self, goal):
-        """A* path to goal. With none: retry without the lidar layer (its returns sealed corridors), then fly over
-        only into another region; a goal in this region with no way to it is skipped. True if the leg was skipped."""
+        """A* path to goal. With none: retry without the lidar layer (its returns sealed corridors), retrace the
+        breadcrumbs when cut off from the open forest, else skip the sweep point. True if the leg was skipped."""
         self.replan, self.path_goal, self.prog, self.escaping = False, goal, None, False
         t0 = time.time()
         start = self._open_start()
         p = self.grid.plan(start, goal, snap=SNAP_M)
         if p is None and np.any(self.grid.lidar_seen > self.grid.now - self.grid.lidar_ttl):
-            self.grid.lidar_seen[:] = -1e9
+            self.grid.lidar_seen[:] = -np.inf
             self.grid.rebuild(self.grid.now)
             p = self.grid.plan(start, goal, snap=SNAP_M)
         if p is not None and start != (self.x, self.y):
@@ -342,7 +362,7 @@ class ZCamQuad(qs.QuadSearchController):
             self.path = []
             if self.holding:
                 return False
-            here, there = self._region(self.x, self.y), self._region(*goal)
+            here = self._region(self.x, self.y)
             if here != self.main_region:
                 back = self._way_back()
                 if back:
@@ -351,9 +371,6 @@ class ZCamQuad(qs.QuadSearchController):
                     self.get_logger().info(f'Cut off from the open forest at ({self.x:.1f},{self.y:.1f}) - retracing '
                                            f'{len(back)} breadcrumbs back to ({back[-1][0]:.1f},{back[-1][1]:.1f}).')
                     return False
-            if there and there != here and self._now_s() >= self.no_climb_until:
-                self._start_climb(f'no path to ({goal[0]:.1f},{goal[1]:.1f}) at cruise height')
-                return False
             self.n_unreached += 1
             self.get_logger().info(f'No path to sweep point ({goal[0]:.1f},{goal[1]:.1f}) at cruise height - skipped.')
             self.look_done.add(self.waypoints[self.wp_idx])
@@ -398,8 +415,6 @@ class ZCamQuad(qs.QuadSearchController):
     def _leg_target(self, gx, gy):
         if self.grid is None:
             return super()._leg_target(gx, gy)
-        if self.mode in ('climb', 'over'):
-            return gx, gy  # above everything: straight at it
         skipped = 0
         while not self.holding and self.cover is not None and skipped < len(self.waypoints) and self._wp_seen(gx, gy):
             self.look_done.add((gx, gy))
@@ -462,6 +477,46 @@ class ZCamQuad(qs.QuadSearchController):
         self.hold_tried.append(best[1])
         return best[1]
 
+    def _gated_projection(self, msg):
+        """det_range: a 10 px box 6.5 m off projects metres out on uneven ground - one put a waypoint in the pond
+        (t24i). Nearer sightings project well, and the sweep brings the quad near the far ones anyway."""
+        for det in sorted(msg.detections, key=lambda d: -d.results[0].hypothesis.score if d.results else 0.0):
+            if not det.results or det.results[0].hypothesis.score < qs.MIN_CONF:
+                continue
+            # a cap is wider than tall (real boxes: h/w median 1.1, 99% under 1.29); the pond's cattail heads came out
+            # 1.5-2.3 and were dispatched three times (t24j)
+            if self.max_aspect > 0.0 and det.bbox.size_x > 0 and det.bbox.size_y / det.bbox.size_x > self.max_aspect:
+                continue
+            g = self._project(det)
+            if g is None:
+                continue
+            if self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < qs.ROVER_EXCLUDE_M:
+                continue
+            if self.det_range > 0.0 and math.hypot(g[0] - self.x, g[1] - self.y) > self.det_range:
+                continue
+            return g
+        return None
+
+    def _det_cb(self, msg):
+        """eager_hold: the parent ignores a lone sighting while turning and waits for a second one, by when the turn
+        has carried the mushroom out of view (pond1: seen once, never held). The hold itself confirms it."""
+        if not self.eager_hold:
+            super()._det_cb(msg)
+        else:
+            w, self.yaw_rate = self.yaw_rate, 0.0
+            try:
+                super()._det_cb(msg)
+            finally:
+                self.yaw_rate = w
+        # re-aim the hold on nearer sightings: the first one is the farthest and least accurate (0.64 m off left all
+        # three viewpoints looking past the mushroom, and the hold gave up on it - t24j)
+        lg = self.latest_ground if self.holding else None
+        if lg is not None and self.hold_target is not None and self._now_s() - lg[0] < 0.5:
+            off = math.hypot(lg[1] - self.hold_target[0], lg[2] - self.hold_target[1])
+            if RECENTRE_M < off < 2.0:
+                self.hold_target = (lg[1], lg[2])
+                self.hold_xy = self._hold_point(self.hold_target, self.hold_view)
+
     def _done_cb(self, msg):
         """The parent ended any hold on any rover 'done' - also one for a different mushroom, which dropped the one
         being confirmed (8 of 19 such holds in the 30 m runs). Only the held mushroom's own collection ends it."""
@@ -472,13 +527,15 @@ class ZCamQuad(qs.QuadSearchController):
             self.dispatched.append((msg.point.x, msg.point.y))
         super()._done_cb(msg)
 
-    # -- stuck: no progress along the path -> replan, slide, climb --------------
+    # -- stuck: no progress along the path -> replan, slide, skip ----------------
     def _check_stuck(self, now):
         if self.grid is None:
             before = self.recovery_until
             super()._check_stuck(now)
             if before is None and self.recovery_until is not None:
-                self._start_climb('stuck (no planner)')
+                self.recovery_until = None  # the parent's recovery is a climb: skip the leg instead
+                self.get_logger().info('Stuck (no planner) - skipping this leg.')
+                self._advance_leg()
             return
         if self.mode != 'cruise' or not self.path or self.looking:
             self.prog = None
@@ -506,26 +563,11 @@ class ZCamQuad(qs.QuadSearchController):
             self.n_slides += 1
             self._set_mode('slide', f'stuck again: {why}; sliding {"left" if self.slide_dir > 0 else "right"} '
                                     f'(left {self.left_min:.1f} m, right {self.right_min:.1f} m clear)')
-        elif now < self.no_climb_until:
-            self.rung = 0
-            self.get_logger().info(f'Stuck under canopy: {why} - skipping this sweep point.')
-            self.look_done.add(self.waypoints[self.wp_idx])
-            self._advance_leg()
         else:
             self.rung = 0
-            self._start_climb(f'stuck after replanning and sliding: {why}')
-
-    def _start_climb(self, why):
-        goal = self.waypoints[self.wp_idx] if not self.holding and self.waypoints else None
-        here, there = self._region(self.x, self.y), (self._region(*goal) if goal else 0)
-        self.cross_to = there if goal and there and there != here else 0  # a crossing into another region
-        self.recovery_until = self._now_s() + 1.0
-        self.over_z = None
-        self.backoff_from = None
-        self.n_climbs += 1
-        self._set_mode('climb', why)
-        if self.z > self.band[1]:  # already up high: cross at this height rather than climbing on from here
-            self.over_z = self.z_abs
+            self.get_logger().info(f'Stuck: {why} - skipping this sweep point.')
+            self.look_done.add(self.waypoints[self.wp_idx])
+            self._advance_leg()
 
     # -- sensors ---------------------------------------------------------------
     def _column_min(self, msg):
@@ -557,7 +599,6 @@ class ZCamQuad(qs.QuadSearchController):
         r = np.asarray(msg.ranges, float)
         ok = np.isfinite(r) & (r > 0.0)
         side = lambda lo, hi: float(r[ok & (a >= lo) & (a <= hi)].min()) if np.any(ok & (a >= lo) & (a <= hi)) else math.inf
-        self.rear_min = min(side(math.pi - REAR_HALF_ARC_RAD, math.pi), side(-math.pi, -math.pi + REAR_HALF_ARC_RAD))
         self.left_min = side(*SIDE_ARC)
         self.right_min = side(-SIDE_ARC[1], -SIDE_ARC[0])
         if (self.grid is None or not self.taken_off or self.mode not in ('cruise', 'slide')
@@ -656,81 +697,19 @@ class ZCamQuad(qs.QuadSearchController):
                 cmd.linear.x, cmd.linear.y, cmd.angular.z = 0.0, self.slide_dir * SLIDE_SPEED, 0.0
             return cmd
 
-        if self.mode == 'climb':
-            self.recovery_until = now + 1.0  # keeps the parent's own stuck logic out of the way
-            cmd.linear.x = 0.0
-            if head < HEADROOM_M:
-                cmd.linear.z = 0.0
-                self.backoff_from = self.backoff_from or (self.x, self.y)
-                backed = math.hypot(self.x - self.backoff_from[0], self.y - self.backoff_from[1])
-                if self.rear_min > REAR_CLEAR_M and backed < BACKOFF_MAX_M:
-                    cmd.linear.x, cmd.angular.z = -BACKOFF_SPEED, 0.0
-                else:
-                    self.no_climb_until = now + NO_CLIMB_S
-                    self._set_mode('cruise', f'canopy overhead, backed out {backed:.1f} m without clearing it')
-                return cmd
-            cmd.linear.z = qs.MAX_CLIMB_SPEED
-            if front < CLEAR_AHEAD_M:
-                self.over_z = None
-            elif self.over_z is None:
-                self.over_z = self.z_abs + OVER_MARGIN_M
-            cap = self.ground_z0 + MAX_ALT_M
-            if self.over_z is not None and self.z_abs >= min(self.over_z, cap):
-                self.over_from = (self.x, self.y)
-                self._set_mode('over', f'clear ahead, crossing at {self.z_abs:.1f} m')
-            elif self.z_abs >= cap:
-                self.no_climb_until = now + NO_CLIMB_S
-                self._set_mode('cruise', 'still blocked at the climb cap')
-            return cmd
-
-        if self.mode == 'over':
-            self.recovery_until = now + 1.0
-            if self._fresh(self.agl):
-                self.over_z = max(self.over_z, self.z_abs - self.agl[1] + BELOW_MIN_M)
-            cmd.linear.z = max(-qs.MAX_CLIMB_SPEED, min(qs.MAX_CLIMB_SPEED, (self.over_z - self.z_abs) * qs.ALT_GAIN))
-            if cmd.linear.z > 0.0 and head < HEADROOM_M:
-                cmd.linear.z = 0.0
-            travelled = math.hypot(self.x - self.over_from[0], self.y - self.over_from[1])
-            below = self.agl[1] if self._fresh(self.agl) else 0.0
-            over_target = getattr(self, 'cross_to', 0) and self._region(self.x, self.y) == self.cross_to
-            self.over_blocked_since = (self.over_blocked_since or now) if over_target and below < DESCEND_CLEAR_M else None
-            goal = self.waypoints[self.wp_idx] if self.waypoints else (self.x, self.y)
-            to_goal = math.hypot(goal[0] - self.x, goal[1] - self.y)
-            if getattr(self, 'cross_to', 0) and self._region(self.x, self.y) != self.cross_to:
-                # the parent hovers within WAYPOINT_TOLERANCE_M of a sweep point; a crossing still has to get over the pocket
-                ang, cmd.angular.z = steer_angular(goal[0] - self.x, goal[1] - self.y, self.yaw,
-                                                   qs.MAX_ANGULAR_SPEED, qs.ANGULAR_GAIN)
-                cmd.linear.x = min(0.5, to_goal) if abs(ang) < qs.ANGLE_THRESHOLD_RAD else 0.0
-            if front < qs.AVOID_STOP_DIST_M:  # the parent's avoidance would slow this crossing to a hover: go higher
-                self._set_mode('climb', f'something {front:.1f} m ahead while crossing')
-                self.over_z = None
-            elif below >= DESCEND_CLEAR_M and (
-                    self._region(self.x, self.y) == self.cross_to if getattr(self, 'cross_to', 0)  # into a pocket: land in it
-                    else travelled >= OVER_TRAVEL_M or to_goal <= qs.WAYPOINT_TOLERANCE_M):
-                self.recoveries_on_wp = 0
-                self.rung = 0
-                self._set_mode('cruise', f'crossed {travelled:.1f} m, clear below')
-            elif now - self.mode_since > OVER_TIMEOUT_S or (
-                    getattr(self, 'cross_to', 0) and self._region(self.x, self.y) == self.cross_to and
-                    now - (self.over_blocked_since or now) > NO_WAY_DOWN_S):
-                region = getattr(self, 'cross_to', 0)
-                self._set_mode('cruise', 'crossing timed out' if now - self.mode_since > OVER_TIMEOUT_S
-                               else 'foliage over the pocket, no way down')
-                if region:  # no way down into that pocket (canopy over it): leave the rest of it for the next pass
-                    skipped = 0
-                    while (skipped < len(self.waypoints) and self.waypoints and
-                           self._region(*self.waypoints[self.wp_idx]) == region):
-                        self.look_done.add(self.waypoints[self.wp_idx])
-                        self._advance_leg()
-                        skipped += 1
-                    self.get_logger().info(f'Pocket unreachable from above - skipped its {skipped} sweep points.')
-            return cmd
-
         if self.grid is not None and self.path and not self.holding and cmd.linear.x > 0.0:
             # on a planned path: full speed unless the lidar sees something ahead (the parent scaled speed by the
             # distance to its target, which crawled at every path corner)
             f = 1.0 if front >= self.avoid_slow else max(0.0, (front - self.avoid_stop) / (self.avoid_slow - self.avoid_stop))
             cmd.linear.x = qs.MAX_LINEAR_SPEED * f
+        elif (self.strafe and self.grid is not None and self.path and not self.holding and self.mode == 'cruise'
+              and cmd.linear.x == 0.0):
+            # the parent turns on the spot at every path corner (17-21% of a run); a quad can keep going meanwhile -
+            # the planned segment to the corner is clear, whatever the heading
+            tx, ty = self.path[0]
+            err = math.remainder(math.atan2(ty - self.y, tx - self.x) - self.yaw, 2 * math.pi)
+            if abs(err) < STRAFE_MAX_RAD and math.hypot(tx - self.x, ty - self.y) > VERTEX_REACHED_M:
+                cmd.linear.x, cmd.linear.y = STRAFE_SPEED * math.cos(err), STRAFE_SPEED * math.sin(err)
         if cmd.linear.z > 0.0 and head < HEADROOM_M:
             cmd.linear.z = 0.0
         return cmd
@@ -739,7 +718,7 @@ class ZCamQuad(qs.QuadSearchController):
         super()._heartbeat()
         if self.taken_off:
             plan = (f' path={self._remaining():.1f} m rung={self.rung} plans={self.n_plans} stuck={self.n_stuck} '
-                    f'slides={self.n_slides} climbs={self.n_climbs} seen-skips={self.n_skipped} looks={self.n_looks} '
+                    f'slides={self.n_slides} seen-skips={self.n_skipped} looks={self.n_looks} '
                     f'unreached={self.n_unreached} escapes={self.n_escapes}') if self.grid is not None else ''
             self.get_logger().info(f'z-cams: mode={self.mode} z={self.z_abs:.2f} m below={self.z:.2f} m '
                                    f'above={self._head():.2f} m agl_fresh={self._fresh(self.agl)}{plan}')

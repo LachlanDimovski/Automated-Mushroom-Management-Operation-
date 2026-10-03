@@ -33,6 +33,7 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument('stop_height_px', default_value='120.0'))
     # one core per detector (see yolo_node.py); '' = unpinned
     ld.add_action(DeclareLaunchArgument('core', default_value=''))
+    ld.add_action(DeclareLaunchArgument('imgsz', default_value='384'))  # 640 keeps small, far mushrooms detectable
 
     ld.add_action(Node(
         package='perception',
@@ -45,6 +46,7 @@ def generate_launch_description():
             'image_topic': 'camera/image',
             'model_path': model_path,
             'conf_threshold': ParameterValue(conf_threshold, value_type=float),
+            'imgsz': ParameterValue(LaunchConfiguration('imgsz'), value_type=int),
         }],
         condition=IfCondition(yolo),
         additional_env={'YOLO_CORE': LaunchConfiguration('core')},

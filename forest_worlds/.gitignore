@@ -1,0 +1,8 @@
+# all generated / downloaded by setup.sh
+assets_src/
+models/
+world_assets/
+textures/
+dem/
+worlds/
+__pycache__/

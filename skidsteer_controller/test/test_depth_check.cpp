@@ -92,10 +92,18 @@ int main()
     assert(!std::isfinite(up.obstacle_dist) && up.points.empty());
     const Box slog{1.60, 1.90, -1.3, 1.3, gz, gz + 1.9 * k + 0.30};
     assert(std::fabs(run(g, {slog}, 1e9, k).obstacle_dist - 0.85) < 0.1);
+    // a trunk off the front-left corner: not in the corridor, but the flank sees it
+    const Box trunk{1.00, 1.30, 0.70, 1.00, gz, gz + 1.0};
+    auto fk = run(g, {trunk});
+    assert(!std::isfinite(fk.obstacle_dist) && std::fabs(fk.left_dist - 0.35) < 0.1 && !std::isfinite(fk.right_dist));
+    assert(!std::isfinite(flat.left_dist) && !std::isfinite(flat.right_dist));
+    // cresting onto a 15 deg downhill: floor, not a cliff, and nothing to stop for
+    auto down = run(g, {}, 1e9, -std::tan(15 * M_PI / 180));
+    assert(!down.cliff && !std::isfinite(down.obstacle_dist));
     auto drop = run(g, {}, 1.0);
     assert(drop.cliff && !std::isfinite(drop.obstacle_dist));
-    std::printf("cam x=%.2f z=%.2f: log %.2f m, hiker %.2f m, flat clear, mushroom ignored, drop-off flagged\n",
-      g.t[0], g.t[2], l.obstacle_dist, h.obstacle_dist);
+    std::printf("cam x=%.2f z=%.2f: log %.2f m, hiker %.2f m, left trunk %.2f m, flat clear, mushroom ignored, drop-off flagged\n",
+      g.t[0], g.t[2], l.obstacle_dist, h.obstacle_dist, fk.left_dist);
   }
   std::printf("depth_check: all passed\n");
   return 0;

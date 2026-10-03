@@ -69,17 +69,17 @@ class YoloNode(Node):
         self.declare_parameter('classes', [-1])
         self.declare_parameter('publish_annotated', True)
         # Capped so CPU inference does not starve Gazebo's physics thread.
-        # ponytail: temporarily 1 (was 2) - two yolo_node instances at 2 threads
+        # Temporarily 1 (was 2) - two yolo_node instances at 2 threads
         # each were pegging up to 4 cores combined and starving Nav2's control
         # loop; raise back to 2+ on hardware that isn't CPU-constrained.
         self.declare_parameter('num_threads', 1)
-        # ponytail: temporary CPU-relief knob for a CPU-only, resource-constrained
+        # Temporary CPU-relief knob for a CPU-only, resource-constrained
         # test box - halving the inference resolution cuts YOLO's actual compute
         # cost (unlike num_threads, which only capped PyTorch's own thread pool
         # and left OpenCV/BLAS threads free to keep eating cores). Revert to the
         # model's native resolution (imgsz=0 means don't override) on real hardware.
         self.declare_parameter('imgsz', 384)
-        # ponytail: inference used to run on every single incoming frame with
+        # Inference used to run on every single incoming frame with
         # no rate limit, back-to-back, as fast as the CPU allowed - the real
         # driver of the measured 300-400%+ CPU. Capping call frequency cuts
         # total compute roughly proportionally, unlike imgsz/num_threads which

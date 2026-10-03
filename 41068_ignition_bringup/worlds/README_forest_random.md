@@ -83,11 +83,21 @@ Any explicit flag overrides the preset. Key knobs:
 `--size`, `--tree-density`, `--logs`, `--rocks`, `--clutter`, `--ponds`,
 `--terrain-amplitude` (hill height), `--terrain-roughness`,
 `--heightmap-samples` ((2^n)+1), `--clearing-radius`, `--lanes`, `--min-gap`,
-`--mushrooms`, `--decoys`, `--boundary {trees,wall,none}`, `--name`. See `--help`.
+`--mushrooms`, `--decoys`, `--boundary {trees,wall,none}`, `--no-hedge`, `--ground {elevation,forest}`, `--name`.
+See `--help`.
 
-Ponds are visual-only water discs in carved basins - the basin walls are what
-physically stop the robot. Terrain `z_span` (actual height range, hills +
-basins) is recorded in `meta.json`.
+Mushrooms are only placed where the rover can collect them: clear of trunks, of the low foliage the rover's
+lidar and depth camera see (sampled from the tree meshes at their pose), of fallen crowns, logs, rocks and ponds,
+and with a standoff point joined to the spawn clearing by a route at least 1.8 m wide. In a dense forest fewer
+than the requested number may fit. `--ground forest` colours the terrain green to olive with no bare soil: the
+mushroom detector scores a cap about 0.85 on grass but under 0.5 on brown soil.
+
+A closed square hedge of bushes (with collision) runs round the map's outer edge, 1 m in from the end of the
+terrain and past the boundary trees, so the robots can never drive off the map; `--no-hedge` leaves it out.
+Ponds are solid water filling their basins to the rim (no hole), each ringed by
+reeds with collision so the rover drives round them; mushrooms and decoys are
+never placed within 1.5 m of a pond. Terrain `z_span` (actual height range,
+hills + basins) is recorded in `meta.json`.
 
 ## What the world does to the nav stack (known, by design)
 
@@ -116,7 +126,8 @@ spawn_clearing:   { center, radius, ground_z }
 lanes:            [[ [x,y], ... ], ...]
 counts:           { trees, fallen_trees, logs, rocks_stumps_clutter, ponds, boundary, mushrooms, decoys }
 mushrooms/decoys: [ { name, x, y, z }, ... ]
-ponds:            [ { name, x, y, z, radius, basin_radius, depth }, ... ]
+ponds:            [ { name, x, y, z, radius, basin_radius, depth, reeds_radius }, ... ]
+hedge:            { half_size } or null
 objects:          [ { name, type, x, y, z, yaw, radius/length/height, ... }, ... ]
 ```
 
