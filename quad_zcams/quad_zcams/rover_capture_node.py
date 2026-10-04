@@ -66,7 +66,13 @@ CRUMBS = 200
 # boxed in: two Nav2 legs in a row that went nowhere...
 UNWEDGE_M = 3.0           # ...then reverse along the track this far (driven already, so passable), clear the costmaps
 UNWEDGE_SPEED = 0.15
-UNWEDGE_TIMEOUT_S = 40.0          # via points at least this far apart along the detour
+UNWEDGE_TIMEOUT_S = 40.0
+# ford crossings drive the lane unguarded: the depth guard reads the causeway's edge boulders as a wall (river SW ford)
+FORD_TRIGGER_M = 5.0
+FORD_SPEED = 0.3
+FORD_PAST_M = 3.5         # past the far edge of the bank zone before Nav2 takes over again
+FORD_SLACK = 1.5          # timeout: the lane's length at FORD_SPEED times this, plus 5 s
+EMPTY_R_M = 1.5           # handoffs this close to a spot already found empty are dropped          # via points at least this far apart along the detour
 
 
 class _ShapedPublisher:
@@ -105,6 +111,7 @@ class RoverCapture(cc.CageCapture):
         self.stall_ref = None  # (t, x, y) while in NAV
         self.crumbs, self.wedged, self.unwedge, self.unwedge_since = [], 0, [], 0.0
         self.given_up, self.idle_since = [], None
+        self.nav_goal, self.ford, self.empty = None, None, []
         if self.get_parameter('fast_pickup').value:  # the parent reads these at run time; the grab covers 0.6 m
             cc.CAGE_TOL_M, cc.SETTLE_S, cc.CLAW_MOVE_S = 0.12, 0.4, 0.8
         self.clear_since, self.clear_from, self.open_dir = None, None, None
@@ -350,6 +357,7 @@ class RoverCapture(cc.CageCapture):
             lambda f, h=h: setattr(self, 'nav_result', f.result().status == 4) if h is self.nav_handle else None)
 
     def _nav_to(self, x, y, yaw):
+        self.nav_goal = (x, y, yaw)
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = 'husky1_map'
         goal.pose.pose.position.x, goal.pose.pose.position.y = float(x), float(y)
@@ -403,6 +411,68 @@ class RoverCapture(cc.CageCapture):
         self.nav_tries, self.idle_stopped = 0, False
         self.get_logger().info(f'Queue empty - retrying the {len(self.targets)} mushroom(s) given up earlier.')
 
+    # -- ford crossings -------------------------------------------------------------
+    def _lane(self, k, x, y):
+        (fx, fy), (tx, ty) = self.river_fords[k], self.river['ford_tangents'][k]
+        return (x - fx) * tx + (y - fy) * ty, -(x - fx) * ty + (y - fy) * tx  # along the river, across it
+
+    def _ford_check(self):
+        if not self.river or self.nav_goal is None or self.nav_result is not None:
+            return False
+        gx, gy = self.nav_goal[:2]
+        for k, (fx, fy) in enumerate(self.river_fords):
+            along, across = self._lane(k, self.x, self.y)
+            g_across = self._lane(k, gx, gy)[1]
+            if (math.hypot(self.x - fx, self.y - fy) > FORD_TRIGGER_M or abs(along) >= 1.6
+                    or g_across * across > 0 or abs(g_across) < 1.0):
+                continue
+            side = 1.0 if g_across > 0 else -1.0
+            r = min(self.river['line'], key=lambda p: math.hypot(p[0] - fx, p[1] - fy))[2]
+            exit_m = r + 0.75 + FORD_PAST_M
+            self.ford = {'k': k, 'side': side, 'exit': exit_m, 't0': self._now(),
+                         'timeout': (exit_m - across * side) / FORD_SPEED * FORD_SLACK + 5.0,
+                         'pending': [self.nav_goal] + self.via_queue}
+            self._cancel_nav()
+            self.via_queue = []
+            self.get_logger().info(f'At ford {k} ({fx:.1f},{fy:.1f}) - driving the lane across myself.')
+            self._set_state('FORD')
+            return True
+        return False
+
+    def _ford_step(self):
+        f, cmd = self.ford, Twist()
+        k, side = f['k'], f['side']
+        along, across = self._lane(k, self.x, self.y)
+        timed_out = self._now() - f['t0'] > f['timeout']
+        if across * side >= f['exit'] or timed_out:
+            self.cmd_pub_unguarded.publish(cmd)
+            if timed_out:
+                self.get_logger().warn(f'Ford {k} crossing timed out at ({self.x:.1f},{self.y:.1f}) - back to Nav2.')
+            # via points still on the near side or in the lane are behind
+            rest = [p for p in f['pending'] if not (self._lane(k, p[0], p[1])[1] * side < f['exit']
+                                                     and math.hypot(p[0] - self.x, p[1] - self.y) < 2 * f['exit'])]
+            self.ford, self.nav_from, self.stall_ref = None, (self.x, self.y), None
+            self.state, self.state_since = 'NAV', self._now()
+            if rest:
+                self.via_queue = rest[1:]
+                self._nav_to(*rest[0])
+            else:
+                self._send_nav(*self.targets[0])
+            return
+        (tx, ty) = self.river['ford_tangents'][k]
+        ax, ay = -ty * side, tx * side  # lane axis toward the far bank
+        aim_x = self.x + ax * 1.5 - tx * along  # 1.5 m ahead on the lane's centreline
+        aim_y = self.y + ay * 1.5 - ty * along
+        err = math.remainder(math.atan2(aim_y - self.y, aim_x - self.x) - self.yaw, 2 * math.pi)
+        cmd.angular.z = max(-0.8, min(0.8, 1.5 * err))
+        cmd.linear.x = FORD_SPEED if abs(err) < 0.5 else 0.0
+        self.cmd_pub_unguarded.publish(cmd)
+
+    def _queue(self, x, y):
+        if any(math.hypot(x - ex, y - ey) < EMPTY_R_M for ex, ey in self.empty):
+            return
+        super()._queue(x, y)
+
     def _step(self):
         self._retry_given_up()
         if self.have_odom and self.state not in ('UNWEDGE',) and (
@@ -410,6 +480,10 @@ class RoverCapture(cc.CageCapture):
             self.crumbs = (self.crumbs + [(self.x, self.y)])[-CRUMBS:]
         if self.state == 'UNWEDGE':
             return self._unwedge_step()
+        if self.state == 'FORD':
+            return self._ford_step()
+        if self.state == 'NAV' and self._ford_check():
+            return
         if self.state == 'NAV' and self.nav_result is False and self.nav_from is not None:
             moved = math.hypot(self.x - self.nav_from[0], self.y - self.nav_from[1])
             # two legs in a row that went nowhere: a pocket, whether or not the lidar sees it (at the oak at
@@ -498,6 +572,8 @@ class RoverCapture(cc.CageCapture):
             if attempt < 2:
                 self.get_logger().warn(f'No mushroom within {cc.CAGE_HALF_M} m of ({cx:.2f},{cy:.2f}) on query '
                                        f'{attempt + 1}/3 - asking Gazebo again.')
+        self.empty.append((cx, cy))
+        self.get_logger().info(f'Nothing at ({cx:.2f},{cy:.2f}) - later handoffs within {EMPTY_R_M} m are dropped.')
         return found
 
     def _shape(self, cmd):
