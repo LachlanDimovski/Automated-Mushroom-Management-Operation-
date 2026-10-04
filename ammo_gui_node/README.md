@@ -21,10 +21,16 @@ below ever restarts it, so setting up another run does not cost a Gazebo
 reload.
 
 ```bash
-ros2 launch 41068_ignition_bringup forest_world.launch.py \
+ros2 launch 41068_ignition_bringup 41068_ignition.launch.py \
     world:=simple_trees parrot:=true nav2:=true husky_yolo:=true \
     ground_truth_localization:=true
 ```
+
+> Note: this is the shared bringup launch file. It carries the
+> ground_truth_localization, husky_yolo and headless arguments itself now, so
+> the old standalone forest-world wrapper is gone. On WSL add `headless:=true`
+> together with `export LIBGL_ALWAYS_SOFTWARE=1` if Gazebo's GUI crashes on
+> Ogre.
 
 **2. The operator GUI.** Starts the status bridge with it.
 

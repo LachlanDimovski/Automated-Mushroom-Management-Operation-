@@ -48,7 +48,7 @@ def world_meta(world):
                 data = json.load(fh)
             trunks = [v for o in data.get('objects', [])
                       if o.get('type') == 'tree' for v in (o['x'], o['y'])]
-            half = data['world']['playable_size_m'] / 2.0 - 3.0
+            half = data['world']['playable_size_m'] / 2.0 - 4.5
             ground_z = data.get('spawn_clearing', {}).get('ground_z', 0.0)
         except Exception:
             pass
@@ -120,10 +120,17 @@ class MissionLauncher:
 
         self._start('collision_guard', [
             'ros2', 'run', 'skidsteer_controller', 'collision_guard_node',
-            '--ros-args', *sim])
+            '--ros-args', *sim,
+            '-r', '/tf:=/husky1/tf', '-r', '/tf_static:=/husky1/tf_static',
+            # Nav2's velocity smoother publishes husky1/cmd_vel_smoothed.
+            # cage_mission.launch.py remaps that onto cmd_vel_nav_guarded
+            # from inside its own launch scope; we bring the simulation up
+            # separately, so the guard has to listen where Nav2 actually
+            # publishes or Nav2's output never reaches the robot.
+            '-r', '/husky1/cmd_vel_nav_guarded:=/husky1/cmd_vel_smoothed'])
 
         if with_quad:
-            alt = 4.0 if half < 10 else 6.0
+            alt = 3.0
             self._start('quad_search', [
                 'ros2', 'run', 'ammo_mission_control', 'quad_search_node',
                 '--ros-args', *sim,

@@ -308,7 +308,7 @@ class HomePage(QWidget):
         clay.setContentsMargins(13, 12, 13, 12)
         cmd = cards.label(
             'ros2 launch 41068_ignition_bringup \\\n'
-            '  forest_world.launch.py \\\n'
+            '  41068_ignition.launch.py \\\n'
             '  world:=simple_trees parrot:=true \\\n'
             '  nav2:=true husky_yolo:=true \\\n'
             '  ground_truth_localization:=true')

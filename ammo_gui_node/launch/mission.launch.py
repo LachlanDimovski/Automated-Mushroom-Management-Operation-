@@ -3,7 +3,7 @@
     ros2 launch ammo_gui_node mission.launch.py world:=simple_trees
 
 The same node set and parameters as `ammo_mission_control/cage_mission.launch.py`,
-minus its `forest_world.launch.py` include - so it can be run against a
+minus its `41068_ignition.launch.py` include - so it can be run against a
 simulation that is already up instead of starting a second one.
 
 The GUI does not use this file (it starts each node itself so it can pause

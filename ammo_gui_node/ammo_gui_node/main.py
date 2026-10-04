@@ -5,7 +5,7 @@
 
 Expects the simulation to already be up in another terminal:
 
-    ros2 launch 41068_ignition_bringup forest_world.launch.py \
+    ros2 launch 41068_ignition_bringup 41068_ignition.launch.py \
         world:=simple_trees parrot:=true nav2:=true husky_yolo:=true \
         ground_truth_localization:=true
 
