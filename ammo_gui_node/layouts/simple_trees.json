@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Demo A - 3 mushrooms",
+    "note": "The three the dashboard's demo mode uses. Good for a short run.",
+    "mushrooms": [[6.0, -5.0], [-5.0, -5.5], [-2.0, 6.5]]
+  },
+  {
+    "name": "Demo B - 6 mushrooms",
+    "note": "Spread around the clearing. About ten minutes end to end.",
+    "mushrooms": [[6.0, -5.0], [-5.0, -5.5], [-2.0, 6.5], [4.5, 2.5], [-6.0, 1.0], [1.5, -6.5]]
+  },
+  {
+    "name": "Close pair - 2 mushrooms",
+    "note": "Quick check that find-drive-grab works, nothing more.",
+    "mushrooms": [[3.0, 2.0], [3.5, -2.5]]
+  },
+  {
+    "name": "Empty world",
+    "note": "No mushrooms. The quadcopter flies its pattern and finds nothing.",
+    "mushrooms": []
+  }
+]
