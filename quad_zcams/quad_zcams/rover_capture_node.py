@@ -48,6 +48,7 @@ OUT_SPEED = 0.25
 FOOTPRINT = (-0.55, 0.7, 0.35)  # rear, front, half width (nav2_params_husky1.yaml)
 STANDOFF_MARGIN_M = 0.3
 OPEN_M = 0.45             # half the rover's width plus a little: open ground it can drive through
+LIGHT_CLEAR_M = 0.6       # the fallback route map's clearance (the rover is 0.67 m wide)
 ROUTE_CLEAR_M = 0.9       # routes planned on the quad's map keep this far from what it saw (= Nav2's inflation; at 0.5
                           # routes squeezed between pines' foliage into pockets Nav2 then could not leave)
 SEEN_R_M = 2.5            # a mushroom is only skipped if the quad has seen...
@@ -192,6 +193,13 @@ class RoverCapture(cc.CageCapture):
         # rover into a 1 m gap between the pond's reeds and the hedge (t24d)
         unseen = np.argwhere(dense | ~known) * msg.info.resolution - half + msg.info.resolution / 2
         self.route_seen = obstacle_map.ObstacleGrid(unseen, half, ROUTE_CLEAR_M, lidar_ttl=BAD_TTL_S)
+        # fallback: the quad's own hits with a tighter clearance, no foliage-share spreading - that closed the gaps
+        # between bank plants and left a south-bank mushroom in a pocket of its own (demo)
+        lcells = np.argwhere(occ) * msg.info.resolution - half + msg.info.resolution / 2
+        self.route_light = obstacle_map.ObstacleGrid(lcells, half, LIGHT_CLEAR_M, lidar_ttl=BAD_TTL_S)
+        if self.river:  # last resort: only the channel, the fords open
+            rcells = np.argwhere(self.river_mask) * msg.info.resolution - half + msg.info.resolution / 2
+            self.route_river = obstacle_map.ObstacleGrid(rcells, half, ROUTE_CLEAR_M)
         now = self._now()
         self.bad = [(x, y, t) for x, y, t in self.bad if now - t < BAD_TTL_S]
         for x, y, t in self.bad:
@@ -305,6 +313,20 @@ class RoverCapture(cc.CageCapture):
             path = self.route_seen.plan(start, (sx, sy), snap=1.0) or self.route.plan(start, (sx, sy))
             if path is not None or not self.river:
                 break
+        for grid, name in ((getattr(self, 'route_light', None), "the quad's hits alone"),
+                           (getattr(self, 'route_river', None), 'the river alone')):
+            if path is not None or grid is None or not self.river:  # other worlds: Nav2 chooses, as before
+                continue
+            # boulders on all three ford approaches sealed the quad's map, and every far-side mushroom was deferred
+            # for the rest of the run (stress1): route on the channel alone and let Nav2 go round what is in the way
+            for k in range(12):
+                a = cands[k][2]
+                sx, sy = gx - cc.NAV_STANDOFF_M * math.cos(a), gy - cc.NAV_STANDOFF_M * math.sin(a)
+                if not (self.river and self._in_river(sx, sy)):
+                    path = grid.plan(start, (sx, sy))
+                    if path is not None:
+                        self.get_logger().info(f"No route on the quad's map - routing on {name}.")
+                        break
         if path is None and self.river:  # Nav2 alone heads straight for the water and sticks on the bank (river7)
             self.defer_now = True  # the caller sets NAV next; _set_state turns that into a deferral
             return
@@ -371,10 +393,13 @@ class RoverCapture(cc.CageCapture):
     def _block(self, x, y, t):
         ang = np.linspace(0, 2 * math.pi, 16, endpoint=False)
         for r in (0.0, BAD_R_M / 2, BAD_R_M):
-            for g in (self.route, self.route_seen):
+            for g in (self.route, self.route_seen, getattr(self, 'route_light', None)):
+                if g is None:
+                    continue
                 g.add_lidar(x + r * np.cos(ang), y + r * np.sin(ang), t)
-        for g in (self.route, self.route_seen):
-            g.rebuild(self._now())  # against now: marks older than BAD_TTL_S drop out
+        for g in (self.route, self.route_seen, getattr(self, 'route_light', None)):
+            if g is not None:
+                g.rebuild(self._now())  # against now: marks older than BAD_TTL_S drop out
 
     def _remember_failure(self):
         if self.nav_from is None or self.route is None:
@@ -473,6 +498,33 @@ class RoverCapture(cc.CageCapture):
             return
         super()._queue(x, y)
 
+    def _wedge_check(self, stalled=False):
+        """Two legs in a row that went nowhere: a pocket, whether or not the lidar sees it (at the oak at (-6,-10.5)
+        the depth guard saw drooping leaves the lidar plane missed - t24n). Counted on leg stalls too: those went
+        straight to the next mushroom, so a rover against a boulder retried from the same spot all run (demo)."""
+        moved = math.hypot(self.x - self.nav_from[0], self.y - self.nav_from[1])
+        self.wedged = self.wedged + 1 if stalled or moved < 0.3 else 0
+        if self.wedged < 2 or len(self.crumbs) <= 2:
+            return False
+        self.wedged = 0
+        self._cancel_nav()
+        self.nav_result = None
+        if self.route is not None:  # later routes keep off the spot it stuck at
+            self.bad.append((self.x, self.y, self._now()))
+            self._block(self.x, self.y, self._now())
+        back, path, last = [], 0.0, (self.x, self.y)
+        for c in reversed(self.crumbs[:-1]):
+            back.append(c)
+            path += math.hypot(c[0] - last[0], c[1] - last[1])
+            last = c
+            if path >= UNWEDGE_M:
+                break
+        self.unwedge, self.unwedge_since = back, self._now()
+        self.get_logger().warn(f'Boxed in at ({self.x:.1f},{self.y:.1f}) ({self.nearest_rng:.2f} m to the nearest '
+                               f'lidar return) - reversing {path:.1f} m back along the way in.')
+        self._set_state('UNWEDGE')
+        return True
+
     def _step(self):
         self._retry_given_up()
         if self.have_odom and self.state not in ('UNWEDGE',) and (
@@ -484,27 +536,8 @@ class RoverCapture(cc.CageCapture):
             return self._ford_step()
         if self.state == 'NAV' and self._ford_check():
             return
-        if self.state == 'NAV' and self.nav_result is False and self.nav_from is not None:
-            moved = math.hypot(self.x - self.nav_from[0], self.y - self.nav_from[1])
-            # two legs in a row that went nowhere: a pocket, whether or not the lidar sees it (at the oak at
-            # (-6,-10.5) the depth guard saw drooping leaves the lidar plane missed, and 8 legs stalled - t24n)
-            self.wedged = self.wedged + 1 if moved < 0.3 else 0
-            if self.wedged >= 2 and len(self.crumbs) > 2:
-                self.wedged = 0
-                self._cancel_nav()
-                self.nav_result = None
-                back, path, last = [], 0.0, (self.x, self.y)
-                for c in reversed(self.crumbs[:-1]):
-                    back.append(c)
-                    path += math.hypot(c[0] - last[0], c[1] - last[1])
-                    last = c
-                    if path >= UNWEDGE_M:
-                        break
-                self.unwedge, self.unwedge_since = back, self._now()
-                self.get_logger().warn(f'Boxed in at ({self.x:.1f},{self.y:.1f}) ({self.nearest_rng:.2f} m to the nearest '
-                                       f'lidar return) - reversing {path:.1f} m back along the way in.')
-                self._set_state('UNWEDGE')
-                return
+        if self.state == 'NAV' and self.nav_result is False and self.nav_from is not None and self._wedge_check():
+            return
         if self.state == 'NAV' and self.nav_handle is not None and self.nav_result is None and self.have_odom:
             now = self._now()
             if self.stall_ref is None or math.hypot(self.x - self.stall_ref[1], self.y - self.stall_ref[2]) > NAV_STALL_M:
@@ -514,8 +547,12 @@ class RoverCapture(cc.CageCapture):
                 self.stall_ref = None
                 self._cancel_nav()
                 self.nav_result = False
+                if self.nav_from is not None and self._wedge_check(stalled=True):
+                    return
         elif self.state != 'NAV':
             self.stall_ref = None
+        if self.state == 'NAV' and self.nav_result is True:
+            self.wedged = 0
         if self.state == 'NAV' and self.nav_result is True and self.via_queue:
             self._nav_to(*self.via_queue.pop(0))  # reached a via point: on to the next (the parent would ALIGN here)
             self.state_since = self._now()
