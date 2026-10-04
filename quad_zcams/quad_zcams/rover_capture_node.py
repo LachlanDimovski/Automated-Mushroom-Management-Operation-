@@ -21,6 +21,7 @@ Failed routes: Nav2's planner re-plans the shortest route, so a retry went back 
 failed. Where an attempt gave up after the rover had actually travelled is remembered; later goals are routed on the
 quad's map around those spots and sent as a chain of NavigateToPose via points, so Nav2 has to take another way.
 """
+import json
 import math
 
 import numpy as np
@@ -90,6 +91,13 @@ class RoverCapture(cc.CageCapture):
         self.quad_routes = bool(self.get_parameter('quad_routes').value)
         if self.quad_routes:  # routes avoid what failed before, so a later attempt is worth more than giving up
             cc.MAX_DEFERS = 4
+        # a generated world's .meta.json: its river channel is blocked on the route map except at the fords, so routes
+        # cross there (Nav2 alone drove at the bank between fords and gave up - river5)
+        self.declare_parameter('river_meta', '')
+        meta = self.get_parameter('river_meta').value
+        self.river = json.load(open(meta)).get('river') if meta else None
+        self.river_fords = json.load(open(meta))['fords'] if self.river else []
+        self.river_mask = None
         self.declare_parameter('inflation', 0.0)  # > 0: costmap inflation radius set at startup (the yaml has 1.5)
         self.nearest_first = bool(self.get_parameter('nearest_first').value)
         self.map_deferred = set()
@@ -155,12 +163,19 @@ class RoverCapture(cc.CageCapture):
 
     def _quad_map(self, msg):
         occ, known = shared_map.from_message(msg)
+        if self.river:
+            if self.river_mask is None or self.river_mask.shape != occ.shape:
+                self.river_mask, self.ford_lanes = self._river_mask(occ.shape[0], msg.info.resolution,
+                                                                    -msg.info.origin.position.x)
+            occ = occ & ~self.ford_lanes  # the pebble causeway stands above the heightmap's bed: the quad maps it
         k = int(round(FOLIAGE_R_M / msg.info.resolution))
         yy, xx = np.mgrid[-k:k + 1, -k:k + 1]
         disk = (np.hypot(xx, yy) <= k).astype(float)
         hits = ndimage.convolve(occ.astype(float), disk, mode='constant')
         seen = ndimage.convolve(known.astype(float), disk, mode='constant')
         dense = occ | ((seen > 0) & (hits >= FOLIAGE_SHARE * np.maximum(seen, 1)))
+        if self.river:  # after the foliage test, which would otherwise spread the banks across the ford lanes
+            occ, dense, known = occ | self.river_mask, dense | self.river_mask, known | self.river_mask
         half = -msg.info.origin.position.x
         cells = np.argwhere(occ) * msg.info.resolution - half + msg.info.resolution / 2
         g = obstacle_map.ObstacleGrid(cells, half, 0.0)
@@ -181,6 +196,26 @@ class RoverCapture(cc.CageCapture):
             self.map_logged = self._now()
             self.get_logger().info(f"Quad's map: {known.mean() * 100:.0f}% of the area seen, "
                                    f'{occ.sum() * msg.info.resolution ** 2:.0f} m2 of it in the way.')
+
+    def _river_mask(self, n, res, half):
+        c = (np.arange(n) + 0.5) * res - half
+        X, Y = np.meshgrid(c, c, indexing='ij')
+        mask, lanes = np.zeros((n, n), bool), np.zeros((n, n), bool)
+        for px, py, r in self.river['line']:
+            mask |= np.hypot(X - px, Y - py) < r
+        for (fx, fy), (tx, ty) in zip(self.river_fords, self.river['ford_tangents']):
+            along, across = (X - fx) * tx + (Y - fy) * ty, -(X - fx) * ty + (Y - fy) * tx
+            lane = (abs(along) < 1.6) & (abs(across) < 10.0)  # the ford's clear lane
+            mask &= ~lane
+            lanes |= lane & (abs(along) < 1.4)
+        self.river_zone = ndimage.binary_dilation(mask, iterations=int(round(0.75 / res)))
+        self.get_logger().info(f'River blocked on the route map: {mask.sum() * res * res:.0f} m2, '
+                               f'{len(self.river_fords)} ford(s) open.')
+        return mask, lanes
+
+    def _in_river(self, x, y):
+        i, j = self.route.cell(x, y)
+        return self.route.inside(i, j) and bool(self.river_zone[i, j])
 
     def _seen_round(self, x, y):
         g, _, _, known = self.qmap
@@ -227,6 +262,13 @@ class RoverCapture(cc.CageCapture):
                 best = max(best or (key, c), (key, c))
         self.open_dir = best[1] if best else None
 
+    def _set_state(self, s):
+        if s == 'NAV' and getattr(self, 'defer_now', False):
+            self.defer_now = False
+            return self._next_target(f'No route to ({self.targets[0][0]:.1f},{self.targets[0][1]:.1f}) from any side '
+                                     f"on the quad's map.", requeue=True)
+        super()._set_state(s)
+
     # -- routes around where Nav2 failed before ------------------------------------
     def _send_nav(self, gx, gy):
         self.nav_from = (self.x, self.y)
@@ -243,16 +285,30 @@ class RoverCapture(cc.CageCapture):
             fx, fy = gx - self.ahead * math.cos(a), gy - self.ahead * math.sin(a)
             cands.append((self._approach_cost(px, py, fx, fy), -math.hypot(px - self.x, py - self.y), a))
         cands.sort(key=lambda c: (c[0], -c[1]))
-        a = cands[self.nav_tries % 12][2]
-        sx, sy = gx - cc.NAV_STANDOFF_M * math.cos(a), gy - cc.NAV_STANDOFF_M * math.sin(a)
-        path = self.route_seen.plan((self.x, self.y), (sx, sy), snap=1.0) or self.route.plan((self.x, self.y), (sx, sy))
+        start = (self.x, self.y)
+        if self.route.is_blocked(*start):  # e.g. on a river bank: plan() only looks 3 m for free ground to start from
+            start = self.route.nearest_free(*start, 6.0) or start
+        # the ranked side first, then the others: one side's standoff on a bank or in a bush is no reason to drive blind
+        for k in range(self.nav_tries, self.nav_tries + 12):
+            a = cands[k % 12][2]
+            sx, sy = gx - cc.NAV_STANDOFF_M * math.cos(a), gy - cc.NAV_STANDOFF_M * math.sin(a)
+            if self.river and self._in_river(sx, sy):  # plan() would snap it, but the last leg goes to (sx, sy)
+                path = None                                     # itself - over a bank, from the snapped far side
+                continue
+            path = self.route_seen.plan(start, (sx, sy), snap=1.0) or self.route.plan(start, (sx, sy))
+            if path is not None or not self.river:
+                break
+        if path is None and self.river:  # Nav2 alone heads straight for the water and sticks on the bank (river7)
+            self.defer_now = True  # the caller sets NAV next; _set_state turns that into a deferral
+            return
         if path is None:
             self.get_logger().info(f"No route to ({sx:.1f},{sy:.1f}) on the quad's map around {len(self.bad)} failed "
                                    f'spot(s) - letting Nav2 choose.')
             return super()._send_nav(gx, gy)
         vias, last = [], (self.x, self.y)
         for p in path[:-1]:
-            if math.hypot(p[0] - last[0], p[1] - last[1]) >= VIA_STEP_M:
+            # tighter near water: Nav2 cuts the corner between via points, and a 3 m cut put it on a ford's bank
+            if math.hypot(p[0] - last[0], p[1] - last[1]) >= (VIA_STEP_M / 2 if self.river else VIA_STEP_M):
                 vias.append((p[0], p[1], math.atan2(p[1] - last[1], p[0] - last[0])))
                 last = p
         # one NavigateToPose per via point: NavigateThroughPoses' tree looks up a frame called 'map', which this

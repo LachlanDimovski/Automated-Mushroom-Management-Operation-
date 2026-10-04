@@ -54,6 +54,7 @@ def _cage_mission():
                                         'nearest_first': LaunchConfiguration('nearest_first').perform(context).lower() == 'true',
                                         'fast_pickup': LaunchConfiguration('fast_pickup').perform(context).lower() == 'true',
                                         'inflation': float(LaunchConfiguration('inflation').perform(context)),
+                                        'river_meta': meta if os.path.exists(meta) else '',
                                         'quad_routes': LaunchConfiguration('quad_routes').perform(context).lower() == 'true'}])]
     mod._nodes = _nodes
     return mod.generate_launch_description()
