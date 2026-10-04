@@ -15,7 +15,8 @@ MODELS = {
     'rock': ['boulder_01', 'rock_moss_set_01', 'rock_moss_set_02', 'rock_07', 'stone_01'],
     'grass': ['grass_medium_01'],
 }
-TEXTURES = ['forest_leaves_04', 'brown_mud_leaves_01', 'river_small_rocks', 'forest_ground_04']
+TEXTURES = ['forest_leaves_04', 'brown_mud_leaves_01', 'river_small_rocks', 'forest_ground_04', 'bark_bluegum',
+            'dry_decay_leaves', 'leaves_forest_ground']
 DEM = 'https://raw.githubusercontent.com/unitsSpaceLab/Forest3D/main/dem/terrain_enhanced.tif'
 
 
