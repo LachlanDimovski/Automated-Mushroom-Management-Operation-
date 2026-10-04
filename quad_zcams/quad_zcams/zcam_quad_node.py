@@ -67,6 +67,7 @@ CRUMBS = 400
 MAP_MAX_Z_M = 2.0         # depth frames go into the rover's map only from cruise height, level and not turning
 MAP_MAX_W = 0.3
 RECENTRE_M = 0.4          # a hold re-aims on a sighting at least this far from its target
+NATIVE_CLASS = 'native_mushroom'  # detector class for non-invasive mushrooms
 STRAFE_SPEED = 0.6        # strafe: along the path in the body frame while the yaw catches up...
 STRAFE_MAX_RAD = 2.0      # ...unless the next corner is this far round (then turn on the spot)
 
@@ -108,6 +109,7 @@ class ZCamQuad(qs.QuadSearchController):
         self.det_range = float(self.get_parameter('det_range').value)
         self.declare_parameter('max_aspect', 0.0)  # > 0: ignore boxes taller than this times their width
         self.max_aspect = float(self.get_parameter('max_aspect').value)
+        self.natives_seen = []
         self.declare_parameter('center_out', False)
         self.declare_parameter('fast_dispatch', False)
         self.declare_parameter('cruise_speed', qs.MAX_LINEAR_SPEED)
@@ -489,6 +491,12 @@ class ZCamQuad(qs.QuadSearchController):
                 continue
             g = self._project(det)
             if g is None:
+                continue
+            if det.results[0].hypothesis.class_id == NATIVE_CLASS:  # monitored, never collected
+                if all(math.hypot(g[0] - nx, g[1] - ny) > 1.5 for nx, ny in self.natives_seen):
+                    self.natives_seen.append(g)
+                    self.get_logger().info(f'native mushroom {len(self.natives_seen)} logged at '
+                                           f'({g[0]:.1f}, {g[1]:.1f}) - left in place')
                 continue
             if self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < qs.ROVER_EXCLUDE_M:
                 continue
