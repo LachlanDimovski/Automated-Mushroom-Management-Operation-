@@ -98,7 +98,7 @@ untextured on someone else's machine.
 ## 5. Wire it into the sim
 
 Edit `SCATTER_MODELS` in
-`41068_ignition_bringup/launch/skidsteer_test.launch.py`:
+`41068_ignition_bringup/launch/cage_mission.launch.py (ammo_mission_control)`:
 
 ```python
 SCATTER_MODELS = [
@@ -120,7 +120,7 @@ cd ~/41068_ws && colcon build --packages-select 41068_ignition_bringup
 ## 6. Check it before trusting it
 
 ```bash
-ros2 launch 41068_ignition_bringup skidsteer_test.launch.py
+ros2 launch 41068_ignition_bringup cage_mission.launch.py (ammo_mission_control)
 ```
 
 Watch `husky1/detections/image` in RViz. Two separate questions:

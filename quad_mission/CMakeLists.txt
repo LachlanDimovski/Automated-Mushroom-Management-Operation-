@@ -1,3 +1,4 @@
+
 cmake_minimum_required(VERSION 3.8)
 project(quad_mission)
  
@@ -10,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(quad_mission_interfaces REQUIRED)
  
 include_directories(include)
  
@@ -23,6 +25,7 @@ ament_target_dependencies(quad_mission_node
   geometry_msgs
   nav_msgs
   std_srvs
+  quad_mission_interfaces
 )
  
 install(TARGETS

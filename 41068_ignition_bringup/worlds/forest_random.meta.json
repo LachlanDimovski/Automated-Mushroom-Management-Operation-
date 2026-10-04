@@ -1,5 +1,5 @@
 {
-  "seed": 0,
+  "seed": 7,
   "preset": "moderate",
   "params": {
     "tree_density": 0.018,
@@ -15,6 +15,8 @@
     "clearing_radius": 4.0,
     "lanes": 1,
     "boundary": "trees",
+    "hedge": true,
+    "ground": "elevation",
     "mushrooms": 5,
     "decoys": 4,
     "foliage": "simple"
@@ -29,7 +31,10 @@
     "heightmap": "models/forest_random_terrain/heightmap.png",
     "samples": 129,
     "requested_amplitude_m": 3.0,
-    "z_span_m": 2.994
+    "z_span_m": 3.212
+  },
+  "hedge": {
+    "half_size": 41.0
   },
   "spawn_clearing": {
     "center": [
@@ -37,1556 +42,1522 @@
       0.0
     ],
     "radius": 4.0,
-    "ground_z": 0.2
+    "ground_z": 0.061
   },
   "lanes": [
     [
       [
-        -3.26,
-        -3.79
+        -3.53,
+        -3.54
       ],
       [
-        -5.12,
-        -4.54
+        -4.11,
+        -5.45
       ],
       [
-        -7.11,
-        -4.68
+        -5.01,
+        -7.24
       ],
       [
-        -9.04,
-        -5.22
+        -6.13,
+        -8.9
       ],
       [
-        -10.75,
-        -6.25
+        -6.82,
+        -10.77
       ],
       [
-        -12.4,
-        -7.39
+        -8.07,
+        -12.34
       ],
       [
-        -13.86,
-        -8.76
+        -8.97,
+        -14.12
       ],
       [
-        -15.28,
-        -10.16
+        -9.51,
+        -16.05
       ],
       [
-        -16.26,
-        -11.91
+        -10.1,
+        -17.96
       ],
       [
-        -16.86,
-        -13.81
+        -10.92,
+        -19.78
       ],
       [
-        -18.04,
-        -15.43
+        -11.99,
+        -21.47
       ],
       [
-        -18.82,
-        -17.27
+        -13.31,
+        -22.98
       ],
       [
-        -20.1,
-        -18.81
+        -14.68,
+        -24.43
       ],
       [
-        -21.15,
-        -20.51
+        -16.05,
+        -25.89
       ],
       [
-        -22.52,
-        -21.97
+        -17.37,
+        -27.39
       ],
       [
-        -23.52,
-        -23.7
+        -18.15,
+        -29.23
       ],
       [
-        -24.48,
-        -25.45
-      ],
-      [
-        -25.65,
-        -27.07
-      ],
-      [
-        -26.91,
-        -28.63
-      ],
-      [
-        -28.57,
-        -29.75
-      ],
-      [
-        -30.44,
-        -30.44
+        -18.58,
+        -31.19
       ]
     ]
   ],
   "counts": {
     "trees": 65,
-    "fallen_trees": 19,
-    "logs": 5,
+    "fallen_trees": 17,
+    "logs": 6,
     "rocks_stumps_clutter": 32,
     "ponds": 2,
-    "boundary": 31,
+    "boundary": 32,
     "mushrooms": 5,
     "decoys": 4
   },
   "mushrooms": [
     {
       "name": "mushroom_00",
-      "x": -22.681,
-      "y": 22.135,
-      "z": 1.862
+      "x": -5.955,
+      "y": -26.145,
+      "z": 1.769
     },
     {
       "name": "mushroom_01",
-      "x": 7.131,
-      "y": -11.385,
-      "z": 0.71
+      "x": 6.794,
+      "y": 21.556,
+      "z": 1.644
     },
     {
       "name": "mushroom_02",
-      "x": -6.923,
-      "y": -0.597,
-      "z": 0.423
+      "x": -0.363,
+      "y": 22.046,
+      "z": 2.036
     },
     {
       "name": "mushroom_03",
-      "x": 6.053,
-      "y": -23.142,
-      "z": 0.968
+      "x": -7.53,
+      "y": -4.939,
+      "z": 0.401
     },
     {
       "name": "mushroom_04",
-      "x": -14.396,
-      "y": -19.888,
-      "z": 0.885
+      "x": -11.706,
+      "y": -23.629,
+      "z": 0.751
     }
   ],
   "decoys": [
     {
       "name": "decoy_00",
-      "model": "decoy_cylinder",
-      "x": 20.387,
-      "y": -1.845,
-      "z": 1.976
+      "model": "decoy_box",
+      "x": 18.58,
+      "y": -0.615,
+      "z": 0.598
     },
     {
       "name": "decoy_01",
-      "model": "decoy_box",
-      "x": 13.578,
-      "y": 11.39,
-      "z": 1.406
+      "model": "decoy_cylinder",
+      "x": 5.486,
+      "y": 20.816,
+      "z": 2.076
     },
     {
       "name": "decoy_02",
-      "model": "decoy_cylinder",
-      "x": -16.661,
-      "y": 4.367,
-      "z": 1.441
+      "model": "decoy_box",
+      "x": -0.283,
+      "y": -12.08,
+      "z": 1.09
     },
     {
       "name": "decoy_03",
-      "model": "decoy_box",
-      "x": -19.762,
-      "y": -13.35,
-      "z": 0.895
+      "model": "decoy_cylinder",
+      "x": -10.863,
+      "y": -14.485,
+      "z": 0.858
     }
   ],
   "ponds": [
     {
       "name": "pond_00",
-      "x": -1.495,
-      "y": 21.735,
-      "z": 1.39,
-      "radius": 3.395,
-      "basin_radius": 4.715,
-      "depth": 1.606
+      "x": 13.939,
+      "y": 19.52,
+      "z": 1.394,
+      "radius": 4.785,
+      "shore_radius": 6.981
     },
     {
       "name": "pond_01",
-      "x": 21.238,
-      "y": -22.863,
-      "z": 1.477,
-      "radius": 2.328,
-      "basin_radius": 3.233,
-      "depth": 1.879
+      "x": -16.676,
+      "y": 16.155,
+      "z": 1.466,
+      "radius": 4.874,
+      "shore_radius": 7.092
     }
   ],
   "objects": [
     {
-      "name": "tree_0000_snag",
+      "name": "tree_0000_pine",
       "type": "tree",
-      "species": "snag",
-      "x": -16.812,
-      "y": 22.714,
-      "z": 1.694,
-      "yaw": 1.634,
-      "radius": 0.271,
-      "height": 4.393
+      "species": "pine",
+      "x": 7.992,
+      "y": 13.048,
+      "z": 0.778,
+      "yaw": 4.809,
+      "radius": 0.285,
+      "height": 9.99
     },
     {
       "name": "tree_0001_oak",
       "type": "tree",
       "species": "oak",
-      "x": 27.437,
-      "y": 3.009,
-      "z": 1.736,
-      "yaw": 2.8,
-      "radius": 0.225,
-      "height": 4.769
+      "x": -11.351,
+      "y": 21.893,
+      "z": 1.353,
+      "yaw": 6.245,
+      "radius": 0.204,
+      "height": 4.311
     },
     {
       "name": "tree_0002_pine",
       "type": "tree",
       "species": "pine",
-      "x": 19.693,
-      "y": -12.16,
-      "z": 1.752,
-      "yaw": 4.483,
-      "radius": 0.165,
-      "height": 5.767
+      "x": 26.281,
+      "y": -4.21,
+      "z": 0.669,
+      "yaw": 2.216,
+      "radius": 0.245,
+      "height": 8.59
     },
     {
-      "name": "tree_0003_oak",
+      "name": "tree_0003_pine",
       "type": "tree",
-      "species": "oak",
-      "x": -26.813,
-      "y": -2.21,
-      "z": 0.842,
-      "yaw": 6.28,
-      "radius": 0.251,
-      "height": 5.318
+      "species": "pine",
+      "x": 11.702,
+      "y": -12.975,
+      "z": 0.695,
+      "yaw": 3.723,
+      "radius": 0.238,
+      "height": 8.329
     },
     {
       "name": "tree_0004_oak",
       "type": "tree",
       "species": "oak",
-      "x": -12.746,
-      "y": 27.02,
-      "z": 1.589,
-      "yaw": 2.457,
-      "radius": 0.312,
-      "height": 6.608
+      "x": -3.797,
+      "y": -23.879,
+      "z": 1.385,
+      "yaw": 1.346,
+      "radius": 0.316,
+      "height": 6.688
     },
     {
-      "name": "tree_0005_pine",
+      "name": "tree_0005_oak",
       "type": "tree",
-      "species": "pine",
-      "x": -22.67,
-      "y": 13.492,
-      "z": 1.401,
-      "yaw": 1.251,
-      "radius": 0.272,
-      "height": 9.527
+      "species": "oak",
+      "x": -0.328,
+      "y": 16.492,
+      "z": 1.174,
+      "yaw": 5.23,
+      "radius": 0.288,
+      "height": 6.096
     },
     {
       "name": "tree_0006_oak",
       "type": "tree",
       "species": "oak",
-      "x": 15.726,
-      "y": -12.017,
-      "z": 1.015,
-      "yaw": 6.226,
-      "radius": 0.349,
-      "height": 7.387
+      "x": -5.981,
+      "y": 16.272,
+      "z": 0.98,
+      "yaw": 0.939,
+      "radius": 0.242,
+      "height": 5.122
     },
     {
-      "name": "tree_0007_oak",
+      "name": "tree_0007_pine",
       "type": "tree",
-      "species": "oak",
-      "x": 24.546,
-      "y": -6.437,
-      "z": 1.738,
-      "yaw": 4.846,
-      "radius": 0.234,
-      "height": 4.948
+      "species": "pine",
+      "x": 19.501,
+      "y": 12.667,
+      "z": 0.657,
+      "yaw": 0.789,
+      "radius": 0.268,
+      "height": 9.377
     },
     {
       "name": "tree_0008_pine",
       "type": "tree",
       "species": "pine",
-      "x": -21.455,
-      "y": 9.808,
-      "z": 1.346,
-      "yaw": 4.606,
-      "radius": 0.221,
-      "height": 7.75
+      "x": -28.396,
+      "y": -13.196,
+      "z": 1.052,
+      "yaw": 0.671,
+      "radius": 0.236,
+      "height": 8.245
     },
     {
-      "name": "tree_0009_snag",
+      "name": "tree_0009_pine",
+      "type": "tree",
+      "species": "pine",
+      "x": 25.998,
+      "y": 6.214,
+      "z": 0.566,
+      "yaw": 1.251,
+      "radius": 0.198,
+      "height": 6.932
+    },
+    {
+      "name": "tree_0010_snag",
       "type": "tree",
       "species": "snag",
-      "x": -19.458,
-      "y": 21.428,
-      "z": 1.834,
-      "yaw": 5.438,
-      "radius": 0.253,
-      "height": 4.067
+      "x": 28.606,
+      "y": -5.791,
+      "z": 0.837,
+      "yaw": 3.887,
+      "radius": 0.153,
+      "height": 3.702
     },
     {
-      "name": "tree_0010_oak",
+      "name": "tree_0011_oak",
       "type": "tree",
       "species": "oak",
-      "x": -7.221,
-      "y": 7.493,
-      "z": 0.675,
-      "yaw": 0.043,
-      "radius": 0.205,
-      "height": 4.329
+      "x": 3.069,
+      "y": -9.045,
+      "z": 0.226,
+      "yaw": 5.443,
+      "radius": 0.198,
+      "height": 4.184
     },
     {
-      "name": "tree_0011_pine",
-      "type": "tree",
-      "species": "pine",
-      "x": -5.74,
-      "y": -0.1,
-      "z": 0.106,
-      "yaw": 2.552,
-      "radius": 0.195,
-      "height": 6.835
-    },
-    {
-      "name": "tree_0012_pine",
-      "type": "tree",
-      "species": "pine",
-      "x": -6.574,
-      "y": -8.362,
-      "z": 0.345,
-      "yaw": 3.234,
-      "radius": 0.163,
-      "height": 5.712
-    },
-    {
-      "name": "tree_0013_oak",
+      "name": "tree_0012_oak",
       "type": "tree",
       "species": "oak",
-      "x": 15.034,
-      "y": 6.179,
-      "z": 0.867,
-      "yaw": 3.584,
-      "radius": 0.215,
-      "height": 4.538
+      "x": 19.551,
+      "y": -19.448,
+      "z": 1.244,
+      "yaw": 5.709,
+      "radius": 0.259,
+      "height": 5.485
+    },
+    {
+      "name": "tree_0013_snag",
+      "type": "tree",
+      "species": "snag",
+      "x": -4.385,
+      "y": 27.655,
+      "z": 2.165,
+      "yaw": 4.675,
+      "radius": 0.268,
+      "height": 3.939
     },
     {
       "name": "tree_0014_pine",
       "type": "tree",
       "species": "pine",
-      "x": 4.303,
-      "y": -3.049,
-      "z": 0.097,
-      "yaw": 1.347,
-      "radius": 0.211,
-      "height": 7.372
+      "x": 23.793,
+      "y": -11.03,
+      "z": 0.99,
+      "yaw": 6.091,
+      "radius": 0.188,
+      "height": 6.566
     },
     {
-      "name": "tree_0015_pine",
+      "name": "tree_0015_oak",
       "type": "tree",
-      "species": "pine",
-      "x": -16.162,
-      "y": 11.566,
-      "z": 1.312,
-      "yaw": 3.105,
-      "radius": 0.217,
-      "height": 7.607
+      "species": "oak",
+      "x": -18.27,
+      "y": 25.109,
+      "z": 1.402,
+      "yaw": 1.502,
+      "radius": 0.298,
+      "height": 6.295
     },
     {
-      "name": "tree_0016_snag",
+      "name": "tree_0016_oak",
       "type": "tree",
-      "species": "snag",
-      "x": -23.11,
-      "y": 3.901,
-      "z": 1.141,
-      "yaw": 0.773,
-      "radius": 0.229,
-      "height": 2.835
+      "species": "oak",
+      "x": 2.427,
+      "y": -11.205,
+      "z": 0.322,
+      "yaw": 5.919,
+      "radius": 0.216,
+      "height": 4.578
     },
     {
       "name": "tree_0017_oak",
       "type": "tree",
       "species": "oak",
-      "x": 14.84,
-      "y": -18.482,
-      "z": 1.316,
-      "yaw": 4.853,
-      "radius": 0.289,
-      "height": 6.124
+      "x": 5.412,
+      "y": -13.593,
+      "z": 0.558,
+      "yaw": 1.041,
+      "radius": 0.337,
+      "height": 7.136
     },
     {
-      "name": "tree_0018_pine",
+      "name": "tree_0018_oak",
       "type": "tree",
-      "species": "pine",
-      "x": 2.657,
-      "y": -5.237,
-      "z": 0.15,
-      "yaw": 5.593,
-      "radius": 0.217,
-      "height": 7.607
+      "species": "oak",
+      "x": 21.97,
+      "y": -8.013,
+      "z": 0.58,
+      "yaw": 6.207,
+      "radius": 0.228,
+      "height": 4.823
     },
     {
       "name": "tree_0019_oak",
       "type": "tree",
       "species": "oak",
-      "x": -21.241,
-      "y": 27.363,
-      "z": 1.488,
-      "yaw": 4.032,
-      "radius": 0.346,
-      "height": 7.318
+      "x": 7.561,
+      "y": 2.23,
+      "z": -0.121,
+      "yaw": 1.888,
+      "radius": 0.329,
+      "height": 6.967
     },
     {
-      "name": "tree_0020_pine",
+      "name": "tree_0020_snag",
       "type": "tree",
-      "species": "pine",
-      "x": -16.906,
-      "y": 8.405,
-      "z": 1.203,
-      "yaw": 5.56,
-      "radius": 0.268,
-      "height": 9.371
+      "species": "snag",
+      "x": -8.763,
+      "y": 6.45,
+      "z": 0.513,
+      "yaw": 3.204,
+      "radius": 0.245,
+      "height": 3.423
     },
     {
       "name": "tree_0021_oak",
       "type": "tree",
       "species": "oak",
-      "x": -22.439,
-      "y": -10.164,
-      "z": 0.989,
-      "yaw": 3.757,
-      "radius": 0.245,
-      "height": 5.181
+      "x": 28.197,
+      "y": 17.34,
+      "z": 0.877,
+      "yaw": 0.165,
+      "radius": 0.259,
+      "height": 5.469
     },
     {
-      "name": "tree_0022_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": -18.621,
-      "y": 11.854,
-      "z": 1.277,
-      "yaw": 5.662,
-      "radius": 0.287,
-      "height": 6.08
-    },
-    {
-      "name": "tree_0023_pine",
+      "name": "tree_0022_pine",
       "type": "tree",
       "species": "pine",
-      "x": -15.035,
-      "y": -1.971,
-      "z": 0.777,
-      "yaw": 0.774,
-      "radius": 0.169,
-      "height": 5.902
+      "x": 24.101,
+      "y": -26.985,
+      "z": 1.587,
+      "yaw": 1.708,
+      "radius": 0.243,
+      "height": 8.507
     },
     {
-      "name": "tree_0024_snag",
+      "name": "tree_0023_oak",
       "type": "tree",
-      "species": "snag",
-      "x": 27.787,
-      "y": 7.488,
-      "z": 1.852,
-      "yaw": 6.199,
-      "radius": 0.15,
-      "height": 5.449
+      "species": "oak",
+      "x": 24.06,
+      "y": 0.506,
+      "z": 0.249,
+      "yaw": 0.785,
+      "radius": 0.341,
+      "height": 7.224
+    },
+    {
+      "name": "tree_0024_oak",
+      "type": "tree",
+      "species": "oak",
+      "x": -26.339,
+      "y": -26.87,
+      "z": 1.219,
+      "yaw": 2.408,
+      "radius": 0.199,
+      "height": 4.209
     },
     {
       "name": "tree_0025_oak",
       "type": "tree",
       "species": "oak",
-      "x": -14.513,
-      "y": -28.237,
-      "z": 0.943,
-      "yaw": 5.077,
-      "radius": 0.305,
-      "height": 6.448
+      "x": -28.057,
+      "y": -24.123,
+      "z": 1.226,
+      "yaw": 2.034,
+      "radius": 0.278,
+      "height": 5.886
     },
     {
-      "name": "tree_0026_snag",
+      "name": "tree_0026_oak",
       "type": "tree",
-      "species": "snag",
-      "x": 18.103,
-      "y": -15.092,
-      "z": 1.679,
-      "yaw": 4.84,
-      "radius": 0.258,
-      "height": 5.121
+      "species": "oak",
+      "x": 20.107,
+      "y": -15.911,
+      "z": 1.007,
+      "yaw": 1.753,
+      "radius": 0.318,
+      "height": 6.718
     },
     {
-      "name": "tree_0027_pine",
+      "name": "tree_0027_oak",
       "type": "tree",
-      "species": "pine",
-      "x": 18.624,
-      "y": -8.356,
-      "z": 1.489,
-      "yaw": 2.122,
-      "radius": 0.173,
-      "height": 6.046
+      "species": "oak",
+      "x": -15.977,
+      "y": -17.053,
+      "z": 0.966,
+      "yaw": 1.72,
+      "radius": 0.272,
+      "height": 5.746
     },
     {
       "name": "tree_0028_pine",
       "type": "tree",
       "species": "pine",
-      "x": -21.936,
-      "y": -5.515,
-      "z": 1.105,
-      "yaw": 5.979,
-      "radius": 0.263,
-      "height": 9.216
+      "x": -21.019,
+      "y": -4.57,
+      "z": 1.087,
+      "yaw": 2.03,
+      "radius": 0.172,
+      "height": 6.012
     },
     {
-      "name": "tree_0029_pine",
+      "name": "tree_0029_oak",
       "type": "tree",
-      "species": "pine",
-      "x": -8.292,
-      "y": -13.712,
-      "z": 0.414,
-      "yaw": 3.351,
-      "radius": 0.251,
-      "height": 8.795
+      "species": "oak",
+      "x": 7.434,
+      "y": -25.789,
+      "z": 1.609,
+      "yaw": 5.277,
+      "radius": 0.235,
+      "height": 4.977
     },
     {
       "name": "tree_0030_oak",
       "type": "tree",
       "species": "oak",
-      "x": -11.289,
-      "y": 28.704,
-      "z": 1.566,
-      "yaw": 6.044,
-      "radius": 0.263,
-      "height": 5.557
+      "x": -22.21,
+      "y": -13.339,
+      "z": 1.125,
+      "yaw": 2.946,
+      "radius": 0.261,
+      "height": 5.513
     },
     {
-      "name": "tree_0031_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": -26.191,
-      "y": 14.13,
-      "z": 1.193,
-      "yaw": 0.589,
-      "radius": 0.345,
-      "height": 7.307
-    },
-    {
-      "name": "tree_0032_pine",
+      "name": "tree_0031_pine",
       "type": "tree",
       "species": "pine",
-      "x": 19.324,
-      "y": -5.063,
-      "z": 1.441,
-      "yaw": 1.987,
-      "radius": 0.178,
-      "height": 6.236
+      "x": 25.304,
+      "y": -7.346,
+      "z": 0.805,
+      "yaw": 5.207,
+      "radius": 0.191,
+      "height": 6.672
+    },
+    {
+      "name": "tree_0032_snag",
+      "type": "tree",
+      "species": "snag",
+      "x": 8.596,
+      "y": -7.067,
+      "z": 0.273,
+      "yaw": 4.956,
+      "radius": 0.177,
+      "height": 3.093
     },
     {
       "name": "tree_0033_oak",
       "type": "tree",
       "species": "oak",
-      "x": 26.961,
-      "y": -14.735,
-      "z": 2.003,
-      "yaw": 5.396,
-      "radius": 0.25,
-      "height": 5.297
+      "x": 8.828,
+      "y": 10.763,
+      "z": 0.418,
+      "yaw": 0.49,
+      "radius": 0.23,
+      "height": 4.875
     },
     {
-      "name": "tree_0034_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": 19.903,
-      "y": -6.947,
-      "z": 1.404,
-      "yaw": 2.356,
-      "radius": 0.331,
-      "height": 7.0
-    },
-    {
-      "name": "tree_0035_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": 21.842,
-      "y": 10.036,
-      "z": 1.202,
-      "yaw": 4.82,
-      "radius": 0.332,
-      "height": 7.023
-    },
-    {
-      "name": "tree_0036_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": -18.709,
-      "y": 1.687,
-      "z": 0.92,
-      "yaw": 4.255,
-      "radius": 0.297,
-      "height": 6.283
-    },
-    {
-      "name": "tree_0037_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": -7.796,
-      "y": 2.869,
-      "z": 0.395,
-      "yaw": 2.537,
-      "radius": 0.281,
-      "height": 5.934
-    },
-    {
-      "name": "tree_0038_pine",
+      "name": "tree_0034_pine",
       "type": "tree",
       "species": "pine",
-      "x": 3.169,
-      "y": 28.911,
-      "z": 1.776,
-      "yaw": 2.608,
-      "radius": 0.258,
-      "height": 9.046
+      "x": -3.709,
+      "y": 15.406,
+      "z": 1.083,
+      "yaw": 5.537,
+      "radius": 0.291,
+      "height": 10.191
     },
     {
-      "name": "tree_0039_oak",
+      "name": "tree_0035_pine",
+      "type": "tree",
+      "species": "pine",
+      "x": 18.772,
+      "y": -26.564,
+      "z": 1.627,
+      "yaw": 6.135,
+      "radius": 0.221,
+      "height": 7.749
+    },
+    {
+      "name": "tree_0036_pine",
+      "type": "tree",
+      "species": "pine",
+      "x": 12.931,
+      "y": -16.753,
+      "z": 1.09,
+      "yaw": 4.324,
+      "radius": 0.294,
+      "height": 10.285
+    },
+    {
+      "name": "tree_0037_pine",
+      "type": "tree",
+      "species": "pine",
+      "x": 3.581,
+      "y": -28.339,
+      "z": 1.798,
+      "yaw": 0.79,
+      "radius": 0.258,
+      "height": 9.035
+    },
+    {
+      "name": "tree_0038_oak",
       "type": "tree",
       "species": "oak",
-      "x": 21.358,
-      "y": -9.401,
-      "z": 1.677,
-      "yaw": 1.836,
-      "radius": 0.315,
-      "height": 6.672
+      "x": 10.032,
+      "y": 9.107,
+      "z": 0.265,
+      "yaw": 5.859,
+      "radius": 0.205,
+      "height": 4.342
+    },
+    {
+      "name": "tree_0039_snag",
+      "type": "tree",
+      "species": "snag",
+      "x": 21.455,
+      "y": -19.647,
+      "z": 1.344,
+      "yaw": 0.781,
+      "radius": 0.225,
+      "height": 3.046
     },
     {
       "name": "tree_0040_oak",
       "type": "tree",
       "species": "oak",
-      "x": 11.304,
-      "y": -23.874,
-      "z": 0.947,
-      "yaw": 1.432,
-      "radius": 0.262,
-      "height": 5.536
+      "x": 19.96,
+      "y": -1.333,
+      "z": 0.065,
+      "yaw": 1.229,
+      "radius": 0.256,
+      "height": 5.415
     },
     {
-      "name": "tree_0041_pine",
+      "name": "tree_0041_oak",
       "type": "tree",
-      "species": "pine",
-      "x": -27.642,
-      "y": 27.247,
-      "z": 1.316,
-      "yaw": 2.063,
-      "radius": 0.216,
-      "height": 7.561
+      "species": "oak",
+      "x": -28.298,
+      "y": 8.135,
+      "z": 0.747,
+      "yaw": 4.978,
+      "radius": 0.296,
+      "height": 6.261
     },
     {
       "name": "tree_0042_oak",
       "type": "tree",
       "species": "oak",
-      "x": 3.74,
-      "y": -21.212,
-      "z": 0.644,
-      "yaw": 3.794,
-      "radius": 0.23,
-      "height": 4.863
+      "x": -3.452,
+      "y": -10.093,
+      "z": 0.156,
+      "yaw": 1.888,
+      "radius": 0.243,
+      "height": 5.146
     },
     {
-      "name": "tree_0043_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": -28.325,
-      "y": 12.534,
-      "z": 1.077,
-      "yaw": 6.256,
-      "radius": 0.347,
-      "height": 7.33
-    },
-    {
-      "name": "tree_0044_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": -27.0,
-      "y": 7.434,
-      "z": 0.972,
-      "yaw": 2.638,
-      "radius": 0.203,
-      "height": 4.291
-    },
-    {
-      "name": "tree_0045_oak",
-      "type": "tree",
-      "species": "oak",
-      "x": -11.463,
-      "y": 0.425,
-      "z": 0.621,
-      "yaw": 0.646,
-      "radius": 0.221,
-      "height": 4.671
-    },
-    {
-      "name": "tree_0046_pine",
+      "name": "tree_0043_pine",
       "type": "tree",
       "species": "pine",
-      "x": 3.201,
-      "y": 26.316,
-      "z": 1.82,
-      "yaw": 6.195,
-      "radius": 0.283,
-      "height": 9.896
+      "x": -17.313,
+      "y": 23.549,
+      "z": 1.404,
+      "yaw": 2.579,
+      "radius": 0.245,
+      "height": 8.562
     },
     {
-      "name": "tree_0047_oak",
+      "name": "tree_0044_pine",
       "type": "tree",
-      "species": "oak",
-      "x": 24.564,
-      "y": 12.707,
-      "z": 1.359,
-      "yaw": 4.104,
-      "radius": 0.257,
-      "height": 5.434
+      "species": "pine",
+      "x": -28.68,
+      "y": -0.947,
+      "z": 0.793,
+      "yaw": 1.906,
+      "radius": 0.215,
+      "height": 7.515
     },
     {
-      "name": "tree_0048_oak",
+      "name": "tree_0045_pine",
+      "type": "tree",
+      "species": "pine",
+      "x": 8.932,
+      "y": -17.492,
+      "z": 1.114,
+      "yaw": 5.513,
+      "radius": 0.278,
+      "height": 9.725
+    },
+    {
+      "name": "tree_0046_oak",
       "type": "tree",
       "species": "oak",
-      "x": 24.251,
-      "y": -14.082,
-      "z": 2.033,
-      "yaw": 4.984,
-      "radius": 0.336,
-      "height": 7.113
+      "x": 13.563,
+      "y": -6.539,
+      "z": 0.213,
+      "yaw": 2.907,
+      "radius": 0.226,
+      "height": 4.775
+    },
+    {
+      "name": "tree_0047_snag",
+      "type": "tree",
+      "species": "snag",
+      "x": 6.24,
+      "y": -21.346,
+      "z": 1.518,
+      "yaw": 2.053,
+      "radius": 0.227,
+      "height": 4.682
+    },
+    {
+      "name": "tree_0048_snag",
+      "type": "tree",
+      "species": "snag",
+      "x": -0.595,
+      "y": 25.795,
+      "z": 2.063,
+      "yaw": 4.241,
+      "radius": 0.166,
+      "height": 4.458
     },
     {
       "name": "tree_0049_pine",
       "type": "tree",
       "species": "pine",
-      "x": 0.721,
-      "y": 9.673,
-      "z": 1.007,
-      "yaw": 4.479,
-      "radius": 0.252,
-      "height": 8.829
+      "x": 18.972,
+      "y": -23.376,
+      "z": 1.557,
+      "yaw": 2.429,
+      "radius": 0.274,
+      "height": 9.586
     },
     {
-      "name": "tree_0050_pine",
+      "name": "tree_0050_oak",
       "type": "tree",
-      "species": "pine",
-      "x": 1.464,
-      "y": 5.267,
-      "z": 0.091,
-      "yaw": 3.397,
-      "radius": 0.209,
-      "height": 7.32
+      "species": "oak",
+      "x": 13.27,
+      "y": -10.998,
+      "z": 0.485,
+      "yaw": 3.474,
+      "radius": 0.348,
+      "height": 7.358
     },
     {
       "name": "tree_0051_oak",
       "type": "tree",
       "species": "oak",
-      "x": -7.052,
-      "y": -24.268,
-      "z": 0.454,
-      "yaw": 4.235,
-      "radius": 0.239,
-      "height": 5.061
+      "x": -23.425,
+      "y": 13.975,
+      "z": 1.138,
+      "yaw": 5.047,
+      "radius": 0.217,
+      "height": 4.581
     },
     {
-      "name": "tree_0052_oak",
+      "name": "tree_0052_pine",
       "type": "tree",
-      "species": "oak",
-      "x": 11.918,
-      "y": -27.599,
-      "z": 1.026,
-      "yaw": 1.383,
-      "radius": 0.326,
-      "height": 6.9
+      "species": "pine",
+      "x": -17.044,
+      "y": -22.42,
+      "z": 0.56,
+      "yaw": 2.413,
+      "radius": 0.24,
+      "height": 8.392
     },
     {
-      "name": "tree_0053_oak",
+      "name": "tree_0053_pine",
       "type": "tree",
-      "species": "oak",
-      "x": 27.519,
-      "y": 28.315,
-      "z": 1.288,
-      "yaw": 2.25,
-      "radius": 0.33,
-      "height": 6.98
+      "species": "pine",
+      "x": -26.934,
+      "y": 4.345,
+      "z": 0.897,
+      "yaw": 3.634,
+      "radius": 0.297,
+      "height": 10.403
     },
     {
-      "name": "tree_0054_snag",
+      "name": "tree_0054_pine",
       "type": "tree",
-      "species": "snag",
-      "x": 5.638,
-      "y": -28.328,
-      "z": 0.716,
-      "yaw": 3.471,
-      "radius": 0.159,
-      "height": 5.5
+      "species": "pine",
+      "x": 23.711,
+      "y": 21.598,
+      "z": 1.134,
+      "yaw": 4.755,
+      "radius": 0.283,
+      "height": 9.922
     },
     {
       "name": "tree_0055_pine",
       "type": "tree",
       "species": "pine",
-      "x": 8.125,
-      "y": -26.106,
-      "z": 0.948,
-      "yaw": 1.146,
-      "radius": 0.235,
-      "height": 8.214
+      "x": 10.963,
+      "y": -18.421,
+      "z": 1.287,
+      "yaw": 4.377,
+      "radius": 0.185,
+      "height": 6.474
     },
     {
       "name": "tree_0056_pine",
       "type": "tree",
       "species": "pine",
-      "x": 17.207,
-      "y": -2.869,
-      "z": 1.336,
-      "yaw": 3.935,
-      "radius": 0.217,
-      "height": 7.578
+      "x": 13.345,
+      "y": 4.021,
+      "z": 0.14,
+      "yaw": 0.957,
+      "radius": 0.295,
+      "height": 10.318
     },
     {
-      "name": "tree_0057_pine",
+      "name": "tree_0057_oak",
       "type": "tree",
-      "species": "pine",
-      "x": -7.85,
-      "y": -27.271,
-      "z": 0.756,
-      "yaw": 5.823,
-      "radius": 0.281,
-      "height": 9.852
+      "species": "oak",
+      "x": 0.756,
+      "y": -23.514,
+      "z": 1.578,
+      "yaw": 5.197,
+      "radius": 0.294,
+      "height": 6.225
     },
     {
-      "name": "tree_0058_pine",
+      "name": "tree_0058_oak",
       "type": "tree",
-      "species": "pine",
-      "x": 21.037,
-      "y": 11.957,
-      "z": 1.217,
-      "yaw": 3.301,
-      "radius": 0.189,
-      "height": 6.61
+      "species": "oak",
+      "x": 27.26,
+      "y": -28.87,
+      "z": 1.455,
+      "yaw": 1.674,
+      "radius": 0.291,
+      "height": 6.151
     },
     {
       "name": "tree_0059_snag",
       "type": "tree",
       "species": "snag",
-      "x": 24.78,
-      "y": 20.682,
-      "z": 1.474,
-      "yaw": 4.651,
-      "radius": 0.181,
-      "height": 3.328
+      "x": 25.118,
+      "y": 15.583,
+      "z": 0.892,
+      "yaw": 4.918,
+      "radius": 0.191,
+      "height": 2.787
     },
     {
-      "name": "tree_0060_snag",
+      "name": "tree_0060_oak",
       "type": "tree",
-      "species": "snag",
-      "x": 26.174,
-      "y": -28.315,
-      "z": 1.855,
-      "yaw": 5.991,
-      "radius": 0.167,
-      "height": 4.995
+      "species": "oak",
+      "x": -14.607,
+      "y": 23.923,
+      "z": 1.367,
+      "yaw": 0.82,
+      "radius": 0.26,
+      "height": 5.508
     },
     {
-      "name": "tree_0061_pine",
+      "name": "tree_0061_oak",
       "type": "tree",
-      "species": "pine",
-      "x": -26.115,
-      "y": 12.278,
-      "z": 1.325,
-      "yaw": 4.299,
-      "radius": 0.284,
-      "height": 9.936
+      "species": "oak",
+      "x": 15.487,
+      "y": -6.044,
+      "z": 0.293,
+      "yaw": 1.617,
+      "radius": 0.216,
+      "height": 4.565
     },
     {
       "name": "tree_0062_pine",
       "type": "tree",
       "species": "pine",
-      "x": -20.0,
-      "y": -7.443,
-      "z": 0.921,
-      "yaw": 1.422,
-      "radius": 0.179,
-      "height": 6.263
+      "x": 24.502,
+      "y": 25.689,
+      "z": 1.236,
+      "yaw": 4.194,
+      "radius": 0.202,
+      "height": 7.065
     },
     {
-      "name": "tree_0063_oak",
+      "name": "tree_0063_snag",
       "type": "tree",
-      "species": "oak",
-      "x": -25.568,
-      "y": -0.623,
-      "z": 0.93,
-      "yaw": 0.803,
-      "radius": 0.253,
-      "height": 5.352
+      "species": "snag",
+      "x": 7.509,
+      "y": -27.934,
+      "z": 1.659,
+      "yaw": 6.031,
+      "radius": 0.221,
+      "height": 2.6
     },
     {
       "name": "tree_0064_oak",
       "type": "tree",
       "species": "oak",
-      "x": -16.092,
-      "y": 1.224,
-      "z": 0.861,
-      "yaw": 1.651,
-      "radius": 0.323,
-      "height": 6.823
+      "x": -7.192,
+      "y": -18.886,
+      "z": 0.202,
+      "yaw": 3.308,
+      "radius": 0.249,
+      "height": 5.267
     },
     {
       "name": "fallentree_0000_oak",
       "type": "fallen_tree",
       "species": "oak",
-      "x": 0.748,
-      "y": 11.135,
-      "z": 1.588,
-      "yaw": 2.083,
-      "radius": 0.288,
-      "length": 6.093,
-      "tip": 1.311
+      "x": 21.379,
+      "y": 1.558,
+      "z": 0.47,
+      "yaw": 2.872,
+      "radius": 0.273,
+      "length": 5.777,
+      "tip": 1.38
     },
     {
-      "name": "log_0002",
-      "type": "log",
-      "x": 13.841,
-      "y": -23.02,
-      "z": 1.792,
-      "yaw": 0.389,
-      "radius": 0.19,
-      "length": 4.709
-    },
-    {
-      "name": "fallentree_0003_pine",
-      "type": "fallen_tree",
-      "species": "pine",
-      "x": 15.412,
-      "y": -3.229,
-      "z": 1.432,
-      "yaw": 4.463,
-      "radius": 0.245,
-      "length": 8.588,
-      "tip": 1.445
-    },
-    {
-      "name": "fallentree_0004_oak",
+      "name": "fallentree_0001_oak",
       "type": "fallen_tree",
       "species": "oak",
-      "x": -22.669,
-      "y": 28.021,
-      "z": 1.611,
-      "yaw": 1.985,
-      "radius": 0.301,
-      "length": 6.361,
-      "tip": 1.291
+      "x": 23.234,
+      "y": -30.312,
+      "z": 1.888,
+      "yaw": 4.077,
+      "radius": 0.25,
+      "length": 5.284,
+      "tip": 1.335
     },
     {
-      "name": "fallentree_0005_pine",
+      "name": "fallentree_0003_oak",
       "type": "fallen_tree",
-      "species": "pine",
-      "x": 12.2,
-      "y": 11.146,
-      "z": 1.199,
-      "yaw": 2.93,
-      "radius": 0.187,
-      "length": 6.543,
-      "tip": 1.335
+      "species": "oak",
+      "x": -22.542,
+      "y": 2.294,
+      "z": 1.19,
+      "yaw": 6.238,
+      "radius": 0.232,
+      "length": 4.911,
+      "tip": 1.349
+    },
+    {
+      "name": "fallentree_0005_oak",
+      "type": "fallen_tree",
+      "species": "oak",
+      "x": -30.175,
+      "y": 1.56,
+      "z": 0.961,
+      "yaw": 4.157,
+      "radius": 0.233,
+      "length": 4.939,
+      "tip": 1.256
     },
     {
       "name": "fallentree_0006_oak",
       "type": "fallen_tree",
       "species": "oak",
-      "x": -24.429,
-      "y": 4.647,
-      "z": 1.459,
-      "yaw": 1.441,
-      "radius": 0.201,
-      "length": 4.244,
-      "tip": 1.236
+      "x": 13.627,
+      "y": -5.516,
+      "z": 0.335,
+      "yaw": 2.108,
+      "radius": 0.251,
+      "length": 5.31,
+      "tip": 1.54
     },
     {
-      "name": "fallentree_0007_oak",
-      "type": "fallen_tree",
-      "species": "oak",
-      "x": 4.107,
-      "y": 28.498,
-      "z": 2.013,
-      "yaw": 2.251,
-      "radius": 0.252,
-      "length": 5.33,
-      "tip": 1.389
+      "name": "log_0007",
+      "type": "log",
+      "x": 15.967,
+      "y": -14.572,
+      "z": 1.073,
+      "yaw": 2.589,
+      "radius": 0.178,
+      "length": 4.431
     },
     {
-      "name": "fallentree_0008_oak",
+      "name": "fallentree_0008_pine",
       "type": "fallen_tree",
-      "species": "oak",
-      "x": -14.79,
-      "y": 10.052,
-      "z": 1.535,
-      "yaw": 3.515,
-      "radius": 0.284,
-      "length": 6.016,
-      "tip": 1.345
+      "species": "pine",
+      "x": 11.732,
+      "y": -14.225,
+      "z": 1.193,
+      "yaw": 5.82,
+      "radius": 0.221,
+      "length": 7.744,
+      "tip": 1.342
     },
     {
       "name": "fallentree_0009_pine",
       "type": "fallen_tree",
       "species": "pine",
-      "x": -9.827,
-      "y": -26.241,
-      "z": 1.059,
-      "yaw": 3.745,
-      "radius": 0.165,
-      "length": 5.776,
-      "tip": 1.273
+      "x": -27.018,
+      "y": -20.693,
+      "z": 1.469,
+      "yaw": 3.621,
+      "radius": 0.25,
+      "length": 8.743,
+      "tip": 1.186
     },
     {
       "name": "fallentree_0010_pine",
       "type": "fallen_tree",
       "species": "pine",
-      "x": -17.985,
-      "y": 21.728,
-      "z": 1.724,
-      "yaw": 4.91,
-      "radius": 0.217,
-      "length": 7.607,
-      "tip": 1.491
+      "x": 19.4,
+      "y": -17.698,
+      "z": 1.487,
+      "yaw": 3.108,
+      "radius": 0.167,
+      "length": 5.841,
+      "tip": 1.273
     },
     {
-      "name": "fallentree_0011_oak",
-      "type": "fallen_tree",
-      "species": "oak",
-      "x": -8.694,
-      "y": -25.063,
-      "z": 1.028,
-      "yaw": 2.252,
-      "radius": 0.252,
-      "length": 5.333,
-      "tip": 1.522
-    },
-    {
-      "name": "log_0012",
+      "name": "log_0011",
       "type": "log",
-      "x": 21.009,
-      "y": 11.886,
-      "z": 1.512,
-      "yaw": 2.239,
-      "radius": 0.191,
-      "length": 3.949
+      "x": -5.388,
+      "y": 29.959,
+      "z": 2.434,
+      "yaw": 4.378,
+      "radius": 0.324,
+      "length": 5.293
+    },
+    {
+      "name": "fallentree_0012_pine",
+      "type": "fallen_tree",
+      "species": "pine",
+      "x": 21.87,
+      "y": -12.477,
+      "z": 0.828,
+      "yaw": 1.554,
+      "radius": 0.248,
+      "length": 8.691,
+      "tip": 1.203
     },
     {
       "name": "fallentree_0013_oak",
       "type": "fallen_tree",
       "species": "oak",
-      "x": 29.757,
-      "y": 28.941,
-      "z": 1.652,
-      "yaw": 3.662,
-      "radius": 0.222,
-      "length": 4.7,
-      "tip": 1.429
+      "x": 26.584,
+      "y": -6.826,
+      "z": 1.199,
+      "yaw": 0.518,
+      "radius": 0.256,
+      "length": 5.409,
+      "tip": 1.522
     },
     {
       "name": "log_0015",
       "type": "log",
-      "x": -8.326,
-      "y": -11.262,
-      "z": 0.741,
-      "yaw": 3.253,
-      "radius": 0.303,
-      "length": 3.265
+      "x": 20.594,
+      "y": -17.265,
+      "z": 1.491,
+      "yaw": 0.703,
+      "radius": 0.179,
+      "length": 3.926
     },
     {
       "name": "fallentree_0016_oak",
       "type": "fallen_tree",
       "species": "oak",
-      "x": 15.024,
-      "y": -15.031,
-      "z": 1.741,
-      "yaw": 4.501,
-      "radius": 0.281,
-      "length": 5.942,
-      "tip": 1.273
+      "x": 20.553,
+      "y": -0.004,
+      "z": 0.468,
+      "yaw": 4.413,
+      "radius": 0.235,
+      "length": 4.979,
+      "tip": 1.346
     },
     {
       "name": "fallentree_0017_pine",
       "type": "fallen_tree",
       "species": "pine",
-      "x": 25.552,
-      "y": -6.993,
-      "z": 2.265,
-      "yaw": 4.474,
-      "radius": 0.152,
-      "length": 5.328,
-      "tip": 1.33
+      "x": 23.396,
+      "y": -4.437,
+      "z": 0.7,
+      "yaw": 1.547,
+      "radius": 0.207,
+      "length": 7.228,
+      "tip": 1.321
     },
     {
-      "name": "fallentree_0018_oak",
-      "type": "fallen_tree",
-      "species": "oak",
-      "x": 1.173,
-      "y": -12.253,
-      "z": 0.427,
-      "yaw": 1.451,
-      "radius": 0.258,
-      "length": 5.448,
-      "tip": 1.482
-    },
-    {
-      "name": "fallentree_0019_pine",
+      "name": "fallentree_0018_pine",
       "type": "fallen_tree",
       "species": "pine",
-      "x": -21.444,
-      "y": -7.075,
-      "z": 1.191,
-      "yaw": 3.466,
-      "radius": 0.206,
-      "length": 7.226,
-      "tip": 1.538
+      "x": 24.636,
+      "y": 28.689,
+      "z": 1.417,
+      "yaw": 4.46,
+      "radius": 0.187,
+      "length": 6.538,
+      "tip": 1.392
+    },
+    {
+      "name": "log_0019",
+      "type": "log",
+      "x": -19.088,
+      "y": -23.021,
+      "z": 1.296,
+      "yaw": 3.386,
+      "radius": 0.288,
+      "length": 2.162
     },
     {
       "name": "fallentree_0020_oak",
       "type": "fallen_tree",
       "species": "oak",
-      "x": -30.873,
-      "y": 25.486,
-      "z": 1.527,
-      "yaw": 4.081,
-      "radius": 0.293,
-      "length": 6.196,
-      "tip": 1.274
+      "x": -28.06,
+      "y": 2.592,
+      "z": 1.001,
+      "yaw": 4.113,
+      "radius": 0.216,
+      "length": 4.578,
+      "tip": 1.257
     },
     {
-      "name": "log_0021",
-      "type": "log",
-      "x": -21.906,
-      "y": 14.659,
-      "z": 1.836,
-      "yaw": 2.786,
-      "radius": 0.31,
-      "length": 2.051
+      "name": "fallentree_0021_pine",
+      "type": "fallen_tree",
+      "species": "pine",
+      "x": 22.591,
+      "y": -21.866,
+      "z": 1.72,
+      "yaw": 3.39,
+      "radius": 0.196,
+      "length": 6.857,
+      "tip": 1.193
     },
     {
       "name": "log_0022",
       "type": "log",
-      "x": -29.223,
-      "y": 24.561,
-      "z": 1.731,
-      "yaw": 4.322,
-      "radius": 0.305,
-      "length": 5.279
+      "x": -18.615,
+      "y": -3.53,
+      "z": 1.288,
+      "yaw": 0.942,
+      "radius": 0.292,
+      "length": 2.33
     },
     {
       "name": "fallentree_0023_oak",
       "type": "fallen_tree",
       "species": "oak",
-      "x": -26.786,
-      "y": 14.265,
-      "z": 1.506,
-      "yaw": 2.718,
-      "radius": 0.294,
-      "length": 6.217,
-      "tip": 1.439
+      "x": 10.863,
+      "y": -16.645,
+      "z": 1.466,
+      "yaw": 0.1,
+      "radius": 0.3,
+      "length": 6.337,
+      "tip": 1.386
     },
     {
-      "name": "fallentree_0024_oak",
-      "type": "fallen_tree",
-      "species": "oak",
-      "x": 16.449,
-      "y": -14.416,
-      "z": 1.958,
-      "yaw": 0.388,
-      "radius": 0.288,
-      "length": 6.087,
-      "tip": 1.27
-    },
-    {
-      "name": "fallentree_0025_pine",
+      "name": "fallentree_0024_pine",
       "type": "fallen_tree",
       "species": "pine",
-      "x": -23.837,
-      "y": -7.31,
-      "z": 1.204,
-      "yaw": 3.545,
-      "radius": 0.222,
-      "length": 7.776,
-      "tip": 1.413
+      "x": 25.231,
+      "y": 15.628,
+      "z": 0.919,
+      "yaw": 3.921,
+      "radius": 0.207,
+      "length": 7.245,
+      "tip": 1.366
     },
     {
-      "name": "rock_0000",
-      "type": "rock",
-      "x": -26.819,
-      "y": -13.009,
-      "z": 1.309,
-      "yaw": 0.739,
-      "radius": 0.302
+      "name": "log_0025",
+      "type": "log",
+      "x": -24.055,
+      "y": -23.583,
+      "z": 1.571,
+      "yaw": 4.96,
+      "radius": 0.165,
+      "length": 2.178
+    },
+    {
+      "name": "stump_0000",
+      "type": "stump",
+      "x": -20.647,
+      "y": 3.496,
+      "z": 1.455,
+      "yaw": 0.532,
+      "radius": 0.358
     },
     {
       "name": "rock_0001",
       "type": "rock",
-      "x": 5.062,
-      "y": 1.101,
-      "z": 0.526,
-      "yaw": 2.788,
-      "radius": 0.33
+      "x": 9.336,
+      "y": -27.614,
+      "z": 2.017,
+      "yaw": 3.737,
+      "radius": 0.373
     },
     {
       "name": "rock_0002",
       "type": "rock",
-      "x": -21.482,
-      "y": -8.82,
-      "z": 1.544,
-      "yaw": 3.024,
-      "radius": 0.486
+      "x": 21.097,
+      "y": -14.103,
+      "z": 1.409,
+      "yaw": 5.659,
+      "radius": 0.347
     },
     {
-      "name": "rock_0003",
-      "type": "rock",
-      "x": -20.675,
-      "y": 18.862,
-      "z": 2.034,
-      "yaw": 6.276,
-      "radius": 0.299
+      "name": "stump_0003",
+      "type": "stump",
+      "x": 3.077,
+      "y": -8.339,
+      "z": 0.713,
+      "yaw": 4.057,
+      "radius": 0.406
     },
     {
       "name": "stump_0004",
       "type": "stump",
-      "x": 20.35,
-      "y": 20.425,
-      "z": 1.689,
-      "yaw": 0.668,
-      "radius": 0.281
+      "x": -8.934,
+      "y": -5.509,
+      "z": 0.694,
+      "yaw": 5.628,
+      "radius": 0.297
     },
     {
       "name": "rock_0005",
       "type": "rock",
-      "x": 7.907,
-      "y": 14.983,
-      "z": 1.431,
-      "yaw": 0.174,
-      "radius": 0.313
+      "x": -28.288,
+      "y": -4.059,
+      "z": 1.176,
+      "yaw": 1.339,
+      "radius": 0.28
     },
     {
-      "name": "stump_0006",
-      "type": "stump",
-      "x": 16.539,
-      "y": -0.135,
-      "z": 1.759,
-      "yaw": 0.888,
-      "radius": 0.368
+      "name": "rock_0006",
+      "type": "rock",
+      "x": -13.394,
+      "y": -8.128,
+      "z": 1.257,
+      "yaw": 4.569,
+      "radius": 0.451
     },
     {
       "name": "stump_0007",
       "type": "stump",
-      "x": -19.092,
-      "y": -6.182,
-      "z": 1.408,
-      "yaw": 1.656,
-      "radius": 0.375
+      "x": -19.215,
+      "y": -9.412,
+      "z": 1.39,
+      "yaw": 5.729,
+      "radius": 0.313
     },
     {
       "name": "rock_0008",
       "type": "rock",
-      "x": 10.38,
-      "y": 13.699,
-      "z": 1.317,
-      "yaw": 5.808,
-      "radius": 0.27
+      "x": 11.368,
+      "y": 27.575,
+      "z": 2.125,
+      "yaw": 1.559,
+      "radius": 0.316
     },
     {
-      "name": "rock_0009",
-      "type": "rock",
-      "x": -9.379,
-      "y": 27.526,
-      "z": 2.138,
-      "yaw": 3.579,
-      "radius": 0.372
+      "name": "stump_0009",
+      "type": "stump",
+      "x": 6.541,
+      "y": -22.743,
+      "z": 1.903,
+      "yaw": 3.207,
+      "radius": 0.308
     },
     {
       "name": "rock_0010",
       "type": "rock",
-      "x": -20.51,
-      "y": -26.007,
-      "z": 1.274,
-      "yaw": 2.775,
-      "radius": 0.534
+      "x": -27.662,
+      "y": 21.889,
+      "z": 1.664,
+      "yaw": 3.578,
+      "radius": 0.584
     },
     {
       "name": "rock_0011",
       "type": "rock",
-      "x": -16.968,
-      "y": 13.992,
-      "z": 1.851,
-      "yaw": 1.131,
-      "radius": 0.456
+      "x": 8.867,
+      "y": 11.776,
+      "z": 1.079,
+      "yaw": 1.257,
+      "radius": 0.303
     },
     {
       "name": "rock_0012",
       "type": "rock",
-      "x": 25.208,
-      "y": -26.526,
-      "z": 2.219,
-      "yaw": 5.307,
+      "x": 22.519,
+      "y": 0.018,
+      "z": 0.605,
+      "yaw": 1.471,
       "radius": 0.363
     },
     {
       "name": "rock_0013",
       "type": "rock",
-      "x": -24.157,
-      "y": 14.563,
-      "z": 1.772,
-      "yaw": 5.88,
-      "radius": 0.342
+      "x": -10.718,
+      "y": -10.36,
+      "z": 0.857,
+      "yaw": 5.84,
+      "radius": 0.455
     },
     {
       "name": "clutter_0000",
       "type": "clutter",
-      "x": -4.019,
-      "y": -12.209,
-      "z": 0.568,
-      "yaw": 0.317,
-      "radius": 0.401
+      "x": -9.736,
+      "y": -10.081,
+      "z": 0.596,
+      "yaw": 3.459,
+      "radius": 0.304
     },
     {
       "name": "clutter_0001",
       "type": "clutter",
-      "x": 16.974,
-      "y": 26.641,
-      "z": 1.693,
-      "yaw": 3.219,
-      "radius": 0.232
+      "x": 11.171,
+      "y": -0.711,
+      "z": 0.234,
+      "yaw": 0.934,
+      "radius": 0.348
     },
     {
       "name": "clutter_0002",
       "type": "clutter",
-      "x": 4.477,
-      "y": 6.484,
-      "z": 0.913,
-      "yaw": 5.042,
-      "radius": 0.304
+      "x": 13.038,
+      "y": -20.133,
+      "z": 1.654,
+      "yaw": 0.02,
+      "radius": 0.183
     },
     {
       "name": "clutter_0003",
       "type": "clutter",
-      "x": 15.936,
-      "y": -4.313,
-      "z": 1.454,
-      "yaw": 0.188,
-      "radius": 0.302
+      "x": -6.465,
+      "y": 20.714,
+      "z": 1.974,
+      "yaw": 3.14,
+      "radius": 0.249
     },
     {
       "name": "clutter_0004",
       "type": "clutter",
-      "x": 0.676,
-      "y": -22.015,
-      "z": 0.882,
-      "yaw": 0.508,
-      "radius": 0.274
+      "x": -15.457,
+      "y": -15.066,
+      "z": 1.39,
+      "yaw": 0.716,
+      "radius": 0.423
     },
     {
       "name": "clutter_0005",
       "type": "clutter",
-      "x": -24.078,
-      "y": 23.636,
-      "z": 1.792,
-      "yaw": 5.681,
-      "radius": 0.392
+      "x": 21.069,
+      "y": -8.021,
+      "z": 0.943,
+      "yaw": 1.83,
+      "radius": 0.223
     },
     {
       "name": "clutter_0006",
       "type": "clutter",
-      "x": -20.971,
-      "y": -2.664,
-      "z": 1.297,
-      "yaw": 2.003,
-      "radius": 0.213
+      "x": -22.631,
+      "y": -16.223,
+      "z": 1.625,
+      "yaw": 2.019,
+      "radius": 0.303
     },
     {
       "name": "clutter_0007",
       "type": "clutter",
-      "x": 4.489,
-      "y": 27.809,
-      "z": 2.012,
-      "yaw": 4.674,
-      "radius": 0.449
+      "x": 15.635,
+      "y": -13.604,
+      "z": 1.072,
+      "yaw": 3.432,
+      "radius": 0.36
     },
     {
       "name": "clutter_0008",
       "type": "clutter",
-      "x": 10.44,
-      "y": 5.5,
-      "z": 1.028,
-      "yaw": 4.03,
-      "radius": 0.273
+      "x": 3.235,
+      "y": 19.408,
+      "z": 1.926,
+      "yaw": 3.593,
+      "radius": 0.425
     },
     {
       "name": "clutter_0009",
       "type": "clutter",
-      "x": 8.108,
-      "y": -7.947,
-      "z": 0.886,
-      "yaw": 1.049,
-      "radius": 0.318
+      "x": 6.405,
+      "y": 14.656,
+      "z": 1.314,
+      "yaw": 1.87,
+      "radius": 0.445
     },
     {
       "name": "clutter_0010",
       "type": "clutter",
-      "x": 27.207,
-      "y": 25.845,
-      "z": 1.685,
-      "yaw": 2.845,
-      "radius": 0.435
+      "x": 27.662,
+      "y": -11.646,
+      "z": 1.351,
+      "yaw": 5.149,
+      "radius": 0.301
     },
     {
       "name": "clutter_0011",
       "type": "clutter",
-      "x": -12.778,
-      "y": -25.727,
-      "z": 1.183,
-      "yaw": 1.479,
-      "radius": 0.295
+      "x": 21.82,
+      "y": 2.962,
+      "z": 0.46,
+      "yaw": 4.397,
+      "radius": 0.301
     },
     {
       "name": "clutter_0012",
       "type": "clutter",
-      "x": -16.388,
-      "y": -26.027,
-      "z": 1.406,
-      "yaw": 2.235,
+      "x": -17.318,
+      "y": -21.344,
+      "z": 1.219,
+      "yaw": 1.332,
       "radius": 0.24
     },
     {
       "name": "clutter_0013",
       "type": "clutter",
-      "x": 20.917,
-      "y": -8.321,
-      "z": 1.998,
-      "yaw": 5.83,
-      "radius": 0.335
+      "x": 15.76,
+      "y": 3.331,
+      "z": 0.338,
+      "yaw": 1.901,
+      "radius": 0.26
     },
     {
       "name": "clutter_0014",
       "type": "clutter",
-      "x": 23.003,
-      "y": 0.095,
-      "z": 2.073,
-      "yaw": 0.265,
-      "radius": 0.403
+      "x": -26.434,
+      "y": 21.941,
+      "z": 1.43,
+      "yaw": 0.304,
+      "radius": 0.342
     },
     {
       "name": "clutter_0015",
       "type": "clutter",
-      "x": -25.497,
-      "y": 21.761,
-      "z": 1.774,
-      "yaw": 2.163,
-      "radius": 0.186
+      "x": 5.568,
+      "y": -3.313,
+      "z": 0.292,
+      "yaw": 0.684,
+      "radius": 0.338
     },
     {
       "name": "clutter_0016",
       "type": "clutter",
-      "x": -16.126,
-      "y": 12.876,
-      "z": 1.663,
-      "yaw": 5.292,
-      "radius": 0.268
+      "x": -20.826,
+      "y": -1.749,
+      "z": 1.236,
+      "yaw": 0.106,
+      "radius": 0.295
     },
     {
       "name": "clutter_0017",
       "type": "clutter",
-      "x": -9.172,
-      "y": 2.671,
-      "z": 1.004,
-      "yaw": 3.512,
-      "radius": 0.405
+      "x": 24.205,
+      "y": 4.896,
+      "z": 0.64,
+      "yaw": 5.5,
+      "radius": 0.281
     },
     {
       "type": "mushroom",
       "name": "mushroom_00",
-      "x": -22.681,
-      "y": 22.135,
-      "z": 1.862
+      "x": -5.955,
+      "y": -26.145,
+      "z": 1.769
     },
     {
       "type": "mushroom",
       "name": "mushroom_01",
-      "x": 7.131,
-      "y": -11.385,
-      "z": 0.71
+      "x": 6.794,
+      "y": 21.556,
+      "z": 1.644
     },
     {
       "type": "mushroom",
       "name": "mushroom_02",
-      "x": -6.923,
-      "y": -0.597,
-      "z": 0.423
+      "x": -0.363,
+      "y": 22.046,
+      "z": 2.036
     },
     {
       "type": "mushroom",
       "name": "mushroom_03",
-      "x": 6.053,
-      "y": -23.142,
-      "z": 0.968
+      "x": -7.53,
+      "y": -4.939,
+      "z": 0.401
     },
     {
       "type": "mushroom",
       "name": "mushroom_04",
-      "x": -14.396,
-      "y": -19.888,
-      "z": 0.885
+      "x": -11.706,
+      "y": -23.629,
+      "z": 0.751
     },
     {
       "type": "decoy",
       "name": "decoy_00",
-      "model": "decoy_cylinder",
-      "x": 20.387,
-      "y": -1.845,
-      "z": 1.976
+      "model": "decoy_box",
+      "x": 18.58,
+      "y": -0.615,
+      "z": 0.598
     },
     {
       "type": "decoy",
       "name": "decoy_01",
-      "model": "decoy_box",
-      "x": 13.578,
-      "y": 11.39,
-      "z": 1.406
+      "model": "decoy_cylinder",
+      "x": 5.486,
+      "y": 20.816,
+      "z": 2.076
     },
     {
       "type": "decoy",
       "name": "decoy_02",
-      "model": "decoy_cylinder",
-      "x": -16.661,
-      "y": 4.367,
-      "z": 1.441
+      "model": "decoy_box",
+      "x": -0.283,
+      "y": -12.08,
+      "z": 1.09
     },
     {
       "type": "decoy",
       "name": "decoy_03",
-      "model": "decoy_box",
-      "x": -19.762,
-      "y": -13.35,
-      "z": 0.895
+      "model": "decoy_cylinder",
+      "x": -10.863,
+      "y": -14.485,
+      "z": 0.858
     },
     {
       "type": "pond",
       "name": "pond_00",
-      "x": -1.495,
-      "y": 21.735,
-      "z": 1.39,
-      "radius": 3.395,
-      "basin_radius": 4.715,
-      "depth": 1.606
+      "x": 13.939,
+      "y": 19.52,
+      "z": 1.394,
+      "radius": 4.785,
+      "shore_radius": 6.981
     },
     {
       "type": "pond",
       "name": "pond_01",
-      "x": 21.238,
-      "y": -22.863,
-      "z": 1.477,
-      "radius": 2.328,
-      "basin_radius": 3.233,
-      "depth": 1.879
+      "x": -16.676,
+      "y": 16.155,
+      "z": 1.466,
+      "radius": 4.874,
+      "shore_radius": 7.092
     }
   ]
 }

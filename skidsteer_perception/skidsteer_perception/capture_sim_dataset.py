@@ -81,30 +81,53 @@ PLATFORMS = {
                     hover_z=3.0, roam_radius=8.0),
 }
 
-# --- mushroom size ----------------------------------------------------------
-# The mesh is baked to 0.30 x 0.30 x 0.40 m and model.sdf scales it. Read that
-# scale from the SDF rather than repeating it here: a mismatch does not fail
-# loudly, it silently mislabels every frame in the dataset.
-MODEL_SDF = os.path.join(
-    get_package_share_directory('41068_ignition_bringup'),
-    'models', 'mushroom_amanita', 'model.sdf')
-MESH_SIZE = np.array([0.30, 0.30, 0.40])
+# --- capture targets --------------------------------------------------------
+# One entry per detectable class. `mesh` is the model's bounding box in metres
+# with its base at z=0; `cls` is the YOLO class index and must match data.yaml.
+# `min_range` is per-target because apparent size is: a 1.9 m person closer
+# than ~2 m has its head out of frame, while a 0.2 m mushroom is still tiny.
+TARGETS = {
+    'mushroom_amanita': dict(
+        cls=0, mesh=np.array([0.30, 0.30, 0.40]), sdf_scaled=True,
+        min_range=0.8, yaw_matters=False),
+    'walking_person': dict(
+        cls=1, mesh=np.array([0.546, 0.882, 1.896]), sdf_scaled=False,
+        min_range=2.0, yaw_matters=True),
+}
 
 
 def _sdf_scale(path):
+    """Visual scale factor from a model.sdf, or 1.0 if it sets none.
+
+    Only meaningful for models whose mesh is scaled in the SDF rather than
+    baked. Reading it here rather than repeating the number means a change to
+    model.sdf cannot silently mislabel a whole dataset.
+    """
     root = ElementTree.parse(path).getroot()
-    return float(root.find('.//visual/geometry/mesh/scale').text.split()[0])
+    node = root.find('.//visual/geometry/mesh/scale')
+    return 1.0 if node is None else float(node.text.split()[0])
 
 
-MUSH_SIZE = MESH_SIZE * _sdf_scale(MODEL_SDF)
+def target_spec(name):
+    """Resolve a TARGETS entry to its SDF path and true world dimensions."""
+    if name not in TARGETS:
+        raise SystemExit(f'unknown target {name!r}; expected one of '
+                         f'{sorted(TARGETS)}')
+    spec = dict(TARGETS[name])
+    spec['sdf'] = os.path.join(
+        get_package_share_directory('41068_ignition_bringup'),
+        'models', name, 'model.sdf')
+    spec['size'] = spec['mesh'] * (_sdf_scale(spec['sdf'])
+                                   if spec['sdf_scaled'] else 1.0)
+    return spec
 
 # Placement limits. The frustum half-angle is HFOV/2 = 1.047 rad; stay inside
 # it so mushrooms are fully visible rather than clipped at the edge.
-# 0.8 m floor, not 2 m: containment re-verifies the target from ~0.5 m (R8),
-# and a model trained only on distant examples has never seen a mushroom that
-# fills a third of the frame. The projection rejects anything closer than
-# 0.6 m, so 0.8 m is the practical minimum.
-MIN_RANGE_M, MAX_RANGE_M = 0.8, 14.0
+# Upper bound on placement range. The real cap is per-target and derived from
+# the geometry (a box has to clear min_box_px); this only stops an absurdly
+# large target being placed beyond anything useful. The near limit lives in
+# TARGETS, since it depends on the object's height.
+MAX_RANGE_M = 14.0
 
 # --- occlusion test ---------------------------------------------------------
 # The projection is analytic: it knows where a mushroom IS, not whether it can
@@ -138,9 +161,9 @@ def gz(world, service, reqtype, req, timeout_ms=8000):
         return False
 
 
-def spawn(world, name, x, y):
+def spawn(world, name, x, y, sdf):
     return gz(world, 'create', 'ignition.msgs.EntityFactory',
-              f'sdf_filename: "{MODEL_SDF}", name: "{name}", '
+              f'sdf_filename: "{sdf}", name: "{name}", '
               f'pose: {{position: {{x: {x:.3f}, y: {y:.3f}, z: 0}}}}')
 
 
@@ -203,18 +226,37 @@ class Capturer(Node):
             ('num_frames', 400),
             ('out_dir', os.path.expanduser('~/mushroom_sim_dataset')),
             ('platform', 'husky1'),
+            ('target', 'mushroom_amanita'),
+            # Override the target's default near limit, to capture the
+            # close-approach band the standard run cannot reach. Below about
+            # 0.2 m the camera's own near clip takes over.
+            ('min_range', -1.0),
             ('hover_z', -1.0),          # <0 keeps the platform default
             ('num_mushrooms', 3),
             ('world', 'simple_trees'),
-            ('reposition_every', 25),
+            # Every frame between repositions shares one camera pose, so a
+            # large value buys near-duplicate frames rather than new scenes -
+            # and makes the val split a copy of the train split.
+            ('reposition_every', 10),
             ('settle_s', 0.6),
             ('min_box_px', 6),
             ('val_frac', 0.2),
             ('seed', 0),
         ])
-        (self.num_frames, out, self.robot, hover_z, self.n_mush, self.world,
+        (self.num_frames, out, self.robot, self.target, min_range_override,
+         hover_z, self.n_mush, self.world,
          self.reposition, self.settle, self.min_px, self.val_frac,
          seed) = [x.value for x in p]
+        spec = target_spec(self.target)
+        self.size, self.cls = spec['size'], spec['cls']
+        self.model_sdf = spec['sdf']
+        self.min_range = (spec['min_range'] if min_range_override < 0
+                          else min_range_override)
+        # A target straddling the image plane cannot be boxed, so the
+        # projection drops it - but it must not drop it from closer than we
+        # are deliberately placing things.
+        self.near_clip = min(0.6, self.min_range * 0.8)
+        self.yaw_matters = spec['yaw_matters']
         if self.robot not in PLATFORMS:
             raise SystemExit(f'unknown platform {self.robot!r}; '
                              f'expected one of {sorted(PLATFORMS)}')
@@ -230,8 +272,8 @@ class Capturer(Node):
         # what the current camera and target size actually support.
         self.max_range = min(
             MAX_RANGE_M,
-            MUSH_SIZE[0] * FX / self.min_px,     # width hits the floor first
-            MUSH_SIZE[2] * FY / self.min_px,
+            self.size[0] * FX / self.min_px,     # width hits the floor first
+            self.size[2] * FY / self.min_px,
         )
         self.dropped_frames = 0
         self.hidden_boxes = 0
@@ -261,7 +303,7 @@ class Capturer(Node):
         # would invalidate the camera pose, so hold it at zero.
         self.stop_pub = self.create_publisher(Twist, f'/{self.robot}/cmd_vel', 10)
 
-        self.names = [f'capmush_{i}' for i in range(self.n_mush)]
+        self.names = [f'cap_{self.target}_{i}' for i in range(self.n_mush)]
         self.rng = random.Random(seed)
         self.saved = 0
 
@@ -317,13 +359,21 @@ class Capturer(Node):
         the two are almost equal; for the Parrot hovering at altitude they are
         not, and sampling the horizontal distance directly would pile every
         mushroom into the unlabellable far field.
+
+        Range is drawn uniform in 1/slant, not in slant. Apparent size goes as
+        1/distance, so drawing distance evenly buries the set in small targets:
+        the first attempt at this produced 70% of boxes under 20 px and only
+        3% over 60 px, and the resulting model could not see a mushroom it was
+        standing next to. Drawing the reciprocal spreads samples evenly across
+        apparent size, which is the axis detection difficulty actually follows.
         """
         yaw = math.atan2(R[1, 0], R[0, 0])   # ground heading of the optical axis
-        drop = cam_pos[2] - MUSH_SIZE[2] / 2.0
+        drop = cam_pos[2] - self.size[2] / 2.0
         pts = []
         for _ in range(self.n_mush):
             for _ in range(60):
-                slant = self.rng.uniform(MIN_RANGE_M, self.max_range)
+                slant = 1.0 / self.rng.uniform(1.0 / self.max_range,
+                                               1.0 / self.min_range)
                 if slant <= abs(drop):
                     continue        # cannot reach the ground at this range
                 d = math.sqrt(slant * slant - drop * drop)
@@ -331,11 +381,16 @@ class Capturer(Node):
                 fwd, left = d * math.cos(th), d * math.sin(th)
                 x = cam_pos[0] + fwd * math.cos(yaw) - left * math.sin(yaw)
                 y = cam_pos[1] + fwd * math.sin(yaw) + left * math.cos(yaw)
-                if all(math.hypot(x - px, y - py) > 1.2 for px, py in pts):
-                    pts.append((x, y))
+                # A person looks different from the front, side and back, so
+                # randomise heading to get that variety. A mushroom is
+                # near-rotationally-symmetric, so leave it at zero and keep
+                # its box tight.
+                hdg = self.rng.uniform(-math.pi, math.pi) if self.yaw_matters else 0.0
+                if all(math.hypot(x - px, y - py) > 1.2 for px, py, _ in pts):
+                    pts.append((x, y, hdg))
                     break
             else:
-                pts.append((x, y))
+                pts.append((x, y, hdg))
         return pts
 
     def project(self, cam_pos, R, pts):
@@ -348,20 +403,26 @@ class Capturer(Node):
         counted so the caller can throw the frame away.
         """
         Rt, boxes, unlabelled = R.T, [], 0
-        for (mx, my) in pts:
-            hx, hy, hz = MUSH_SIZE[0] / 2, MUSH_SIZE[1] / 2, MUSH_SIZE[2]
-            corners = np.array([[mx + sx * hx, my + sy * hy, sz]
+        for (mx, my, hdg) in pts:
+            hx, hy, hz = self.size[0] / 2, self.size[1] / 2, self.size[2]
+            # Footprint corners in the model's own frame, then turned by its
+            # heading. Skipping the rotation would box a side-on person with
+            # a front-on footprint and lose most of a shoulder.
+            ch, sh = math.cos(hdg), math.sin(hdg)
+            corners = np.array([[mx + sx * hx * ch - sy * hy * sh,
+                                 my + sx * hx * sh + sy * hy * ch,
+                                 sz]
                                 for sx in (-1, 1) for sy in (-1, 1)
                                 for sz in (0.0, hz)])
             loc = (Rt @ (corners - cam_pos).T).T
             fwd, left, up = loc[:, 0], loc[:, 1], loc[:, 2]
-            if fwd.min() < 0.6:
+            if fwd.min() < self.near_clip:
                 # All corners behind the camera: not in the picture, nothing
                 # owed. Some corners in front: it IS visible but cannot be
                 # boxed, which is the unlabelled-mushroom error - so the whole
-                # frame has to go. This matters since MIN_RANGE_M dropped to
-                # 0.8 m to cover close-range verification.
-                if fwd.max() > 0.6:
+                # frame has to go. This matters since the mushroom's near
+                # limit is 0.8 m, to cover close-range verification.
+                if fwd.max() > self.near_clip:
                     unlabelled += 1
                 continue
             u = CX - FX * (left / fwd)
@@ -422,7 +483,8 @@ class Capturer(Node):
                     [cv2.IMWRITE_JPEG_QUALITY, 92])
         with open(f'{self.out}/labels/{split}/{stem}.txt', 'w') as fh:
             for (x1, y1, x2, y2, _) in boxes:
-                fh.write(f'0 {((x1+x2)/2)/IMG_W:.6f} {((y1+y2)/2)/IMG_H:.6f} '
+                fh.write(f'{self.cls} {((x1+x2)/2)/IMG_W:.6f} '
+                         f'{((y1+y2)/2)/IMG_H:.6f} '
                          f'{(x2-x1)/IMG_W:.6f} {(y2-y1)/IMG_H:.6f}\n')
         self.saved += 1
 
@@ -440,13 +502,18 @@ class Capturer(Node):
             most damaging label error there is. Sources seen in practice: the
             launch file's own mushroom_amanita_* models, and leftovers from
             earlier debugging.
+
+            Matched against every known target name, not just the one being
+            captured: a stray person in a mushroom run is just as unlabelled
+            as a stray mushroom.
             """
+            words = {w for t in TARGETS for w in t.split('_')} | {'agaric'}
             killed = 0
             for m in list_models():
                 low = m.lower()
                 if m in self.names:
                     continue
-                if 'mush' in low or 'amanita' in low or 'agaric' in low:
+                if any(word in low for word in words):
                     remove(w, m)
                     killed += 1
             return killed
@@ -455,12 +522,12 @@ class Capturer(Node):
         for n in self.names:
             remove(w, n)
 
-        ok = sum(spawn(w, n, 500.0, 500.0) for n in self.names)
+        ok = sum(spawn(w, n, 500.0, 500.0, self.model_sdf) for n in self.names)
         if ok < len(self.names):
             self.get_logger().error(
-                f'only {ok}/{len(self.names)} mushrooms spawned - aborting')
+                f'only {ok}/{len(self.names)} {self.target} spawned - aborting')
             return
-        self.get_logger().info(f'spawned {ok} mushrooms')
+        self.get_logger().info(f'spawned {ok} {self.target}')
 
         # The launch file scatters its mushrooms on an ~8 s timer, so a purge at
         # startup can run before they even exist. Wait past that and purge again.
@@ -506,8 +573,8 @@ class Capturer(Node):
         # is already that far away), and min_box_px sets a ceiling. If they
         # cross, nothing placed anywhere can be labelled.
         cam_z = self.hover_z + self.cam_offset[2]
-        drop = cam_z - MUSH_SIZE[2] / 2.0
-        near = max(MIN_RANGE_M, drop)
+        drop = cam_z - self.size[2] / 2.0
+        near = max(self.min_range, drop)
         if near >= self.max_range:
             self.get_logger().error(
                 f'{self.robot} at {self.hover_z:.1f} m cannot see a labellable '
@@ -517,8 +584,8 @@ class Capturer(Node):
             return
         self.get_logger().info(
             f'{self.robot}: slant range {near:.2f}-{self.max_range:.2f} m, '
-            f'boxes {MUSH_SIZE[0] * FX / self.max_range:.0f}-'
-            f'{MUSH_SIZE[0] * FX / near:.0f} px wide')
+            f'boxes {self.size[0] * FX / self.max_range:.0f}-'
+            f'{self.size[0] * FX / near:.0f} px wide')
         self.get_logger().info('camera is stable - capturing')
 
         cam = None
@@ -540,8 +607,8 @@ class Capturer(Node):
 
             cam_pos, R = cam
             pts = self.place_in_view(cam_pos, R)
-            for n, (x, y) in zip(self.names, pts):
-                move(w, n, x, y)
+            for n, (x, y, hdg) in zip(self.names, pts):
+                move(w, n, x, y, 0.0, hdg)
 
             frame = self.fresh_frame()
             if frame is None:

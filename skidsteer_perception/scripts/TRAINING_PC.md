@@ -48,7 +48,11 @@ the CUDA index URL from pytorch.org rather than debugging around it.
 
 ## 2. Train
 
+The venv has to be active in whatever shell you train from - a new terminal
+will not have it.
+
 ```bash
+source ~/yolo-env/bin/activate
 python3 train_mushroom.py
 ```
 

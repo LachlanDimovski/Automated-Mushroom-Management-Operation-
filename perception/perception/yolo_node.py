@@ -61,19 +61,25 @@ class YoloNode(Node):
         self.declare_parameter('image_topic', 'camera/image')
         self.declare_parameter('model_path', DEFAULT_MODEL_PATH)
         self.declare_parameter('conf_threshold', 0.25)
+        # Class indices to keep, or [-1] for all. Only useful with a
+        # multi-class model: the stock COCO weights detect 80 things, of which
+        # a forest mission cares about one. Filtering here rather than
+        # downstream keeps the detections topic meaningful and lets the
+        # confidence threshold be tuned for that class alone.
+        self.declare_parameter('classes', [-1])
         self.declare_parameter('publish_annotated', True)
         # Capped so CPU inference does not starve Gazebo's physics thread.
-        # ponytail: temporarily 1 (was 2) - two yolo_node instances at 2 threads
+        # Temporarily 1 (was 2) - two yolo_node instances at 2 threads
         # each were pegging up to 4 cores combined and starving Nav2's control
         # loop; raise back to 2+ on hardware that isn't CPU-constrained.
         self.declare_parameter('num_threads', 1)
-        # ponytail: temporary CPU-relief knob for a CPU-only, resource-constrained
+        # Temporary CPU-relief knob for a CPU-only, resource-constrained
         # test box - halving the inference resolution cuts YOLO's actual compute
         # cost (unlike num_threads, which only capped PyTorch's own thread pool
         # and left OpenCV/BLAS threads free to keep eating cores). Revert to the
         # model's native resolution (imgsz=0 means don't override) on real hardware.
         self.declare_parameter('imgsz', 384)
-        # ponytail: inference used to run on every single incoming frame with
+        # Inference used to run on every single incoming frame with
         # no rate limit, back-to-back, as fast as the CPU allowed - the real
         # driver of the measured 300-400%+ CPU. Capping call frequency cuts
         # total compute roughly proportionally, unlike imgsz/num_threads which
@@ -84,6 +90,8 @@ class YoloNode(Node):
         image_topic = self.get_parameter('image_topic').value
         model_path = self.get_parameter('model_path').value or DEFAULT_MODEL_PATH
         self.conf_threshold = self.get_parameter('conf_threshold').value
+        wanted = list(self.get_parameter('classes').value)
+        self.classes = None if wanted == [-1] else wanted
         self.publish_annotated = self.get_parameter('publish_annotated').value
         self.imgsz = self.get_parameter('imgsz').value
         max_rate_hz = self.get_parameter('max_rate_hz').value
@@ -105,7 +113,7 @@ class YoloNode(Node):
 
         self.get_logger().info(
             f'YOLO model {model_path} '
-            f'(classes: {sorted(self.model.names.values())}, '
+            f'(classes: {sorted(self.model.names[c] for c in self.classes) if self.classes else sorted(self.model.names.values())}, '
             f'conf>={self.conf_threshold}) on {image_topic}')
 
     def _draw(self, frame, x1, y1, x2, y2, label, score):
@@ -132,7 +140,8 @@ class YoloNode(Node):
 
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         result = self.model.predict(
-            frame, conf=self.conf_threshold, imgsz=self.imgsz, verbose=False)[0]
+            frame, conf=self.conf_threshold, imgsz=self.imgsz, classes=self.classes,
+            verbose=False)[0]
 
         detections = Detection2DArray()
         detections.header = msg.header

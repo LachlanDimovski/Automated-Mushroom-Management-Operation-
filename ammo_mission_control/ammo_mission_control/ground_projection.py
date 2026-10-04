@@ -31,20 +31,35 @@ def project_to_ground(quad_x, quad_y, quad_yaw, quad_alt, px, py, ground_z=0.0):
     (tan(a)/cos(pitch)), which read 0.4 m lateral error at 3 m live. Assumes
     level flight (roll/pitch ~ 0) and flat ground.
     """
+    c, w = _camera_ray(quad_x, quad_y, quad_yaw, quad_alt, px, py)
+    if w[2] >= -1e-6:
+        return None  # ray at/above the horizon
+    t = (ground_z + TARGET_HEIGHT_M - c[2]) / w[2]
+    if t <= 0.0 or math.hypot(t * w[0], t * w[1]) > MAX_PROJECT_RANGE_M:
+        return None
+    return c[0] + t * w[0], c[1] + t * w[1]
+
+
+def project_with_depth(quad_x, quad_y, quad_yaw, quad_alt, px, py, depth_m):
+    """World (x, y) of pixel (px, py) at a measured depth (metres along the
+    camera axis) - no flat-ground assumption, so raised or sunken ground does
+    not shift the estimate (a mushroom 0.5 m above the spawn ground read 0.64 m
+    off with the flat projection)."""
+    if not (math.isfinite(depth_m) and 0.2 < depth_m < MAX_PROJECT_RANGE_M):
+        return None
+    c, w = _camera_ray(quad_x, quad_y, quad_yaw, quad_alt, px, py)
+    t = depth_m / FOCAL_PX  # the ray's camera-axis component is FOCAL_PX
+    return c[0] + t * w[0], c[1] + t * w[1]
+
+
+def _camera_ray(quad_x, quad_y, quad_yaw, quad_alt, px, py):
+    """Camera centre and world-frame ray (unnormalised, camera-axis length FOCAL_PX) through pixel (px, py)."""
     # camera pose: CAM_FWD_M ahead of and CAM_UP_M above base_link
-    cx = quad_x + CAM_FWD_M * math.cos(quad_yaw)
-    cy = quad_y + CAM_FWD_M * math.sin(quad_yaw)
-    cz = quad_alt + CAM_UP_M
+    c = (quad_x + CAM_FWD_M * math.cos(quad_yaw), quad_y + CAM_FWD_M * math.sin(quad_yaw), quad_alt + CAM_UP_M)
     # ray in camera frame (x forward, y left, z up), pinhole
     rx, ry, rz = FOCAL_PX, -(px - IMG_W / 2.0), -(py - IMG_H / 2.0)
     # pitch the camera frame down by CAM_PITCH_RAD (about +y), then yaw into world
     cp, sp = math.cos(CAM_PITCH_RAD), math.sin(CAM_PITCH_RAD)
     bx, by, bz = rx * cp + rz * sp, ry, -rx * sp + rz * cp
     cy_, sy_ = math.cos(quad_yaw), math.sin(quad_yaw)
-    wx, wy, wz = bx * cy_ - by * sy_, bx * sy_ + by * cy_, bz
-    if wz >= -1e-6:
-        return None  # ray at/above the horizon
-    t = (ground_z + TARGET_HEIGHT_M - cz) / wz
-    if t <= 0.0 or math.hypot(t * wx, t * wy) > MAX_PROJECT_RANGE_M:
-        return None
-    return cx + t * wx, cy + t * wy
+    return c, (bx * cy_ - by * sy_, bx * sy_ + by * cy_, bz)

@@ -1,12 +1,19 @@
 #ifndef SKIDSTEER_CONTROLLER_COLLISION_GUARD_HPP
 #define SKIDSTEER_CONTROLLER_COLLISION_GUARD_HPP
 
+#include <memory>
+#include <string>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/twist.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+
+#include "skidsteer_controller/depth_check.hpp"
 
 // Final safety gate between whatever is commanding the robot (teleop
 // keyboard, the autonomous controller, anything else) and the actual
@@ -21,6 +28,15 @@ private:
   void scanCallback(const sensor_msgs::msg::LaserScan::SharedPtr msg);
   void depthCallback(const sensor_msgs::msg::Image::SharedPtr msg);
   void cmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
+  void navCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
+  bool depthBlocksForward(double vx);
+  struct Sectors
+  {
+    float front, frontLeft, frontRight, rear, left, right;
+  };
+  Sectors scanSectors() const;
+  float leftClear(const Sectors & s) const;
+  float rightClear(const Sectors & s) const;
   void guardTimerCallback();
   geometry_msgs::msg::Twist applyGuard(geometry_msgs::msg::Twist cmd);
 
@@ -53,31 +69,18 @@ private:
   // view, so it can catch what the lidar's single slice misses.
   static constexpr double DEPTH_FORWARD_STOP_DIST_M = 1.0;
 
-  // Camera geometry (husky.urdf.xacro camera_joint: z=0.25, no tilt;
-  // husky.gazebo.xacro rgbd_camera: horizontal_fov=2.0944 rad, 720x480).
-  // Used to work out how far down the depth crop can look before its rows
-  // are just staring at bare flat ground rather than a real obstacle - the
-  // bottom row of the raw image hits the ground only ~0.2m out, which
-  // would permanently read as "obstacle ahead" with no obstacle present.
-  static constexpr double CAMERA_HEIGHT_M = 0.25;
+  // husky.gazebo.xacro rgbd_camera. The camera pose itself comes from TF
+  // (base_frame <- the depth image's frame), so moving or re-tilting the
+  // camera in the URDF needs no change here.
   static constexpr double CAMERA_HORIZONTAL_FOV_RAD = 2.0944;
-  static constexpr double CAMERA_ASPECT = 720.0 / 480.0;
-  // Crop cutoff chosen so flat ground is never reported closer than this,
-  // safely above DEPTH_FORWARD_STOP_DIST_M with margin.
-  static constexpr double GROUND_SAFE_DIST_M = 2.0;
+  static constexpr double DEPTH_STALE_S = 1.0;  // older depth results are ignored, not trusted
   // Sides only need to guard against scraping while turning - a much
   // tighter threshold than front/rear, since normal avoidance turns
   // routinely pass within a few metres of things on the flank on purpose.
   static constexpr double SIDE_STOP_DIST_M = 0.4;
 
-  // Cliff/edge ("negative obstacle") detection. Every check above only
-  // looks for something closer than expected - nothing checks for the
-  // ground disappearing (a drop-off at the edge of the mapped terrain).
-  // Sample a row whose ray should hit flat ground at CLIFF_CHECK_EXPECTED_DIST_M
-  // under normal terrain; if that row instead returns no depth or a much
-  // longer one, the floor isn't there and forward motion is blocked.
-  static constexpr double CLIFF_CHECK_EXPECTED_DIST_M = 1.0;
-  static constexpr double CLIFF_CHECK_TRIGGER_DIST_M = 1.6;  // measured further than this -> no floor
+  // Cliff/edge ("negative obstacle") detection: see depth_check.hpp - rays
+  // that should meet flat ground 1.2-1.8 m ahead mostly find no floor.
 
   // Steering assist: once something is close ahead, nudge the driver's turn
   // command towards whichever side is more open, rather than just stopping
@@ -86,21 +89,44 @@ private:
   static constexpr double ASSIST_MAX_ANGULAR = 1.2;
   static constexpr double MAX_ASSISTED_ANGULAR = 2.5;  // clamp after adding the assist nudge
 
+  // Escape on the Nav2 path: when the depth check has held Nav2's forward command at zero this long, back out
+  // toward the more open side (lidar flanks and the depth camera's view past the front corners) so Nav2 can
+  // replan from somewhere it is not wedged, instead of timing out against the same spot.
+  static constexpr double ESCAPE_AFTER_S = 2.0;
+  static constexpr double ESCAPE_S = 2.0;
+  static constexpr double ESCAPE_SPEED = 0.2;
+  static constexpr double ESCAPE_TURN = 0.5;
+  static constexpr int ESCAPE_MAX = 3;           // escapes allowed within ESCAPE_WINDOW_S, then Nav2's own recovery
+  static constexpr double ESCAPE_WINDOW_S = 30.0;
+
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_pub_;  // depth obstacles for Nav2's costmap
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_raw_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_nav_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
   rclcpp::TimerBase::SharedPtr guard_timer_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  std::string base_frame_;
+  depth_check::Limits depth_limits_;
+  double base_height_ = 0.1323;
 
   std::vector<float> scanRanges_;
   float scanAngleMin_ = 0.0f;
   float scanAngleIncrement_ = 0.0f;
   bool haveScan_ = false;
 
-  float depthForwardMin_ = 0.0f;
+  float depthForwardMin_ = 0.0f;  // obstacle distance ahead of the robot's front
   bool haveDepth_ = false;
-  float cliffCheckDist_ = 0.0f;
+  rclcpp::Time depthStamp_;
   bool cliffDetected_ = false;
+  float depthLeft_ = 0.0f, depthRight_ = 0.0f;  // flank gaps past the front corners (depth camera)
+
+  rclcpp::Time blockedSince_, escapeUntil_;
+  bool blocked_ = false, escaping_ = false;
+  double escapeTurn_ = 0.0;
+  std::vector<rclcpp::Time> escapes_;
 
   geometry_msgs::msg::Twist lastRawCmd_;
   rclcpp::Time lastRawCmdStamp_;

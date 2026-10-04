@@ -21,7 +21,7 @@ existing worlds or launch files.
 | `worlds/forest_random.meta.json` | seed, params, ground-truth pose of every object (generated) |
 | `models/forest_random_terrain/` | heightmap model (generated: `heightmap.png`, `terrain_diffuse.png`, `flat_normal.png`, SDF) |
 | `models/tree_oak/`, `models/tree_pine/` | vendored OSRF Fuel tree meshes + textures, mesh collision swapped for a trunk cylinder |
-| `launch/forest_world.launch.py` | standalone bringup, mirrors `41068_ignition.launch.py` |
+| `launch/41068_ignition.launch.py world:=forest_random` | standalone bringup, mirrors `41068_ignition.launch.py` |
 
 Trees are the `tree_oak` / `tree_pine` models: a real **mesh trunk** (cheap
 trunk-cylinder collision) plus, by default, one **opaque canopy shape**
@@ -44,9 +44,9 @@ colcon build --packages-select 41068_ignition_bringup
 source install/setup.bash
 
 # 3. run
-ros2 launch 41068_ignition_bringup forest_world.launch.py
-ros2 launch 41068_ignition_bringup forest_world.launch.py nav2:=true rviz:=true
-ros2 launch 41068_ignition_bringup forest_world.launch.py parrot:=true
+ros2 launch 41068_ignition_bringup 41068_ignition.launch.py world:=forest_random
+ros2 launch 41068_ignition_bringup 41068_ignition.launch.py world:=forest_random nav2:=true rviz:=true
+ros2 launch 41068_ignition_bringup 41068_ignition.launch.py world:=forest_random parrot:=true
 ```
 
 Launch args mirror `41068_ignition.launch.py`: `use_sim_time`, `husky`, `parrot`,
@@ -74,8 +74,8 @@ reads clearly without the multi-texture blend that stippled on integrated GPUs.
 ### If the GUI is sluggish (integrated graphics)
 
 - `--preset light`, or lower `--tree-density` / `--size`
-- `ros2 launch ... forest_world.launch.py husky:=false` - just the scenery
-- `ros2 launch ... forest_world.launch.py headless:=true rviz:=true` - no 3D
+- `ros2 launch ... 41068_ignition.launch.py world:=forest_random husky:=false` - just the scenery
+- `ros2 launch ... 41068_ignition.launch.py world:=forest_random headless:=true rviz:=true` - no 3D
   viewport at all; RViz shows scan / map / costmap / path, which is what nav
   dev actually needs
 
@@ -83,11 +83,21 @@ Any explicit flag overrides the preset. Key knobs:
 `--size`, `--tree-density`, `--logs`, `--rocks`, `--clutter`, `--ponds`,
 `--terrain-amplitude` (hill height), `--terrain-roughness`,
 `--heightmap-samples` ((2^n)+1), `--clearing-radius`, `--lanes`, `--min-gap`,
-`--mushrooms`, `--decoys`, `--boundary {trees,wall,none}`, `--name`. See `--help`.
+`--mushrooms`, `--decoys`, `--boundary {trees,wall,none}`, `--no-hedge`, `--ground {elevation,forest}`, `--name`.
+See `--help`.
 
-Ponds are visual-only water discs in carved basins - the basin walls are what
-physically stop the robot. Terrain `z_span` (actual height range, hills +
-basins) is recorded in `meta.json`.
+Mushrooms are only placed where the rover can collect them: clear of trunks, of the low foliage the rover's
+lidar and depth camera see (sampled from the tree meshes at their pose), of fallen crowns, logs, rocks and ponds,
+and with a standoff point joined to the spawn clearing by a route at least 1.8 m wide. In a dense forest fewer
+than the requested number may fit. `--ground forest` colours the terrain green to olive with no bare soil: the
+mushroom detector scores a cap about 0.85 on grass but under 0.5 on brown soil.
+
+A closed square hedge of bushes (with collision) runs round the map's outer edge, 1 m in from the end of the
+terrain and past the boundary trees, so the robots can never drive off the map; `--no-hedge` leaves it out.
+Ponds are solid water filling their basins to the rim (no hole), each ringed by
+reeds with collision so the rover drives round them; mushrooms and decoys are
+never placed within 1.5 m of a pond. Terrain `z_span` (actual height range,
+hills + basins) is recorded in `meta.json`.
 
 ## What the world does to the nav stack (known, by design)
 
@@ -116,7 +126,8 @@ spawn_clearing:   { center, radius, ground_z }
 lanes:            [[ [x,y], ... ], ...]
 counts:           { trees, fallen_trees, logs, rocks_stumps_clutter, ponds, boundary, mushrooms, decoys }
 mushrooms/decoys: [ { name, x, y, z }, ... ]
-ponds:            [ { name, x, y, z, radius, basin_radius, depth }, ... ]
+ponds:            [ { name, x, y, z, radius, basin_radius, depth, reeds_radius }, ... ]
+hedge:            { half_size } or null
 objects:          [ { name, type, x, y, z, yaw, radius/length/height, ... }, ... ]
 ```
 
@@ -129,8 +140,7 @@ aggregate a pass-rate + failure-mode table.
 
 ## Optional integration (deferred - do when ready)
 
-- add `forest_random` to the `world` `choices` in `41068_ignition.launch.py`
-  and `skidsteer_test.launch.py` (+ a `scatter:=` toggle) to reach it via the
-  normal `world:=` arg
+- `41068_ignition.launch.py` accepts any `world:=<name>` (no fixed choices);
+  the old skidsteer_test launch was removed - use `cage_mission.launch.py mushrooms:=x,y,...`
 - add the generator to `install(PROGRAMS ...)` in `CMakeLists.txt` for `ros2 run`
 - add `<exec_depend>python3-pil</exec_depend>` to `package.xml`

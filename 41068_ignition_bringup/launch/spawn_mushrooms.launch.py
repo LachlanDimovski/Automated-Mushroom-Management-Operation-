@@ -12,7 +12,7 @@ Poses are randomised once per invocation, scattered SCATTER_RADIUS_MIN_M to
 SCATTER_RADIUS_MAX_M from the origin (clear of both robots' spawn points) -
 re-running this adds another fresh batch, it doesn't clear what's already
 spawned. Standalone/new file so 41068_ignition.launch.py stays untouched;
-mirrors the scatter approach already used in skidsteer_test.launch.py.
+(cage_mission.launch.py's mushrooms:= arg spawns at fixed positions instead).
 """
 import math
 import random

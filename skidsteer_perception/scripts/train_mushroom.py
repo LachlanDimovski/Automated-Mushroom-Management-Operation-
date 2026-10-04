@@ -34,9 +34,13 @@ def main():
                          'started from; pass yolo11n.pt for a clean slate')
     ap.add_argument('--data', default=os.path.join(HERE, 'data.yaml'))
     ap.add_argument('--epochs', type=int, default=200)
-    ap.add_argument('--imgsz', type=int, default=960,
-                    help='Must be >= the capture width, or you throw away the '
-                         'pixels the whole exercise was about')
+    ap.add_argument('--imgsz', type=int, default=640,
+                    help='Match this to inference. perception/yolo_node.py '
+                         'calls predict() without imgsz, so it runs at the '
+                         'ultralytics default of 640 - training at anything '
+                         'else means the model sees a different object scale '
+                         'in the sim than it trained on. Raise both together '
+                         'or neither.')
     ap.add_argument('--batch', type=int, default=16,
                     help='Per the README: autobatch (-1) is single-GPU only')
     ap.add_argument('--device', default='0')

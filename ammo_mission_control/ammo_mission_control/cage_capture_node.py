@@ -24,10 +24,10 @@ from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PointStamped, PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.srv import ClearEntireCostmap
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, LaserScan
 from std_msgs.msg import Float64
 
@@ -48,7 +48,7 @@ PITCH_UP, PITCH_DOWN = -1.5, 0.0   # bar folded up (driving) / level, claws ~0.0
 GRIP_AHEAD_M = 0.85       # where the closed claw tips meet, ahead of base_link
 CLAW_MOVE_S = 1.5
 CAGE_TOL_M = 0.05         # creep stops when the tool centre is this close to the point
-CAGE_HALF_M = 0.30        # counts as 'under the cage' (45 cm cage + slack)
+CAGE_HALF_M = 0.60        # counts as collected (sim stand-in): covers the quad's 0.2-0.7 m estimate error, not a real claw's reach
 LIFT_SETTLE_S = 5.0
 
 # transit / approach
@@ -84,7 +84,7 @@ class CageCapture(Node):
         self.declare_parameter('exit_on_done', False)
         self.declare_parameter('goals_x', [0.0])  # optional initial waypoints (world frame)
         self.declare_parameter('goals_y', [0.0])
-        # ponytail: trunk list from the world file; should come off the costmap
+        # Trunk list from the world file; should come off the costmap
         self.declare_parameter('trunks', [0.0, 3.0, 5.0, 0.0])
         self.declare_parameter('tool', 'gripper')  # gripper | cage (cage needs the sim launched with cage:=true)
         self.tool = self.get_parameter('tool').value
@@ -107,6 +107,7 @@ class CageCapture(Node):
         self.nav_handle = self.nav_result = None
         self.nav_tries = self.nav_rejects = 0
         self.state, self.state_since = 'DRIVE', 0.0
+        self.idle_stopped = False
 
         # Transit nudges go through collision_guard (cmd_vel_raw); the final creep
         # writes cmd_vel directly - the guard's 1 m stop would veto approaching the
@@ -118,6 +119,7 @@ class CageCapture(Node):
         self.claw_pubs = [self.create_publisher(Float64, f'husky1/claw_{s}/cmd_pos', 10) for s in ('left', 'right')]
         self.pitch_pub = self.create_publisher(Float64, 'husky1/gripper_pitch/cmd_pos', 10)
         self.done_pub = self.create_publisher(PointStamped, 'husky1/cage/done', 10)  # collected or given up
+        self.missed_pub = self.create_publisher(PointStamped, 'husky1/cage/missed', 10)  # gripped, but nothing there
         self.create_subscription(Odometry, 'husky1/odometry', self._odom, LIVE_QOS)
         self.create_subscription(LaserScan, 'husky1/scan', self._scan, LIVE_QOS)
         self.create_subscription(JointState, 'husky1/joint_states', lambda m: self.joints.update(zip(m.name, m.position)), 10)
@@ -125,6 +127,9 @@ class CageCapture(Node):
             self.create_subscription(PointStamped, t, lambda m: self._queue(m.point.x, m.point.y), 10)
         for t in ('husky1/goal_pose', '/goal_pose'):
             self.create_subscription(PoseStamped, t, lambda m: self._queue(m.pose.position.x, m.pose.position.y), 10)
+        self.costmap = None  # Nav2 global costmap (lidar + depth layers): what the rover has actually sensed
+        self.create_subscription(OccupancyGrid, 'husky1/global_costmap/costmap', lambda m: setattr(self, 'costmap', m),
+                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.nav = ActionClient(self, NavigateToPose, 'husky1/navigate_to_pose')
         self.clear_clients = [self.create_client(ClearEntireCostmap, f'husky1/{cm}_costmap/clear_entirely_{cm}_costmap')
                               for cm in ('local', 'global')]
@@ -151,6 +156,7 @@ class CageCapture(Node):
                 self.get_logger().info(f'Waypoint ({tx:.2f},{ty:.2f}) updated to ({x:.2f},{y:.2f}).')
                 return
         self.targets.append((x, y))
+        self.idle_stopped = False
         self.get_logger().info(f'Waypoint queued ({x:.2f},{y:.2f}); {len(self.targets)} in queue.')
 
     def _done(self, x, y):
@@ -213,7 +219,9 @@ class CageCapture(Node):
         self.claw_pubs[1].publish(Float64(data=-self.claw))
         self.pitch_pub.publish(Float64(data=self.pitch))
         if not self.targets:
-            self.cmd_pub.publish(Twist())
+            if not self.idle_stopped:  # one stop, then quiet: a steady stream fought Nav2 goals sent by anyone else
+                self.cmd_pub.publish(Twist())
+                self.idle_stopped = True
             if self.get_parameter('exit_on_done').value and self.state != 'DRIVE':
                 raise KeyboardInterrupt
             return
@@ -333,28 +341,32 @@ class CageCapture(Node):
             self._remove(name)
         self.spawned = [m for m in self.spawned if m[0] not in under]
         self._done(cx, cy)
+        if not under:
+            m = PointStamped()
+            m.header.stamp = self.get_clock().now().to_msg()
+            m.header.frame_id = 'map'
+            m.point.x, m.point.y = cx, cy
+            self.missed_pub.publish(m)
         self.get_logger().info(f'Collected {len(under)} mushroom(s) with the {self.tool}.')
 
     # -- Nav2 -----------------------------------------------------------------
     def _send_nav(self, gx, gy):
-        # standoff candidates every 30 deg around the mushroom, ranked by how far the
-        # rover's FINAL pose (self.ahead short of the mushroom) sits from any trunk -
-        # known ones plus the lidar's nearest return right now - then by distance.
-        # Retries walk down the ranking. A mushroom 0.9 m from a trunk is only
-        # reachable from the side facing away from it.
+        # Standoff candidates every 30 deg around the mushroom, ranked by the worst
+        # Nav2 costmap cost the rover's body meets on its final straight approach
+        # (standoff -> grip pose), then by distance. The costmap holds what the lidar
+        # and depth camera have seen (trunks, fallen trees, logs), so a mushroom in a
+        # gap between two fallen trees is approached along the gap. Retries walk down
+        # the ranking; sides seen as blocked go last. The world-file trunk list is
+        # only a fallback until a costmap has arrived.
         a0 = math.atan2(gy - self.y, gx - self.x)
-        trunks = list(self.trunks)
-        if self.nearest_dir is not None and self.nearest_rng < 6.0:
-            trunks.append((self.x + self.nearest_rng * math.cos(self.yaw + self.nearest_dir),
-                           self.y + self.nearest_rng * math.sin(self.yaw + self.nearest_dir)))
         cands = []
         for k in range(12):
             a = a0 + k * math.pi / 6
             px, py = gx - NAV_STANDOFF_M * math.cos(a), gy - NAV_STANDOFF_M * math.sin(a)
             fx, fy = gx - self.ahead * math.cos(a), gy - self.ahead * math.sin(a)
-            clear = min((math.hypot(fx - tx, fy - ty) for tx, ty in trunks), default=99.0)
-            cands.append((round(min(clear, 3.0), 1), -math.hypot(px - self.x, py - self.y), a))
-        cands.sort(reverse=True)
+            cost = self._approach_cost(px, py, fx, fy)
+            cands.append((cost, -math.hypot(px - self.x, py - self.y), a))
+        cands.sort(key=lambda c: (c[0], -c[1]))
         a = cands[self.nav_tries % 12][2]
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = 'husky1_map'  # == world with truth_localizer; no stamp = latest TF
@@ -368,6 +380,23 @@ class CageCapture(Node):
             return
         self.get_logger().info(f'Nav2 -> ({goal.pose.pose.position.x:.2f},{goal.pose.pose.position.y:.2f}) facing ({gx:.1f},{gy:.1f})')
         self.nav.send_goal_async(goal).add_done_callback(self._nav_accepted)
+
+    def _cost_at(self, x, y):
+        m = self.costmap
+        i = int((x - m.info.origin.position.x) / m.info.resolution)
+        j = int((y - m.info.origin.position.y) / m.info.resolution)
+        if 0 <= i < m.info.width and 0 <= j < m.info.height:
+            return max(0, m.data[j * m.info.width + i])
+        return 100
+
+    def _approach_cost(self, px, py, fx, fy):
+        """Worst costmap cost (0-100; 99 = body touching, 100 = obstacle) along the
+        rover centre's path from (px, py) to (fx, fy) - the costmap's inflation
+        already accounts for the body. Without a costmap, distance to known trunks."""
+        if self.costmap is None:
+            clear = min((math.hypot(fx - tx, fy - ty) for tx, ty in self.trunks), default=99.0)
+            return round(100 - 30 * min(clear, 3.0))
+        return max(self._cost_at(px + (fx - px) * t / 10, py + (fy - py) * t / 10) for t in range(11))
 
     def _nav_accepted(self, fut):
         h = fut.result()

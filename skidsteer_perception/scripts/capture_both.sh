@@ -44,7 +44,9 @@ lane() {
 
     export IGN_PARTITION="$partition" GZ_PARTITION="$partition"
     export ROS_DOMAIN_ID="$domain"
-    source "$WS/install/setup.bash"
+    # colcon's setup.bash reads COLCON_TRACE without a default, which
+# aborts under `set -u`. Relax it just for the sourcing.
+set +u; source "$WS/install/setup.bash"; set -u
 
     rm -rf "$outdir"
 

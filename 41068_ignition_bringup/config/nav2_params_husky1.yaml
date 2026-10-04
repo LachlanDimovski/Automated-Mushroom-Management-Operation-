@@ -129,7 +129,7 @@ controller_server:
       # oscillating in loops. RPP follows the path geometrically and rotates to
       # heading explicitly, which suits a skid-steer.
       plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
-      desired_linear_vel: 0.9  # ponytail: doubled for faster mission-testing iteration; velocity_smoother still caps at 1.0
+      desired_linear_vel: 0.9  # Doubled for faster mission-testing iteration; velocity_smoother still caps at 1.0
       lookahead_dist: 1.0
       min_lookahead_dist: 0.6
       max_lookahead_dist: 1.5
@@ -167,7 +167,22 @@ local_costmap:
       footprint: '[ [0.7, 0.35], [0.7, -0.35], [-0.55, -0.35], [-0.55, 0.35] ]'  # chassis + folded front gripper (cage:=true adds a -1.1 m tail)
       plugins:
       - obstacle_layer
+      - depth_layer
       - inflation_layer
+      depth_layer:  # low obstacles under the lidar plane (logs, stumps) from collision_guard's depth check.
+        # Own layer so the lidar's clearing rays, which pass over a log, cannot erase these marks.
+        plugin: nav2_costmap_2d::ObstacleLayer
+        enabled: true
+        observation_sources: depth
+        depth:
+          topic: /husky1/depth_obstacles
+          data_type: PointCloud2
+          marking: true
+          clearing: false
+          min_obstacle_height: -10.0  # points are already height-filtered against the wheel plane
+          max_obstacle_height: 10.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
         cost_scaling_factor: 3.0
@@ -208,7 +223,22 @@ global_costmap:
       track_unknown_space: false
       plugins:
       - obstacle_layer
+      - depth_layer
       - inflation_layer
+      depth_layer:  # low obstacles under the lidar plane (logs, stumps) from collision_guard's depth check.
+        # Own layer so the lidar's clearing rays, which pass over a log, cannot erase these marks.
+        plugin: nav2_costmap_2d::ObstacleLayer
+        enabled: true
+        observation_sources: depth
+        depth:
+          topic: /husky1/depth_obstacles
+          data_type: PointCloud2
+          marking: true
+          clearing: false
+          min_obstacle_height: -10.0  # points are already height-filtered against the wheel plane
+          max_obstacle_height: 10.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.0
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
