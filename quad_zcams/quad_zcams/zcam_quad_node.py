@@ -24,6 +24,7 @@ from std_msgs.msg import Float32
 
 from ammo_mission_control import quad_search_node as qs
 from ammo_mission_control.drive_utils import steer_angular
+from ammo_mission_control import ground_projection as gp
 from ammo_mission_control.ground_projection import CAM_FWD_M, CAM_PITCH_RAD, CAM_UP_M, FOCAL_PX, IMG_H, IMG_W
 from quad_zcams import obstacle_map, shared_map
 
@@ -191,6 +192,7 @@ class ZCamQuad(qs.QuadSearchController):
             pass
         t0 = time.time()
         pts = obstacle_map.world_obstacle_points(sdf, band=self.band, extra_dirs=extra)
+        self.terrain = obstacle_map.Terrain(open(sdf).read(), obstacle_map._model_dirs(sdf, extra))
         square = self.square = obstacle_map.boundary_square(sdf)
         ring = self.ring = None if square else obstacle_map.boundary_ring(sdf)
         xs = [abs(v) for w in self.waypoints for v in w] + ([abs(v) for v in self.area[:4]] if self.area else [])
@@ -478,6 +480,22 @@ class ZCamQuad(qs.QuadSearchController):
                 best = (key, (hx, hy))
         self.hold_tried.append(best[1])
         return best[1]
+
+    def _project(self, det):
+        """March the camera ray to the heightmap: the depth camera sees leaf cards as solid (bank ferns put
+        mushroom_06 2.2 m short, in the river - river8/10) and flat ground misses on the banks."""
+        terrain = getattr(self, 'terrain', None)
+        if terrain is None or terrain.img is None:
+            return super()._project(det)
+        c, w = gp._camera_ray(self.x, self.y, self.yaw, self.z_abs, det.bbox.center.position.x,
+                              det.bbox.center.position.y)
+        if w[2] >= 0.0:
+            return None
+        n = math.sqrt(w[0] ** 2 + w[1] ** 2 + w[2] ** 2)
+        t = np.arange(0.2, gp.MAX_PROJECT_RANGE_M * 1.5, 0.02)[:, None] * np.array(w) / n + np.array(c)
+        hor = np.hypot(t[:, 0] - c[0], t[:, 1] - c[1]) <= gp.MAX_PROJECT_RANGE_M
+        below = np.nonzero(hor & (t[:, 2] <= terrain.z(t[:, 0], t[:, 1]) + gp.TARGET_HEIGHT_M))[0]
+        return (float(t[below[0], 0]), float(t[below[0], 1])) if below.size else None
 
     def _gated_projection(self, msg):
         """det_range: a 10 px box 6.5 m off projects metres out on uneven ground - one put a waypoint in the pond
