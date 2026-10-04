@@ -326,12 +326,13 @@ def build(args):
     # bank dressing: boulders half-buried at the waterline, ferns and shrubs on the banks, stones in the bed
     for f in fords:   # stepping-stone boulders along the ford's upstream and downstream lips, lane left clear
         k = int(np.searchsorted(seg_idx, f))
+        t = np.gradient(line, axis=0)[f]
+        t = t / np.linalg.norm(t)
         for lip in (-1, 1):
-            # rock centres on the causeway edge (2.2 m either side of the ford centreline), spanning bank to bank
-            kk = k + lip * int(round(2.2 / np.linalg.norm(seg[min(k + 1, len(seg) - 1)] - seg[k])))
-            kk = int(np.clip(kk, 0, len(seg) - 1))
+            # rock centres 2.9 m either side of the ford centreline, straight along its tangent: stepping along the
+            # river line put the SW ford's rocks 1.4 m in on its bend, and the rover wedged between them (river11)
             for a in np.linspace(-1, 1, 5):
-                p = seg[kk] + nrm[kk] * a * w[kk]
+                p = line[f] + t * lip * 2.9 + np.array([-t[1], t[0]]) * a * w[min(k, len(w) - 1)]
                 put('boulder_01', p[0], p[1], sink=rng.uniform(0.15, 0.3))
     for k in rng.choice(len(seg), args.bank_rocks, replace=False):
         side = rng.choice([-1, 1])
