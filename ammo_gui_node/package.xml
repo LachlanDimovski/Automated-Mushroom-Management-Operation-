@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ammo_gui_node</name>
+  <version>0.2.0</version>
+  <description>
+    Operator GUI and Debug UI for the AMMO mission. Two PySide6 windows plus
+    a small bridge node that turns what the mission nodes already publish and
+    log into one status feed both windows read.
+  </description>
+  <maintainer email="danil.vasiliev@gmail.com">Danil</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>vision_msgs</depend>
+  <depend>action_msgs</depend>
+  <depend>nav2_msgs</depend>
+
+  <!-- PySide6 is deliberately not listed: it is a pip package with no rosdep
+       key, so rosdep would fail on it. Install it once per machine with
+       `pip3 install PySide6`. See the README. -->
+
+  <exec_depend>ammo_mission_control</exec_depend>
+  <exec_depend>skidsteer_controller</exec_depend>
+  <exec_depend>41068_ignition_bringup</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
