@@ -55,7 +55,10 @@ def _cage_mission():
                                         'fast_pickup': LaunchConfiguration('fast_pickup').perform(context).lower() == 'true',
                                         'inflation': float(LaunchConfiguration('inflation').perform(context)),
                                         'river_meta': meta if os.path.exists(meta) else '',
-                                        'quad_routes': LaunchConfiguration('quad_routes').perform(context).lower() == 'true'}])]
+                                        'quad_routes': LaunchConfiguration('quad_routes').perform(context).lower() == 'true',
+                                        'rover_speed': float(LaunchConfiguration('rover_speed').perform(context)),
+                                        'ford_speed': float(LaunchConfiguration('ford_speed').perform(context)),
+                                        'turn_speed': float(LaunchConfiguration('turn_speed').perform(context))}])]
     mod._nodes = _nodes
     return mod.generate_launch_description()
 
@@ -98,12 +101,12 @@ def generate_launch_description():
                           ('planner', 'true'),         # false = the first z-camera trial (straight legs)
                           ('cruise_alt', '1.0'), ('clearance', '0.6'),  # under the leaf-mesh canopies
                           ('imgsz', '640'),            # quad YOLO input; at 384 caps further than ~2 m were missed
-                          # quad search (defaults: the 24/24 configuration)
+                          # quad search (defaults: the 24/24 configuration; speeds from the river speed3 runs)
                           ('row_spacing', '3.0'),      # lawnmower rows (center_out loops use it too)
                           ('center_out', 'true'),      # square loops from the spawn outward instead of rows
                           ('cover_range', '2.2'),      # ground counts as searched within this of the quad
                           ('strafe', 'false'),         # true = keep moving while turning at corners (cost sightings)
-                          ('cruise_speed', '1.0'),     # quad top speed on planned paths (m/s)
+                          ('cruise_speed', '1.4'),     # quad top speed on planned paths (m/s)
                           ('eager_hold', 'true'),      # hold on a lone sighting even while turning
                           ('fast_dispatch', 'true'),   # shorter holds: 2 waypoints 1 s apart
                           ('det_range', '3.0'),        # ignore sightings projecting farther than this (m); 0 = off
@@ -112,7 +115,10 @@ def generate_launch_description():
                           ('nearest_first', 'true'),   # take the nearest queued mushroom next
                           ('fast_pickup', 'true'),     # looser creep tolerance, shorter settle and claw moves
                           ('inflation', '0.9'),        # costmap inflation radius set at startup (Nav2 yaml: 1.5)
-                          ('quad_routes', 'true')):    # route on the quad's map from the first attempt
+                          ('quad_routes', 'true'),     # route on the quad's map from the first attempt
+                          ('rover_speed', '1.3'),      # Nav2 cruise speed (m/s) set at startup; 0 = the yaml's 0.9
+                          ('ford_speed', '0.8'),       # ford lane speed (m/s)
+                          ('turn_speed', '1.2')):      # turn-in-place rate (rad/s); 0 = the yaml's 0.6
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
     # everything but the stock quad (its URDF and search node are swapped for the z-camera ones below)
     ld.add_action(IncludeLaunchDescription(LaunchDescriptionSource(_cage_mission()),

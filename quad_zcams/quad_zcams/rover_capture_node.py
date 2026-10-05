@@ -73,7 +73,17 @@ FORD_TRIGGER_M = 5.0
 FORD_SPEED = 0.3
 FORD_PAST_M = 3.5         # past the far edge of the bank zone before Nav2 takes over again
 FORD_SLACK = 1.5          # timeout: the lane's length at FORD_SPEED times this, plus 5 s
-EMPTY_R_M = 1.5           # handoffs this close to a spot already found empty are dropped          # via points at least this far apart along the detour
+EMPTY_R_M = cc.CAGE_HALF_M  # handoffs this close to a spot already found empty are dropped: only what the grab
+#   covered (at 1.5 m a 0.55 m-off handoff blocked the quad's correct one 0.63 m away for the rest of the run - defaults2)
+
+
+def _dbl(name, v):
+    return Parameter(name=name, value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=float(v)))
+
+
+def _dbls(name, vs):
+    return Parameter(name=name, value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE_ARRAY,
+                                                     double_array_value=[float(v) for v in vs]))
 
 
 class _ShapedPublisher:
@@ -106,6 +116,11 @@ class RoverCapture(cc.CageCapture):
         self.river_fords = json.load(open(meta))['fords'] if self.river else []
         self.river_mask = None
         self.declare_parameter('inflation', 0.0)  # > 0: costmap inflation radius set at startup (the yaml has 1.5)
+        self.declare_parameter('rover_speed', 0.0)  # > 0: Nav2 cruise speed set at startup (the yaml has 0.9)
+        self.declare_parameter('ford_speed', FORD_SPEED)
+        self.declare_parameter('turn_speed', 0.0)  # > 0: Nav2's turn-in-place rate (yaml 0.6) and the ford lane's turn cap
+        self.ford_turn = max(0.8, float(self.get_parameter('turn_speed').value))
+        globals()['FORD_SPEED'] = float(self.get_parameter('ford_speed').value)  # read at run time
         self.nearest_first = bool(self.get_parameter('nearest_first').value)
         self.map_deferred = set()
         self.via_queue = []
@@ -125,23 +140,31 @@ class RoverCapture(cc.CageCapture):
         if not self.nav.server_is_ready():
             self._start_nav2()
         if self.get_parameter('inflation').value > 0.0:
-            self._set_inflation(float(self.get_parameter('inflation').value))
+            # Pines' leaf cards read as solid to the lidar and depth camera; 1.5 m of inflation round each closed the
+            # corridors between them (t24b: 6 dispatched, 3 reached)
+            radius = float(self.get_parameter('inflation').value)
+            for costmap in ('local_costmap/local_costmap', 'global_costmap/global_costmap'):
+                self._set_remote(costmap, [_dbl('inflation_layer.inflation_radius', radius)])
+        turn = float(self.get_parameter('turn_speed').value)
+        if turn > 0.0:
+            self._set_remote('controller_server', [_dbl('FollowPath.rotate_to_heading_angular_vel', turn)])
+        speed = float(self.get_parameter('rover_speed').value)
+        if speed > 0.0:
+            self._set_remote('controller_server', [_dbl('FollowPath.desired_linear_vel', speed)])
+            self._set_remote('velocity_smoother', [_dbls('max_velocity', [speed + 0.1, 0.0, 1.5]),
+                                                   _dbls('min_velocity', [-(speed + 0.1), 0.0, -1.5])])
 
-    def _set_inflation(self, radius):
-        """Pines' leaf cards read as solid to the lidar and depth camera; 1.5 m of inflation round each closed the
-        corridors between them (t24b: 6 dispatched, 3 reached)."""
-        helper = rclpy.create_node('inflation_setter')
-        p = Parameter(name='inflation_layer.inflation_radius',
-                      value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=radius))
-        for costmap in ('local_costmap/local_costmap', 'global_costmap/global_costmap'):
-            cli = helper.create_client(SetParameters, f'husky1/{costmap}/set_parameters')
-            ok = cli.wait_for_service(timeout_sec=10.0)
-            if ok:
-                f = cli.call_async(SetParameters.Request(parameters=[p]))
-                rclpy.spin_until_future_complete(helper, f, timeout_sec=10.0)
-                ok = f.result() is not None and all(r.successful for r in f.result().results)
-            self.get_logger().info(f'{costmap} inflation radius {radius:.2f} m: {"set" if ok else "FAILED"}')
+    def _set_remote(self, node, params):
+        helper = rclpy.create_node('param_setter')
+        cli = helper.create_client(SetParameters, f'husky1/{node}/set_parameters')
+        ok = cli.wait_for_service(timeout_sec=10.0)
+        if ok:
+            f = cli.call_async(SetParameters.Request(parameters=params))
+            rclpy.spin_until_future_complete(helper, f, timeout_sec=10.0)
+            ok = f.result() is not None and all(r.successful for r in f.result().results)
+        self.get_logger().info(f'{node} {", ".join(p.name for p in params)}: {"set" if ok else "FAILED"}')
         helper.destroy_node()
+
 
     def _start_nav2(self):
         """The lifecycle manager can hang at startup on a lost change_state reply (1 run in 51), leaving Nav2
@@ -335,6 +358,8 @@ class RoverCapture(cc.CageCapture):
                                    f'spot(s) - letting Nav2 choose.')
             return super()._send_nav(gx, gy)
         vias, last = [], (self.x, self.y)
+        if self.river:
+            path = self._ford_vias(path)
         for p in path[:-1]:
             # tighter near water: Nav2 cuts the corner between via points, and a 3 m cut put it on a ford's bank
             if math.hypot(p[0] - last[0], p[1] - last[1]) >= (VIA_STEP_M / 2 if self.river else VIA_STEP_M):
@@ -346,6 +371,29 @@ class RoverCapture(cc.CageCapture):
         self.get_logger().info(f'Nav2 -> ({sx:.2f},{sy:.2f}) facing ({gx:.1f},{gy:.1f}) through {len(vias)} via point(s) '
                                f"on the quad's map ({len(self.bad)} spot(s) where Nav2 failed before).")
         self._nav_to(*self.via_queue.pop(0))
+
+    def _ford_vias(self, path):
+        """The smoothed path's straight legs can run through a ford with no point near it, and Nav2 then picks its
+        own way over to the far side - onto a bank and into the water (defaults run02). Fill the legs in every
+        VIA_STEP_M / 2 and keep one point on the near bank inside FORD_TRIGGER_M, so the ford lane takes over."""
+        out, prev = [], (self.x, self.y)
+        for p in path:
+            n = max(1, int(math.hypot(p[0] - prev[0], p[1] - prev[1]) / (VIA_STEP_M / 2)))
+            for s in range(1, n + 1):
+                q = (prev[0] + (p[0] - prev[0]) * s / n, prev[1] + (p[1] - prev[1]) * s / n)
+                near = [k for k, (fx, fy) in enumerate(self.river_fords)
+                        if math.hypot(q[0] - fx, q[1] - fy) < FORD_TRIGGER_M]
+                if near and q != p:
+                    k = near[0]
+                    r = min(self.river['line'], key=lambda c: math.hypot(c[0] - self.river_fords[k][0],
+                                                                         c[1] - self.river_fords[k][1]))[2]
+                    across = self._lane(k, *q)[1]
+                    if abs(across) < r - 0.4 or (out and math.hypot(out[-1][0] - self.river_fords[k][0],
+                                                              out[-1][1] - self.river_fords[k][1]) < FORD_TRIGGER_M):
+                        continue  # in the lane, or the approach point is already in
+                out.append(q)
+            prev = p
+        return out
 
     def _unwedge_step(self):
         """Reverse along the rover's own track (unguarded: the guard reads the foliage it is in as a wall all round)."""
@@ -489,7 +537,7 @@ class RoverCapture(cc.CageCapture):
         aim_x = self.x + ax * 1.5 - tx * along  # 1.5 m ahead on the lane's centreline
         aim_y = self.y + ay * 1.5 - ty * along
         err = math.remainder(math.atan2(aim_y - self.y, aim_x - self.x) - self.yaw, 2 * math.pi)
-        cmd.angular.z = max(-0.8, min(0.8, 1.5 * err))
+        cmd.angular.z = max(-self.ford_turn, min(self.ford_turn, 1.5 * err))
         cmd.linear.x = FORD_SPEED if abs(err) < 0.5 else 0.0
         self.cmd_pub_unguarded.publish(cmd)
 
