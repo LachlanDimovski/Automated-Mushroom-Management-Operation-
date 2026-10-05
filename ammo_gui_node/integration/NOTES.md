@@ -64,15 +64,16 @@ information that already exists reachable by other nodes.
 
 ## 3. Things worth knowing either way
 
-- `simple_trees.sdf` contains no mushrooms. Every demo mushroom is spawned
-  at runtime, which is what lets the layout be chosen in the GUI.
+- `simple_trees.sdf` contains no mushrooms; the GUI's layout is passed to
+  `cage_mission.launch.py` as `mushrooms:=`. forest_flat, forest_random and
+  the river worlds already contain theirs.
 - Both robots use Gazebo's `VelocityControl` plugin, which holds the last
   velocity it was given indefinitely. Anything that stops commanding a robot
   has to send an explicit zero, or it keeps going.
 - `yolo_node` is capped at 2 Hz, so the annotated image is not usable as a
   live view. The Debug UI shows the raw cameras and only grabs an annotated
   frame at the moment of a sighting.
-- The GUI starts the mission nodes as individual `ros2 run` processes rather
-  than through `cage_mission.launch.py`, because that launch file also
-  brings up the simulation. `ammo_gui_node/launch/mission.launch.py` is the
-  same node set without the sim, if you want to run a mission without the GUI.
+- The GUI runs `cage_mission.launch.py` as one process group and pauses by
+  stopping the mission node processes inside it (`mission_launcher.py`).
+  With the default `quad:=zcam` the rover node is `rover_capture_node`, a
+  subclass of `cage_capture_node` with the same node name and log lines.
