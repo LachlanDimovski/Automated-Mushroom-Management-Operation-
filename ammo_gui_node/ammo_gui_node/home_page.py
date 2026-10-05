@@ -1,9 +1,8 @@
 """Setup page: pick the world, the mushrooms and who drives the rover.
 
 Everything variable about a run is decided here rather than typed as launch
-arguments. That is possible because `simple_trees.sdf` contains no mushrooms
-at all - they are spawned into the running world one at a time - so the
-layout is genuinely free to change between runs without touching Gazebo.
+arguments. Listed mushrooms are spawned by cage_mission.launch.py; worlds that
+already contain mushrooms also offer them as a preset.
 
 The coordinate rows are editable on purpose: a saved layout is the starting
 point, not a cage. Edit a pair, add a row, delete one, and press Launch.
@@ -12,13 +11,12 @@ import json
 import os
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QHBoxLayout, QLabel,
                                QLineEdit, QPushButton, QRadioButton, QScrollArea,
                                QVBoxLayout, QWidget)
 
 from ammo_gui_node import cards, theme
-
-WORLDS = ['simple_trees', 'forest_flat', 'forest_random', 'large_demo']
+from ammo_gui_node.mission_launcher import WORLDS, world_available, world_mushrooms
 
 FORMAT_HINT = ('Each mushroom is  x, y  in metres from the middle of the world.   '
                'Decimals optional:   0.0, 0.0   ·   1, 3   ·   -4, 5.9')
@@ -34,7 +32,13 @@ BUILTIN_LAYOUTS = {
 
 
 def load_layouts(world):
-    """Presets from layouts/<world>.json, falling back to the built-ins."""
+    """The world's own mushrooms (if any), then layouts/<world>.json or the built-ins."""
+    own = world_mushrooms(world)
+    first = [{'name': f"World's own {len(own)} mushrooms", 'mushrooms': own, 'in_world': True}] if own else []
+    return first + _saved_layouts(world)
+
+
+def _saved_layouts(world):
     try:
         from ament_index_python.packages import get_package_share_directory
         path = os.path.join(get_package_share_directory('ammo_gui_node'),
@@ -170,11 +174,11 @@ class HomePage(QWidget):
         col.setSpacing(6)
         col.addWidget(cards.section('WORLD / TERRAIN'))
         self.world_box = QComboBox()
-        self.world_box.addItems(WORLDS)
+        self.world_box.addItems([w for w in WORLDS if world_available(w)])
         self.world_box.currentTextChanged.connect(self._load_world_layouts)
         col.addWidget(self.world_box)
-        col.addWidget(cards.label(
-            'Must match the world you launched in terminal 1.', 'Faint'))
+        self.show_sim = QCheckBox('Show the Gazebo window')
+        col.addWidget(self.show_sim)
         row.addLayout(col, 2)
 
         col = QVBoxLayout()
@@ -183,7 +187,6 @@ class HomePage(QWidget):
         self.tool_box = QComboBox()
         self.tool_box.addItems(['gripper', 'cage'])
         col.addWidget(self.tool_box)
-        col.addWidget(cards.label('cage needs the sim launched with cage:=true.', 'Faint'))
         row.addLayout(col, 1)
         lay.addLayout(row)
 
@@ -302,27 +305,11 @@ class HomePage(QWidget):
         lay.setContentsMargins(22, 22, 22, 22)
         lay.setSpacing(14)
 
-        lay.addWidget(cards.section('ALREADY RUNNING · TERMINAL 1'))
-        code = cards.panel(deep=True)
-        clay = QVBoxLayout(code)
-        clay.setContentsMargins(13, 12, 13, 12)
-        cmd = cards.label(
-            'ros2 launch 41068_ignition_bringup \\\n'
-            '  41068_ignition.launch.py \\\n'
-            '  world:=simple_trees parrot:=true \\\n'
-            '  nav2:=true husky_yolo:=true \\\n'
-            '  ground_truth_localization:=true')
-        cmd.setStyleSheet(
-            f'color: {theme.GREEN_SOFT}; font-family: {theme.MONO}; font-size: 12px;')
-        cmd.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        clay.addWidget(cmd)
-        lay.addWidget(code)
-
-        lay.addWidget(cards.hline())
         lay.addWidget(cards.section('WHAT LAUNCH DOES'))
-        for line in ('1.  Spawns the mushrooms listed on the left',
-                     '2.  Starts the quadcopter and rover mission nodes',
-                     '3.  Starts the mission clock and opens the operator view'):
+        for line in ('1.  Starts Gazebo, Nav2 and both robots in the chosen world',
+                     '2.  Spawns the mushrooms listed on the left',
+                     '3.  Starts the quadcopter search and the rover capture',
+                     '4.  Starts the mission clock and opens the operator view'):
             item = cards.label(line, 'Dim')
             item.setWordWrap(True)
             lay.addWidget(item)
@@ -333,8 +320,8 @@ class HomePage(QWidget):
         lay.addWidget(self.status_note)
 
         tail = cards.label(
-            'Ending a mission stops the mission nodes only. The simulation in '
-            'terminal 1 keeps running, so the next run does not wait for Gazebo.',
+            'The simulation takes about 30 s to come up (longer for river worlds). '
+            'Ending a mission closes it again.',
             'Faint')
         tail.setWordWrap(True)
         lay.addWidget(tail)
@@ -342,7 +329,7 @@ class HomePage(QWidget):
 
     # -- rows ---------------------------------------------------------------
     def _load_world_layouts(self):
-        world = self.world_box.currentText() if hasattr(self, 'world_box') else WORLDS[0]
+        world = self.world_box.currentText() if hasattr(self, 'world_box') else 'simple_trees'
         self._layouts = load_layouts(world)
         self.layout_box.blockSignals(True)
         self.layout_box.clear()
@@ -399,7 +386,13 @@ class HomePage(QWidget):
             'layout': self.layout_box.currentText(),
             'mode': 'manual' if self.manual_radio.isChecked() else 'autonomous',
             'points': self.points(),
+            'spawn': not self._current_layout().get('in_world', False),
+            'show_sim': self.show_sim.isChecked(),
         })
+
+    def _current_layout(self):
+        idx = self.layout_box.currentIndex()
+        return self._layouts[idx] if 0 <= idx < len(self._layouts) else {}
 
     def set_note(self, text):
         self.status_note.setText(text)

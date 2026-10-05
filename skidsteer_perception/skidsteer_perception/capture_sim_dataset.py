@@ -47,6 +47,7 @@ mushroom directly below the drone is already at slant range ~hover_z, and
 anything past the labelling floor cannot be captured at all. The script
 reports its usable range at startup - if that range is empty, fly lower.
 """
+import json
 import math
 import os
 import random
@@ -89,6 +90,9 @@ PLATFORMS = {
 TARGETS = {
     'mushroom_amanita': dict(
         cls=0, mesh=np.array([0.30, 0.30, 0.40]), sdf_scaled=True,
+        min_range=0.8, yaw_matters=False),
+    'mushroom_native': dict(
+        cls=1, mesh=np.array([0.30, 0.30, 0.40]), sdf_scaled=True,
         min_range=0.8, yaw_matters=False),
     'walking_person': dict(
         cls=1, mesh=np.array([0.546, 0.882, 1.896]), sdf_scaled=False,
@@ -304,6 +308,17 @@ class Capturer(Node):
         self.stop_pub = self.create_publisher(Twist, f'/{self.robot}/cmd_vel', 10)
 
         self.names = [f'cap_{self.target}_{i}' for i in range(self.n_mush)]
+        self.ground = lambda x, y: 0.0
+        self.spots = []
+        # A generated world's .sdf: mushrooms sit on its heightmap and the
+        # robot hops between the open spots listed in its .meta.json.
+        sdf = self.declare_parameter('world_sdf', '').value
+        if sdf:
+            from quad_zcams.obstacle_map import Terrain, _model_dirs
+            terrain = Terrain(open(sdf).read(), _model_dirs(sdf))
+            self.ground = lambda x, y: float(terrain.z(x, y))
+            meta = json.load(open(sdf[:-4] + '.meta.json'))
+            self.spots = [(m['x'], m['y']) for m in meta['mushrooms'] + meta.get('natives', [])]
         self.rng = random.Random(seed)
         self.saved = 0
 
@@ -368,7 +383,7 @@ class Capturer(Node):
         apparent size, which is the axis detection difficulty actually follows.
         """
         yaw = math.atan2(R[1, 0], R[0, 0])   # ground heading of the optical axis
-        drop = cam_pos[2] - self.size[2] / 2.0
+        drop = cam_pos[2] - self.ground(cam_pos[0], cam_pos[1]) - self.size[2] / 2.0
         pts = []
         for _ in range(self.n_mush):
             for _ in range(60):
@@ -405,13 +420,14 @@ class Capturer(Node):
         Rt, boxes, unlabelled = R.T, [], 0
         for (mx, my, hdg) in pts:
             hx, hy, hz = self.size[0] / 2, self.size[1] / 2, self.size[2]
+            gz = self.ground(mx, my)
             # Footprint corners in the model's own frame, then turned by its
             # heading. Skipping the rotation would box a side-on person with
             # a front-on footprint and lose most of a shoulder.
             ch, sh = math.cos(hdg), math.sin(hdg)
             corners = np.array([[mx + sx * hx * ch - sy * hy * sh,
                                  my + sx * hx * sh + sy * hy * ch,
-                                 sz]
+                                 sz + gz]
                                 for sx in (-1, 1) for sy in (-1, 1)
                                 for sz in (0.0, hz)])
             loc = (Rt @ (corners - cam_pos).T).T
@@ -595,8 +611,11 @@ class Capturer(Node):
                 self.stop_pub.publish(Twist())
                 ang = self.rng.uniform(0, 2 * math.pi)
                 rad = self.rng.uniform(0.0, self.roam_radius)
-                move(w, self.robot, rad * math.cos(ang), rad * math.sin(ang),
-                     self.hover_z, self.rng.uniform(-math.pi, math.pi))
+                cx, cy = rad * math.cos(ang), rad * math.sin(ang)
+                if self.spots:      # known-open ground, clear of trunks and water
+                    cx, cy = self.rng.choice(self.spots)
+                move(w, self.robot, cx, cy, self.ground(cx, cy) + self.hover_z,
+                     self.rng.uniform(-math.pi, math.pi))
                 self.fresh_frame(settle=1.5)
                 self.stop_pub.publish(Twist())
 
@@ -608,7 +627,7 @@ class Capturer(Node):
             cam_pos, R = cam
             pts = self.place_in_view(cam_pos, R)
             for n, (x, y, hdg) in zip(self.names, pts):
-                move(w, n, x, y, 0.0, hdg)
+                move(w, n, x, y, self.ground(x, y), hdg)
 
             frame = self.fresh_frame()
             if frame is None:

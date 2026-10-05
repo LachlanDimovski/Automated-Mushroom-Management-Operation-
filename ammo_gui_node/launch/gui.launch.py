@@ -2,15 +2,7 @@
 
     ros2 launch ammo_gui_node gui.launch.py
 
-The simulation is NOT started here - bring that up once in its own terminal
-and leave it running:
-
-    ros2 launch 41068_ignition_bringup 41068_ignition.launch.py \
-        world:=simple_trees parrot:=true nav2:=true husky_yolo:=true \
-        ground_truth_localization:=true
-
-The mission nodes are not started here either; the GUI starts them itself
-when you press Launch, so it can pause and resume them individually.
+The simulation and mission are started from the GUI's Launch button.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument

@@ -35,4 +35,6 @@ PY
 
 python3 make_textures.py
 for p in sparse moderate dense hilly; do python3 build_world.py --preset "$p"; done
+python3 make_gums.py
+python3 build_world.py --preset moderate --flora australian   # the mushroom demo world (demo_river.sh)
 echo "done - open one with: ./view.sh moderate"

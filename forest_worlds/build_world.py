@@ -14,6 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.path.join(HERE, 'models')
 ASSETS = os.path.join(HERE, 'world_assets')
 TEX = os.path.join(HERE, 'textures')
+BRINGUP_MODELS = os.path.join(HERE, '..', '41068_ignition_bringup', 'models')
 
 
 def noise2(rng, n, octaves=5):
@@ -114,6 +115,9 @@ def build(args):
     X, Y = np.meshgrid(xs, xs)
 
     line = river_centreline(rng, half)
+    y0 = float(np.interp(0.0, line[:, 0], line[:, 1]))
+    if abs(y0) < 9.0:   # robots spawn at the origin: keep the river at least 9 m from it
+        line[:, 1] += (9.0 - abs(y0)) * (1 if y0 >= 0 else -1)
     d, near = dist_to_line(X, Y, line)
     width = 2.6 + 0.7 * np.sin(line[:, 0] / 7.0 + 1.3)    # half-width of the water, varies along the river
     hw = width[near]
@@ -149,6 +153,12 @@ def build(args):
     rb = rb * rb * (3 - 2 * rb)
     graded = tf + (Z - tf) * rb + 0.03 * noise2(np.random.default_rng(args.seed + 2), n, 3)
     Z = np.where(d < hw + 3.5, Z * (1 - wa) + graded * wa, Z)
+    # spawn clearing: ground at z = 0 within 4 m of the origin, blending back to the terrain over 3 m
+    z0 = float(Z[grid(0.0, 0.0)])
+    Z -= z0
+    lv_line = lv_line - z0          # the water and fords move down with the terrain
+    rc = np.clip((np.hypot(X, Y) - 4.0) / 3.0, 0, 1)
+    Z = Z * rc * rc * (3 - 2 * rc)
 
     # mesh
     V = np.stack([X.ravel(), Y.ravel(), Z.ravel()], 1)
@@ -173,16 +183,25 @@ def build(args):
     os.makedirs(os.path.join(tdir, 'mesh'), exist_ok=True)
     os.makedirs(os.path.join(tdir, 'materials'), exist_ok=True)
     texs = ['river_small_rocks', 'brown_mud_leaves_01', 'forest_leaves_04', 'forest_ground_04']
+    if args.flora == 'australian':   # dry eucalypt leaf litter instead of pine needles
+        texs = ['river_small_rocks', 'brown_mud_leaves_01', 'dry_decay_leaves', 'leaves_forest_ground']
     for tx in texs:
         for k in ('diff', 'nor_gl', 'rough'):
             shutil.copy(os.path.join(TEX, f'{tx}_{k}.jpg'), os.path.join(tdir, 'materials'))
     vis = []
+    if args.ground == 'green':
+        shutil.copy(os.path.join(BRINGUP_MODELS, 'grass_plane', 'materials', 'textures', 'empty_grass.png'),
+                    os.path.join(tdir, 'materials'))
     for c, tx in enumerate(texs):
         Fi = F[cls == c]
         if len(Fi):
             write_obj(os.path.join(tdir, 'mesh', f'{tx}.obj'), *sub_mesh(V, UV, N, Fi))
+            mat = pbr(tx)
+            if args.ground == 'green' and c > 0:   # the grass the team's YOLO was trained on (bringup grass_plane)
+                mat = ('<material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse><pbr><metal>'
+                       '<albedo_map>model://river_terrain/materials/empty_grass.png</albedo_map></metal></pbr></material>')
             vis.append(f'<visual name="{tx}"><geometry><mesh><uri>model://river_terrain/mesh/{tx}.obj</uri></mesh>'
-                       f'</geometry>{pbr(tx)}<cast_shadows>false</cast_shadows></visual>')
+                       f'</geometry>{mat}<cast_shadows>false</cast_shadows></visual>')
     # physics only needs a coarse ground: every 4th vertex (1.2 m grid, ~5k triangles instead of ~80k)
     st = 4
     cidx = np.arange(n)[::st]
@@ -196,6 +215,12 @@ def build(args):
               np.tile([0.0, 0.0, 1.0], (cn * cn, 1)), Fc)
     vis.append(hedge_core(tdir, half - 0.9, lambda x, y: Z[np.clip(np.round((y + half) / res).astype(int), 0, n - 1),
                                                           np.clip(np.round((x + half) / res).astype(int), 0, n - 1)], rng))
+    # the quad planner (quad_zcams obstacle_map) reads terrain height from a heightmap.png plus <heightmap> size/pos
+    from PIL import Image
+    zmin, zspan = float(Z.min()), float(np.ptp(Z))
+    Image.fromarray(np.round((Z[::-1] - zmin) / zspan * 255).astype(np.uint8)).save(os.path.join(tdir, 'heightmap.png'))
+    vis.append(f'<!-- planner heightmap: <heightmap><size>{args.size} {args.size} {zspan:.3f}</size>'
+               f'<pos>0 0 {zmin:.3f}</pos></heightmap> -->')
     model_files(tdir, 'river_terrain', ''.join(vis))
 
     def height(x, y):
@@ -240,6 +265,8 @@ def build(args):
     cat = {c: sorted(os.listdir(os.path.join(MODELS, c))) for c in os.listdir(MODELS)}
     big_trees = [t for t in cat['tree'] if 'sapling' not in t]
     saplings = [t for t in cat['tree'] if 'sapling' in t]
+    if args.flora == 'australian':   # procedural gums (make_gums.py); no conifers
+        big_trees = saplings = cat['gum']
 
     seg_idx = np.where(in_map)[0]
 
@@ -259,11 +286,19 @@ def build(args):
         return dd[0] - (2.6 + 0.7 * math.sin(line[ii[0], 0] / 7.0 + 1.3))
 
     placed = []
-    tree_set = set(cat['tree'])
+    tree_set = set(cat['tree']) | set(cat.get('gum', []))
     colliders = ['<collision name="ground"><geometry><mesh><uri>model://river_terrain/mesh/collision.obj</uri>'
                  '</mesh></geometry></collision>']
 
+    obstacles = []
+
     def put(model, x, y, z=None, yaw=None, sink=0.0, collide=True):
+        if math.hypot(x, y) < 5.0:
+            return
+        if args.ground == 'green':   # reddish-brown rocks read as caps to the team YOLO: use the grey ones
+            model = {'boulder_01': 'rock_moss_set_02', 'rock_07': 'stone_01'}.get(model, model)
+        if collide and model_collisions(model):
+            obstacles.append((x, y))
         z = float(height(x, y)) - sink if z is None else z
         yaw = rng.uniform(0, 6.283) if yaw is None else yaw
         for k, (pose, geom) in enumerate(model_collisions(model) if collide else []):   # gathered into one static model below
@@ -291,12 +326,13 @@ def build(args):
     # bank dressing: boulders half-buried at the waterline, ferns and shrubs on the banks, stones in the bed
     for f in fords:   # stepping-stone boulders along the ford's upstream and downstream lips, lane left clear
         k = int(np.searchsorted(seg_idx, f))
+        t = np.gradient(line, axis=0)[f]
+        t = t / np.linalg.norm(t)
         for lip in (-1, 1):
-            # rock centres on the causeway edge (2.2 m either side of the ford centreline), spanning bank to bank
-            kk = k + lip * int(round(2.2 / np.linalg.norm(seg[min(k + 1, len(seg) - 1)] - seg[k])))
-            kk = int(np.clip(kk, 0, len(seg) - 1))
+            # rock centres 2.9 m either side of the ford centreline, straight along its tangent: stepping along the
+            # river line put the SW ford's rocks 1.4 m in on its bend, and the rover wedged between them (river11)
             for a in np.linspace(-1, 1, 5):
-                p = seg[kk] + nrm[kk] * a * w[kk]
+                p = line[f] + t * lip * 2.9 + np.array([-t[1], t[0]]) * a * w[min(k, len(w) - 1)]
                 put('boulder_01', p[0], p[1], sink=rng.uniform(0.15, 0.3))
     for k in rng.choice(len(seg), args.bank_rocks, replace=False):
         side = rng.choice([-1, 1])
@@ -342,6 +378,7 @@ def build(args):
     # perimeter hedge: two staggered rows of 1 m shrubs and ferns just inside the map edge, so lidar/depth see a wall
     # and the robots never drive off; physics gets four long boxes in the shared collider link
     hedge_r = half - 0.9
+    hedge_boxes = []
     shrubs = [b for b in cat['bush'] if b.startswith('shrub_02')]
     for row, off in ((-1, 0.3), (1, 0.55)):
         step = 2.5
@@ -355,8 +392,35 @@ def build(args):
             put('fern_02' if rng.random() < 0.7 else rng.choice(shrubs), x, y, collide=False)
     for i, (x, y, sx, sy) in enumerate([(0, -hedge_r - 0.3, 2 * hedge_r + 1.2, 1.2), (0, hedge_r + 0.3, 2 * hedge_r + 1.2, 1.2),
                                         (-hedge_r - 0.3, 0, 1.2, 2 * hedge_r + 1.2), (hedge_r + 0.3, 0, 1.2, 2 * hedge_r + 1.2)]):
-        colliders.append(f'<collision name="hedge{i}"><pose>{x:.2f} {y:.2f} {float(height(x, y)) + 0.6:.2f} 0 0 0</pose>'
+        hedge_boxes.append(f'<collision name="hedge{i}"><pose>{x:.2f} {y:.2f} {float(height(x, y)) + 0.6:.2f} 0 0 0</pose>'
                          f'<geometry><box><size>{sx:.2f} {sy:.2f} 3</size></box></geometry></collision>')
+
+    inc.append(f'<model name="hedge"><static>true</static><link name="link">{"".join(hedge_boxes)}</link></model>')
+
+    # mushrooms: on open ground, clear of water, fords, obstacles, the hedge and the spawn clearing; half each side
+    mushrooms = []
+    side_of = lambda x, y: np.sign(y - np.interp(x, line[:, 0], line[:, 1]))
+    natives = []  # non-invasive decoys the detector must tell apart; never collected
+    for _ in range(8000):
+        if len(mushrooms) >= args.mushrooms and len(natives) >= args.natives:
+            break
+        x, y = rng.uniform(-hedge_r + 3.5, hedge_r - 3.5, 2)
+        k = len(mushrooms) + len(natives)  # not n: height() closes over the grid size n
+        want = 1 if k % 2 == 0 else -1
+        if (side_of(x, y) != want or river_d(x, y) < 2.5 or near_ford(x, y, 4.0) or math.hypot(x, y) < 6
+                or any(math.hypot(x - a, y - b) < 1.8 for a, b in obstacles + trees)
+                or any(math.hypot(x - m['x'], y - m['y']) < 4 for m in mushrooms + natives)):
+            continue
+        native = len(mushrooms) >= args.mushrooms or (len(natives) < args.natives and k % 3 == 2)
+        group = natives if native else mushrooms
+        group.append({'name': f'{"native" if native else "mushroom"}_{len(group):02d}', 'x': round(float(x), 3), 'y': round(float(y), 3),
+                          'z': round(float(height(x, y)), 3)})
+    for m in natives:
+        inc.append(f'<include><uri>model://mushroom_native</uri><name>{m["name"]}</name>'
+                   f'<pose>{m["x"]} {m["y"]} {m["z"]} 0 0 {rng.uniform(0, 6.283):.2f}</pose></include>')
+    for m in mushrooms:
+        inc.append(f'<include><uri>model://mushroom_amanita</uri><name>{m["name"]}</name>'
+                   f'<pose>{m["x"]} {m["y"]} {m["z"]} 0 0 {rng.uniform(0, 6.283):.2f}</pose></include>')
 
     bake(placed, half)
     inc.append('<include><uri>model://forest_baked</uri><name>forest_baked</name></include>')
@@ -368,26 +432,42 @@ def build(args):
     model_files(cdir, 'forest_colliders', ''.join(colliders))
     inc.append('<include><uri>model://forest_colliders</uri><name>forest_colliders</name></include>')
 
-    out = os.path.join(HERE, args.out or f'worlds/river_{args.preset}.sdf')
+    suffix = ('_aus' if args.flora == 'australian' else '') + ('_green' if args.ground == 'green' else '')
+    out = os.path.join(HERE, args.out or f'worlds/river_{args.preset}{suffix}.sdf')
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    world = world_sdf(''.join(inc))
+    world = world_sdf(''.join(inc)).replace('"river_forest"', f'"{os.path.basename(out)[:-4]}"', 1)  # mission nodes address the world by file name
     # give this world's generated models their own names so presets don't overwrite each other
     tag = os.path.splitext(os.path.basename(out))[0]
-    for base in ('river_terrain', 'river_water', 'forest_baked', 'forest_colliders'):
-        dst = os.path.join(ASSETS, f'{base}_{tag}')
+    names = {b: f'{b}_{tag}' for b in ('river_water', 'forest_baked', 'forest_colliders')}
+    names['river_terrain'] = f'{tag}_terrain'      # the quad planner finds the terrain by the _terrain suffix
+    for base, new in names.items():
+        dst = os.path.join(ASSETS, new)
         shutil.rmtree(dst, ignore_errors=True)
         os.rename(os.path.join(ASSETS, base), dst)
-        world = world.replace(f'model://{base}<', f'model://{base}_{tag}<')
-    for base in ('river_terrain', 'river_water', 'forest_baked', 'forest_colliders'):
+        world = world.replace(f'model://{base}<', f'model://{new}<').replace(f'<name>{base}</name>', f'<name>{new}</name>')
+    for new in names.values():
         for f in ('model.sdf', 'model.config'):
-            fp = os.path.join(ASSETS, f'{base}_{tag}', f)
+            fp = os.path.join(ASSETS, new, f)
             txt = open(fp).read()
-            for b2 in ('river_terrain', 'river_water', 'forest_baked', 'forest_colliders'):
-                txt = (txt.replace(f'model://{b2}/', f'model://{b2}_{tag}/').replace(f'<name>{b2}</name>', f'<name>{b2}_{tag}</name>')
-                       .replace(f'model name="{b2}"', f'model name="{b2}_{tag}"'))
+            for b2, n2 in names.items():
+                txt = (txt.replace(f'model://{b2}/', f'model://{n2}/').replace(f'<name>{b2}</name>', f'<name>{n2}</name>')
+                       .replace(f'model name="{b2}"', f'model name="{n2}"'))
             open(fp, 'w').write(txt)
     with open(out, 'w') as fh:
         fh.write(world)
+    import json
+    meta = {'world': {'name': tag, 'playable_size_m': round(2 * hedge_r - 2, 1), 'terrain_size_m': args.size},
+            'hedge': {'half_size': hedge_r}, 'spawn_clearing': {'center': [0.0, 0.0], 'radius': 4.0, 'ground_z': 0.0},
+            'mushrooms': mushrooms, 'natives': natives, 'fords': [[round(float(line[f, 0]), 2), round(float(line[f, 1]), 2)] for f in fords],
+            # for robots' route maps: the channel to bank top (water half-width + 1.4 m) along the centreline, and each
+            # ford's unit tangent along the river (its clear lane runs across, 3.2 m wide)
+            'river': {'line': [[round(float(x), 2), round(float(y), 2), round(2.6 + 0.7 * math.sin(x / 7.0 + 1.3) + 1.4, 2)]
+                               for x, y in line[::4]],
+                      'ford_tangents': [[round(float(v), 3) for v in np.gradient(line, axis=0)[f]
+                                         / np.linalg.norm(np.gradient(line, axis=0)[f])] for f in fords]},
+            'objects': [{'type': 'tree', 'x': round(float(x), 3), 'y': round(float(y), 3), 'radius': 0.3} for x, y in trees]}
+    with open(out[:-4] + '.meta.json', 'w') as fh:
+        json.dump(meta, fh, indent=1)
     sl = np.degrees(np.arctan(np.hypot(*np.gradient(Z, res))))
     print(f'terrain relief {np.ptp(Z):.1f} m, slope p95 {np.percentile(sl, 95):.0f} deg, max {sl.max():.0f} deg')
     fp = ', '.join(f'({line[f, 0]:.1f}, {line[f, 1]:.1f})' for f in fords)
@@ -588,5 +668,10 @@ if __name__ == '__main__':
     ap.add_argument('--preset', default='moderate', choices=sorted(PRESETS))
     ap.add_argument('--relief', type=float, default=None, help='terrain height range (m), from the Forest3D DEM')
     ap.add_argument('--gap', type=float, default=None)
-    ap.add_argument('--out', default=None, help='default worlds/river_<preset>.sdf')
+    ap.add_argument('--mushrooms', type=int, default=12)
+    ap.add_argument('--natives', type=int, default=6, help='brown non-invasive decoy mushrooms')
+    ap.add_argument('--ground', default='natural', choices=['natural', 'green'],
+                    help='green = the grass_plane texture the team YOLO was trained on')
+    ap.add_argument('--flora', default='conifer', choices=['conifer', 'australian'])
+    ap.add_argument('--out', default=None, help='default worlds/river_<preset>.sdf (+ _aus for australian)')
     build(ap.parse_args())

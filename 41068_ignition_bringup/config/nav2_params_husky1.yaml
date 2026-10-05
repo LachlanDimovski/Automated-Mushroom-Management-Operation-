@@ -341,12 +341,12 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: OPEN_LOOP
-    max_velocity:
-    - 1.0
+    max_velocity:  # a ceiling only: RPP's desired_linear_vel (0.9) sets the cruise; rover_speed raises it at startup
+    - 1.5
     - 0.0
     - 1.5
     min_velocity:
-    - -1.0
+    - -1.5
     - 0.0
     - -1.5
     max_accel:

@@ -3,14 +3,9 @@
     ros2 launch ammo_gui_node gui.launch.py       (also starts the bridge)
     ros2 run ammo_gui_node gui                    (bridge separately)
 
-Expects the simulation to already be up in another terminal:
-
-    ros2 launch 41068_ignition_bringup 41068_ignition.launch.py \
-        world:=simple_trees parrot:=true nav2:=true husky_yolo:=true \
-        ground_truth_localization:=true
-
-This window owns the mission: it spawns the mushrooms, starts and stops the
-two mission nodes, and is the only thing that pauses them. The Debug UI is
+Launch starts the whole run (Gazebo, Nav2, both robots and the mission
+nodes) through cage_mission.launch.py; ending the mission closes it again.
+This window is the only thing that pauses the mission nodes. The Debug UI is
 read-only and can be opened or closed at any point without affecting a run.
 """
 import sys
@@ -20,11 +15,9 @@ from PySide6.QtWidgets import QApplication, QStackedWidget
 
 from ammo_gui_node import theme
 from ammo_gui_node.home_page import HomePage
-from ammo_gui_node.mission_launcher import MissionLauncher
+from ammo_gui_node.mission_launcher import ROVER_NODES, MissionLauncher, world_mushrooms
 from ammo_gui_node.operator_page import OperatorPage
 from ammo_gui_node.ros_bridge import RosLink
-
-ROVER_NODES = ['cage_capture']
 
 
 class OperatorApp:
@@ -68,18 +61,21 @@ class OperatorApp:
     # -- mission ------------------------------------------------------------
     def begin_mission(self, config):
         self.config = config
-        points = config.get('points', [])
-        self.launcher.spawn_mushrooms(points)
-        trunks = self.launcher.start_mission(config.get('world', 'simple_trees'),
-                                             tool=config.get('tool', 'gripper'))
+        world = config.get('world', 'simple_trees')
+        spawn = config.get('points', []) if config.get('spawn', True) else []
+        trunks = self.launcher.start_mission(world, tool=config.get('tool', 'gripper'),
+                                             spawn=spawn, show_sim=config.get('show_sim', False))
+        if trunks is None:
+            return
         config['trunks'] = trunks
+        total = len(spawn) + len(world_mushrooms(world))
 
         self.link.publish_command({
             'cmd': 'start',
             'mode': config.get('mode', 'autonomous'),
             'world': config.get('world', ''),
             'layout': config.get('layout', ''),
-            'total': len(points),
+            'total': total,
         })
         self.mission_running = True
         self.operator.start_mission(config)
@@ -91,7 +87,6 @@ class OperatorApp:
         self.link.publish_pause(False)
         self.active_goal = None
         self.launcher.stop_mission()
-        self.launcher.remove_mushrooms(self.config.get('world', 'simple_trees'))
         self.mission_running = False
         self.operator.stop_mission()
         self.stack.setCurrentWidget(self.home)

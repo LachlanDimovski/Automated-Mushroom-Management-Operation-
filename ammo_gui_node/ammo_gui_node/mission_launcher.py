@@ -1,28 +1,33 @@
-"""Starts, stops, suspends and resumes the mission nodes, and spawns mushrooms.
+"""Starts, stops, suspends and resumes the mission.
 
-Each mission node is launched as its own `ros2 run` process rather than one
-`ros2 launch`, which costs a little more code here and buys two things the
-GUI genuinely needs:
-
-  * pause can suspend the mission nodes individually, and
-  * an operator goal can suspend only the rover's node - leaving the
-    quadcopter flying and still reporting mushrooms - while Nav2 drives the
-    rover to where you clicked.
-
-The parameters mirror `ammo_mission_control/launch/cage_mission.launch.py`
-so the nodes behave exactly as they do when the team runs that launch file.
-What is deliberately *not* here is the simulation: Gazebo, Nav2 and the
-cameras come up once in terminal 1 and stay up, so starting and ending
-missions never costs a 30-second world reload.
+Launch runs the team's own command, `cage_mission.launch.py` (z-camera quad,
+rover_capture_node, collision guard, Nav2 and Gazebo), as one process group,
+so the GUI always runs the current mission code. Pause and operator goals
+freeze individual mission nodes inside that group; the simulation keeps running.
 """
+import glob
 import json
 import os
 import signal
 import subprocess
 
-ROVER_NODES = ('cage_capture', 'collision_guard')
-QUAD_NODES = ('quad_search',)
-STOP_TIMEOUT_S = 6.0
+# executables inside the launch, by role
+ROVER_NODES = ('rover_capture_node', 'cage_capture_node')
+GUARD_NODES = ('collision_guard_node',)
+QUAD_NODES = ('zcam_quad_node', 'quad_search_node')
+MISSION_NODES = ROVER_NODES + GUARD_NODES + QUAD_NODES
+STOP_TIMEOUT_S = 20.0
+
+# name -> folder holding <name>.sdf (None = 41068_ignition_bringup/worlds)
+WORLDS = {
+    'simple_trees': None,
+    'forest_flat': None,
+    'forest_random': None,
+    'large_demo': None,
+    'river_moderate_aus': 'forest_worlds',
+    'river_moderate_aus_green': 'forest_worlds',
+    'river_moderate_green': 'forest_worlds',
+}
 
 
 def _share(pkg):
@@ -33,198 +38,171 @@ def _share(pkg):
         return None
 
 
-def world_meta(world):
-    """Trunk positions, ground height and playable size, if the world has them.
+def _forest_worlds_dir():
+    """forest_worlds is not a ROS package; find it in the workspace's src."""
+    share = _share('ammo_gui_node')
+    if not share:
+        return None
+    ws = os.path.abspath(os.path.join(share, '..', '..', '..', '..'))
+    hits = glob.glob(os.path.join(ws, 'src', '**', 'forest_worlds', 'worlds'), recursive=True)
+    return os.path.dirname(hits[0]) if hits else None
 
-    Only the generated forest worlds ship a .meta.json; `simple_trees` does
-    not, so fall back to the same defaults cage_mission.launch.py uses.
-    """
+
+def world_path(world):
+    """Path without .sdf for cage_mission's world:= (a bare name for bringup worlds)."""
+    if WORLDS.get(world) == 'forest_worlds':
+        base = _forest_worlds_dir()
+        return os.path.join(base, 'worlds', world) if base else None
+    return world
+
+
+def world_available(world):
+    path = world_path(world)
+    if path is None:
+        return False
+    if os.path.isabs(path):
+        return os.path.exists(path + '.sdf')
     share = _share('41068_ignition_bringup')
-    meta = os.path.join(share, 'worlds', f'{world}.meta.json') if share else None
-    trunks, ground_z, half = [0.0, 3.0, 5.0, 0.0], 0.0, 6.5
+    return bool(share) and os.path.exists(os.path.join(share, 'worlds', world + '.sdf'))
+
+
+def _meta(world):
+    path = world_path(world)
+    if path and not os.path.isabs(path):
+        share = _share('41068_ignition_bringup')
+        path = os.path.join(share, 'worlds', world) if share else None
+    meta = path + '.meta.json' if path else None
     if meta and os.path.exists(meta):
         try:
             with open(meta) as fh:
-                data = json.load(fh)
-            trunks = [v for o in data.get('objects', [])
-                      if o.get('type') == 'tree' for v in (o['x'], o['y'])]
-            half = data['world']['playable_size_m'] / 2.0 - 4.5
-            ground_z = data.get('spawn_clearing', {}).get('ground_z', 0.0)
+                return json.load(fh)
         except Exception:
             pass
+    return None
+
+
+def world_meta(world):
+    """Trunk positions, ground height and playable size (simple_trees defaults otherwise)."""
+    trunks, ground_z, half = [0.0, 3.0, 5.0, 0.0], 0.0, 6.5
+    data = _meta(world)
+    if data:
+        trunks = [v for o in data.get('objects', [])
+                  if o.get('type') == 'tree' for v in (o['x'], o['y'])]
+        half = data['world']['playable_size_m'] / 2.0 - 4.5
+        ground_z = data.get('spawn_clearing', {}).get('ground_z', 0.0)
     return trunks, float(ground_z), float(half)
+
+
+def world_mushrooms(world):
+    """Mushrooms already placed in the world file, as [[x, y], ...]."""
+    data = _meta(world) or {}
+    return [[round(m['x'], 2), round(m['y'], 2)] for m in data.get('mushrooms', [])]
 
 
 def trunk_pairs(flat):
     return list(zip(flat[0::2], flat[1::2]))
 
 
-def mushroom_sdf():
-    share = _share('41068_ignition_bringup')
-    if not share:
-        return None
-    path = os.path.join(share, 'models', 'mushroom_amanita', 'model.sdf')
-    return path if os.path.exists(path) else None
-
-
-def _arr(values):
-    """A float list as ROS 2 expects it on the command line."""
-    return '[' + ', '.join(f'{float(v)}' for v in values) + ']'
+def sim_already_running():
+    out = subprocess.run(['pgrep', '-f', r'^(ruby [^ ]+/)?(ign gazebo|gz sim) '], capture_output=True, text=True)
+    return bool(out.stdout.strip())
 
 
 class MissionLauncher:
 
     def __init__(self, logger=None):
-        self.procs = {}          # name -> Popen
-        self.spawned = []        # names of mushrooms we put in the world
+        self.proc = None
         self.log = logger or (lambda _m: None)
 
-    # -- mushrooms ----------------------------------------------------------
-    def spawn_mushrooms(self, points):
-        """Put the chosen layout into the running world, one process each.
+    def start_mission(self, world, tool='gripper', spawn=(), show_sim=False):
+        """Launch the sim and mission in one go. Returns trunk pairs, or None."""
+        if self.proc and self.proc.poll() is None:
+            self.log('a mission is already running')
+            return None
+        if sim_already_running():
+            self.log('Gazebo is already running - close it first, the GUI starts its own.')
+            return None
+        path = world_path(world)
+        if not world_available(world):
+            self.log(f'world {world} not found - for river worlds run forest_worlds/setup.sh')
+            return None
 
-        `simple_trees.sdf` contains no mushrooms at all - every demo
-        mushroom in this project is spawned at runtime like this, which is
-        exactly why the layout can be chosen in the GUI instead of being
-        baked into the world file.
-        """
-        sdf = mushroom_sdf()
-        if not sdf:
-            self.log('mushroom model not found - is 41068_ignition_bringup built?')
-            return 0
-        placed = 0
-        for i, (x, y) in enumerate(points, 1):
-            name = f'gui_mushroom_{i}'
-            cmd = ['ros2', 'run', 'ros_ign_gazebo', 'create',
-                   '-file', sdf, '-name', name,
-                   '-x', str(float(x)), '-y', str(float(y)), '-z', '0.0']
-            try:
-                subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
-                self.spawned.append(name)
-                placed += 1
-            except Exception as exc:
-                self.log(f'could not spawn {name}: {exc}')
-        self.log(f'spawning {placed} mushroom(s)')
-        return placed
-
-    # -- mission nodes ------------------------------------------------------
-    def start_mission(self, world, tool='gripper', with_quad=True):
-        trunks, ground_z, half = world_meta(world)
-        sim = ['-p', 'use_sim_time:=true']
-
-        self._start('truth_localizer', [
-            'ros2', 'run', 'ammo_mission_control', 'truth_localizer',
-            '--ros-args', *sim,
-            '-r', '/tf:=/husky1/tf', '-r', '/tf_static:=/husky1/tf_static'])
-
-        self._start('collision_guard', [
-            'ros2', 'run', 'skidsteer_controller', 'collision_guard_node',
-            '--ros-args', *sim,
-            '-r', '/tf:=/husky1/tf', '-r', '/tf_static:=/husky1/tf_static',
-            # Nav2's velocity smoother publishes husky1/cmd_vel_smoothed.
-            # cage_mission.launch.py remaps that onto cmd_vel_nav_guarded
-            # from inside its own launch scope; we bring the simulation up
-            # separately, so the guard has to listen where Nav2 actually
-            # publishes or Nav2's output never reaches the robot.
-            '-r', '/husky1/cmd_vel_nav_guarded:=/husky1/cmd_vel_smoothed'])
-
-        if with_quad:
-            alt = 3.0
-            self._start('quad_search', [
-                'ros2', 'run', 'ammo_mission_control', 'quad_search_node',
-                '--ros-args', *sim,
-                '-p', f'trunks:={_arr(trunks)}',
-                '-p', 'waypoints:=[0.0]',
-                '-p', f'ground_z:={ground_z}',
-                '-p', f'search_area:={_arr([-half, half, -half, half, alt])}'])
-
-        self._start('cage_capture', [
-            'ros2', 'run', 'ammo_mission_control', 'cage_capture_node',
-            '--ros-args', *sim,
-            '-p', f'world:={world}',
-            '-p', f'trunks:={_arr(trunks)}',
-            '-p', 'count:=0',
-            '-p', f'tool:={tool}'])
-
-        return trunk_pairs(trunks)
-
-    def _start(self, name, cmd):
-        if name in self.procs:
-            return
+        env = dict(os.environ)
+        cmd = ['ros2', 'launch', 'ammo_mission_control', 'cage_mission.launch.py',
+               f'world:={path}', f'tool:={tool}', 'meta_goals:=false', 'rviz:=false',
+               f'headless:={"false" if show_sim else "true"}']
+        if WORLDS.get(world) == 'forest_worlds':
+            # as forest_worlds/demo_river.sh: its models first, and the two-class river detector
+            base = _forest_worlds_dir()
+            extra = glob.glob(os.path.join(base, 'models', '*')) + [os.path.join(base, 'world_assets')]
+            env['IGN_GAZEBO_RESOURCE_PATH'] = ':'.join(
+                extra + [env.get('IGN_GAZEBO_RESOURCE_PATH', '')]).strip(':')
+            model = os.path.join(_share('perception') or '', 'models', 'variants',
+                                 'amanita_river_v4_yolo11n.pt')
+            if os.path.exists(model):
+                cmd.append(f'model_path:={model}')
+        if spawn:
+            cmd.append('mushrooms:=' + ','.join(f'{float(v)}' for p in spawn for v in p))
+        # straight to a file: piping every node's log through the GUI costs CPU
+        log_path = os.path.join(os.path.expanduser('~'), '.ros', 'ammo_gui_mission.log')
         try:
-            # Its own session, so a signal reaches the node and anything it
-            # spawns rather than just the `ros2 run` wrapper.
-            self.procs[name] = subprocess.Popen(cmd, start_new_session=True)
-            self.log(f'started {name}')
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'w') as log:
+                self.proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                             stdin=subprocess.DEVNULL, start_new_session=True)
         except FileNotFoundError:
-            self.log(f'could not start {name}: is the workspace sourced?')
-        except Exception as exc:
-            self.log(f'could not start {name}: {exc}')
+            self.log('could not start the mission: is the workspace sourced?')
+            return None
+        self.log(f'launching {world} - Gazebo and Nav2 take about 30 s (log: {log_path})')
+        return trunk_pairs(world_meta(world)[0])
 
     # -- suspend / resume ---------------------------------------------------
+    def _pids(self, names):
+        """PIDs in our launch's session whose command runs one of `names`."""
+        if not self.proc or self.proc.poll() is not None:
+            return []
+        out = subprocess.run(['ps', '-o', 'pid=,args=', '-s', str(self.proc.pid)],
+                             capture_output=True, text=True).stdout
+        pids = []
+        for line in out.splitlines():
+            pid, _, args = line.strip().partition(' ')
+            # python nodes run as `python3 .../lib/<pkg>/<exe> --ros-args ...`
+            if any(os.path.basename(tok) in names for tok in args.split()[:2]):
+                pids.append(int(pid))
+        return pids
+
     def _signal(self, names, sig):
-        for name in names:
-            proc = self.procs.get(name)
-            if proc is None or proc.poll() is not None:
-                continue
+        for pid in self._pids(names):
             try:
-                os.killpg(os.getpgid(proc.pid), sig)
-            except (ProcessLookupError, PermissionError, OSError):
+                os.kill(pid, sig)
+            except (ProcessLookupError, PermissionError):
                 pass
 
-    def suspend(self, names=None):
-        """Freeze nodes so they stop issuing commands.
+    def suspend(self, names=MISSION_NODES):
+        self._signal(names, signal.SIGSTOP)
 
-        Used both for pause and for an operator goal, where only the rover's
-        nodes are frozen so the quadcopter keeps searching.
-        """
-        self._signal(names or list(self.procs), signal.SIGSTOP)
-
-    def resume(self, names=None):
-        self._signal(names or list(self.procs), signal.SIGCONT)
+    def resume(self, names=MISSION_NODES):
+        self._signal(names, signal.SIGCONT)
 
     def running(self):
-        return any(p.poll() is None for p in self.procs.values())
+        return self.proc is not None and self.proc.poll() is None
 
     # -- teardown -----------------------------------------------------------
     def stop_mission(self):
-        # Anything suspended has to be woken first or it will never see the
-        # interrupt and we would end up killing it the hard way.
+        """End the launch: mission nodes, Nav2 and Gazebo."""
+        if not self.proc:
+            return
         self.resume()
-        self._signal(list(self.procs), signal.SIGINT)
-        for name, proc in list(self.procs.items()):
-            try:
-                proc.wait(timeout=STOP_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                self._signal([name], signal.SIGKILL)
-            except Exception:
-                pass
-        self.procs.clear()
-        self.log('mission nodes stopped')
-
-    def remove_mushrooms(self, world):
-        """Take our spawned mushrooms back out so the next run starts clean.
-
-        The rover deletes the ones it collects, but anything it never
-        reached would otherwise still be lying there when you set up the
-        next run and would be found all over again. Same Ignition service
-        call `cage_capture_node` uses for its own removals.
-        """
-        removed = 0
-        for name in list(self.spawned):
-            cmd = ['ign', 'service', '-s', f'/world/{world}/remove',
-                   '--reqtype', 'ignition.msgs.Entity',
-                   '--reptype', 'ignition.msgs.Boolean',
-                   '--timeout', '2000',
-                   '--req', f'name: "{name}" type: MODEL']
-            try:
-                subprocess.run(cmd, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=4)
-                removed += 1
-            except Exception:
-                pass
-        self.spawned.clear()
-        if removed:
-            self.log(f'removed {removed} leftover mushroom(s)')
-        return removed
+        try:
+            os.killpg(self.proc.pid, signal.SIGINT)
+            self.proc.wait(timeout=STOP_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            pass
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        try:
+            os.killpg(self.proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        self.proc = None
+        self.log('mission and simulation stopped')

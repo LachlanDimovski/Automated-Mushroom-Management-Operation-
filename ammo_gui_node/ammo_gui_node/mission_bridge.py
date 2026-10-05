@@ -121,6 +121,7 @@ class MissionBridge(Node):
 
         # mission bookkeeping
         self.running = False
+        self._ended_at = -1e9
         self.paused = False
         self.mode = 'autonomous'
         self.world = ''
@@ -173,30 +174,13 @@ class MissionBridge(Node):
         kind = cmd.get('cmd')
 
         if kind == 'start':
-            self.running = True
-            self.paused = False
-            self.mode = cmd.get('mode', 'autonomous')
-            self.world = cmd.get('world', '')
-            self.layout = cmd.get('layout', '')
-            self.total = int(cmd.get('total', 0) or 0)
-            self.mushrooms = []
-            self.queue_len = 0
-            self.operator_goal = None
-            self._last_done = None
-            self._t0 = time.monotonic()
-            self._paused_at = None
-            self._paused_total = 0.0
-            self._set_state(C.SEARCH)
-            self._emit(C.EV_MISSION_START,
-                       text=f'Mission started - {self.layout or "no layout"} '
-                            f'in {self.world or "the running world"}, {self.mode} mode',
-                       total=self.total, mode=self.mode, world=self.world,
-                       layout=self.layout)
+            self._start(cmd)
 
         elif kind == 'end':
             if self.running:
                 self._emit(C.EV_MISSION_END,
                            text=f'Mission ended - {self._collected()} of {self.total or "?"} collected')
+            self._ended_at = time.monotonic()
             self.running = False
             self.paused = False
             self._paused_at = None
@@ -215,6 +199,27 @@ class MissionBridge(Node):
 
         elif kind == 'note':
             self._emit(C.EV_NOTE, text=str(cmd.get('text', ''))[:200])
+
+    def _start(self, cmd):
+        self.running = True
+        self.paused = False
+        self.mode = cmd.get('mode', 'autonomous')
+        self.world = cmd.get('world', '')
+        self.layout = cmd.get('layout', '')
+        self.total = int(cmd.get('total', 0) or 0)
+        self.mushrooms = []
+        self.queue_len = 0
+        self.operator_goal = None
+        self._last_done = None
+        self._t0 = time.monotonic()
+        self._paused_at = None
+        self._paused_total = 0.0
+        self._set_state(C.SEARCH)
+        self._emit(C.EV_MISSION_START,
+                   text=f'Mission started - {self.layout or "no layout"} '
+                        f'in {self.world or "the running world"}, {self.mode} mode',
+                   total=self.total, mode=self.mode, world=self.world,
+                   layout=self.layout)
 
     def _on_pause(self, msg):
         if bool(msg.data) == self.paused:
@@ -235,6 +240,9 @@ class MissionBridge(Node):
         if msg.name != C.NODE_CAGE:
             return
         text = (msg.msg or '').strip()
+        # a mission launched without the GUI never sends 'start'; skip the shutdown chatter after an 'end'
+        if not self.running and time.monotonic() - self._ended_at > 30.0:
+            self._start({})
 
         m = RE_STATE.match(text)
         if m:
@@ -453,6 +461,8 @@ class MissionBridge(Node):
         return {
             'DRIVE': 'picking a route' if self.queue_len else 'nothing queued yet',
             'NAV': 'driving to the standoff point',
+            'FORD': 'crossing the river at a ford',
+            'UNWEDGE': 'backing out of a stall',
             'ALIGN': 'lining up on the mushroom',
             'LOWER': 'gripper down',
             'COLLECT': 'closing on the mushroom',

@@ -93,6 +93,7 @@ private:
   // toward the more open side (lidar flanks and the depth camera's view past the front corners) so Nav2 can
   // replan from somewhere it is not wedged, instead of timing out against the same spot.
   static constexpr double ESCAPE_AFTER_S = 2.0;
+  static constexpr double BLOCK_GAP_S = 3.0;  // turns in place between depth stops don't reset the block timer
   static constexpr double ESCAPE_S = 2.0;
   static constexpr double ESCAPE_SPEED = 0.2;
   static constexpr double ESCAPE_TURN = 0.5;
@@ -123,7 +124,7 @@ private:
   bool cliffDetected_ = false;
   float depthLeft_ = 0.0f, depthRight_ = 0.0f;  // flank gaps past the front corners (depth camera)
 
-  rclcpp::Time blockedSince_, escapeUntil_;
+  rclcpp::Time blockedSince_, lastBlocked_, escapeUntil_;
   bool blocked_ = false, escaping_ = false;
   double escapeTurn_ = 0.0;
   std::vector<rclcpp::Time> escapes_;

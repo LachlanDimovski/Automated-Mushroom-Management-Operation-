@@ -14,45 +14,34 @@ sudo apt install libxcb-cursor0        # Qt 6.5+ needs this for the xcb plugin
 That is the whole dependency list. No OpenCV: ROS images are converted to Qt
 images with numpy (`image_utils.py`).
 
-## Running - three terminals
+## Running
 
-**1. The simulation.** Bring this up once and leave it running. Nothing
-below ever restarts it, so setting up another run does not cost a Gazebo
-reload.
+The GUI starts the simulation itself. Close any Gazebo that is already
+running first; Launch refuses to start a second one.
 
-```bash
-ros2 launch 41068_ignition_bringup 41068_ignition.launch.py \
-    world:=simple_trees parrot:=true nav2:=true husky_yolo:=true \
-    ground_truth_localization:=true
-```
-
-> Note: this is the shared bringup launch file. It carries the
-> ground_truth_localization, husky_yolo and headless arguments itself now, so
-> the old standalone forest-world wrapper is gone. On WSL add `headless:=true`
-> together with `export LIBGL_ALWAYS_SOFTWARE=1` if Gazebo's GUI crashes on
-> Ogre.
-
-**2. The operator GUI.** Starts the status bridge with it.
+**1. The operator GUI.** Starts the status bridge with it.
 
 ```bash
 ros2 launch ammo_gui_node gui.launch.py
 ```
 
-**3. The Debug UI.** Optional, read-only, open and close it whenever.
+**2. The Debug UI.** Optional, read-only, open and close it whenever.
 
 ```bash
 ros2 launch ammo_gui_node debug.launch.py
 ```
 
-The mission nodes are *not* in any of those. The GUI starts them itself when
-you press Launch, so it can pause and resume them individually.
+River worlds need `bash forest_worlds/setup.sh` once; they only appear in the
+world list after that.
 
 ## What the GUI does
 
-Setup page: pick the world (must match terminal 1), pick or edit the
-mushroom layout, choose Autonomous or Manual drive, press Launch. Launch
-spawns the mushrooms, starts `quad_search_node`, `cage_capture_node`,
-`truth_localizer` and `collision_guard_node`, and starts the clock.
+Setup page: pick the world, pick or edit the mushroom layout, choose
+Autonomous or Manual drive, press Launch. Launch runs
+`cage_mission.launch.py` (Gazebo, Nav2, the z-camera quad,
+`rover_capture_node`, `truth_localizer` and `collision_guard_node`) with the
+listed mushrooms and starts the clock. Worlds that already contain mushrooms
+offer them as the first preset. End Mission closes the simulation.
 
 Mission page: elapsed clock, mushrooms found and collected counted
 separately, both robots' states, the map, and the mushroom log with a

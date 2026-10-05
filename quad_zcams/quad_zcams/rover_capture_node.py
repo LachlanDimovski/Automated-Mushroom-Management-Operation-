@@ -21,6 +21,7 @@ Failed routes: Nav2's planner re-plans the shortest route, so a retry went back 
 failed. Where an attempt gave up after the rover had actually travelled is remembered; later goals are routed on the
 quad's map around those spots and sent as a chain of NavigateToPose via points, so Nav2 has to take another way.
 """
+import json
 import math
 
 import numpy as np
@@ -47,6 +48,7 @@ OUT_SPEED = 0.25
 FOOTPRINT = (-0.55, 0.7, 0.35)  # rear, front, half width (nav2_params_husky1.yaml)
 STANDOFF_MARGIN_M = 0.3
 OPEN_M = 0.45             # half the rover's width plus a little: open ground it can drive through
+LIGHT_CLEAR_M = 0.6       # the fallback route map's clearance (the rover is 0.67 m wide)
 ROUTE_CLEAR_M = 0.9       # routes planned on the quad's map keep this far from what it saw (= Nav2's inflation; at 0.5
                           # routes squeezed between pines' foliage into pockets Nav2 then could not leave)
 SEEN_R_M = 2.5            # a mushroom is only skipped if the quad has seen...
@@ -65,7 +67,23 @@ CRUMBS = 200
 # boxed in: two Nav2 legs in a row that went nowhere...
 UNWEDGE_M = 3.0           # ...then reverse along the track this far (driven already, so passable), clear the costmaps
 UNWEDGE_SPEED = 0.15
-UNWEDGE_TIMEOUT_S = 40.0          # via points at least this far apart along the detour
+UNWEDGE_TIMEOUT_S = 40.0
+# ford crossings drive the lane unguarded: the depth guard reads the causeway's edge boulders as a wall (river SW ford)
+FORD_TRIGGER_M = 5.0
+FORD_SPEED = 0.3
+FORD_PAST_M = 3.5         # past the far edge of the bank zone before Nav2 takes over again
+FORD_SLACK = 1.5          # timeout: the lane's length at FORD_SPEED times this, plus 5 s
+EMPTY_R_M = cc.CAGE_HALF_M  # handoffs this close to a spot already found empty are dropped: only what the grab
+#   covered (at 1.5 m a 0.55 m-off handoff blocked the quad's correct one 0.63 m away for the rest of the run - defaults2)
+
+
+def _dbl(name, v):
+    return Parameter(name=name, value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=float(v)))
+
+
+def _dbls(name, vs):
+    return Parameter(name=name, value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE_ARRAY,
+                                                     double_array_value=[float(v) for v in vs]))
 
 
 class _ShapedPublisher:
@@ -90,13 +108,26 @@ class RoverCapture(cc.CageCapture):
         self.quad_routes = bool(self.get_parameter('quad_routes').value)
         if self.quad_routes:  # routes avoid what failed before, so a later attempt is worth more than giving up
             cc.MAX_DEFERS = 4
+        # a generated world's .meta.json: its river channel is blocked on the route map except at the fords, so routes
+        # cross there (Nav2 alone drove at the bank between fords and gave up - river5)
+        self.declare_parameter('river_meta', '')
+        meta = self.get_parameter('river_meta').value
+        self.river = json.load(open(meta)).get('river') if meta else None
+        self.river_fords = json.load(open(meta))['fords'] if self.river else []
+        self.river_mask = None
         self.declare_parameter('inflation', 0.0)  # > 0: costmap inflation radius set at startup (the yaml has 1.5)
+        self.declare_parameter('rover_speed', 0.0)  # > 0: Nav2 cruise speed set at startup (the yaml has 0.9)
+        self.declare_parameter('ford_speed', FORD_SPEED)
+        self.declare_parameter('turn_speed', 0.0)  # > 0: Nav2's turn-in-place rate (yaml 0.6) and the ford lane's turn cap
+        self.ford_turn = max(0.8, float(self.get_parameter('turn_speed').value))
+        globals()['FORD_SPEED'] = float(self.get_parameter('ford_speed').value)  # read at run time
         self.nearest_first = bool(self.get_parameter('nearest_first').value)
         self.map_deferred = set()
         self.via_queue = []
         self.stall_ref = None  # (t, x, y) while in NAV
         self.crumbs, self.wedged, self.unwedge, self.unwedge_since = [], 0, [], 0.0
         self.given_up, self.idle_since = [], None
+        self.nav_goal, self.ford, self.empty = None, None, []
         if self.get_parameter('fast_pickup').value:  # the parent reads these at run time; the grab covers 0.6 m
             cc.CAGE_TOL_M, cc.SETTLE_S, cc.CLAW_MOVE_S = 0.12, 0.4, 0.8
         self.clear_since, self.clear_from, self.open_dir = None, None, None
@@ -109,23 +140,31 @@ class RoverCapture(cc.CageCapture):
         if not self.nav.server_is_ready():
             self._start_nav2()
         if self.get_parameter('inflation').value > 0.0:
-            self._set_inflation(float(self.get_parameter('inflation').value))
+            # Pines' leaf cards read as solid to the lidar and depth camera; 1.5 m of inflation round each closed the
+            # corridors between them (t24b: 6 dispatched, 3 reached)
+            radius = float(self.get_parameter('inflation').value)
+            for costmap in ('local_costmap/local_costmap', 'global_costmap/global_costmap'):
+                self._set_remote(costmap, [_dbl('inflation_layer.inflation_radius', radius)])
+        turn = float(self.get_parameter('turn_speed').value)
+        if turn > 0.0:
+            self._set_remote('controller_server', [_dbl('FollowPath.rotate_to_heading_angular_vel', turn)])
+        speed = float(self.get_parameter('rover_speed').value)
+        if speed > 0.0:
+            self._set_remote('controller_server', [_dbl('FollowPath.desired_linear_vel', speed)])
+            self._set_remote('velocity_smoother', [_dbls('max_velocity', [speed + 0.1, 0.0, 1.5]),
+                                                   _dbls('min_velocity', [-(speed + 0.1), 0.0, -1.5])])
 
-    def _set_inflation(self, radius):
-        """Pines' leaf cards read as solid to the lidar and depth camera; 1.5 m of inflation round each closed the
-        corridors between them (t24b: 6 dispatched, 3 reached)."""
-        helper = rclpy.create_node('inflation_setter')
-        p = Parameter(name='inflation_layer.inflation_radius',
-                      value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=radius))
-        for costmap in ('local_costmap/local_costmap', 'global_costmap/global_costmap'):
-            cli = helper.create_client(SetParameters, f'husky1/{costmap}/set_parameters')
-            ok = cli.wait_for_service(timeout_sec=10.0)
-            if ok:
-                f = cli.call_async(SetParameters.Request(parameters=[p]))
-                rclpy.spin_until_future_complete(helper, f, timeout_sec=10.0)
-                ok = f.result() is not None and all(r.successful for r in f.result().results)
-            self.get_logger().info(f'{costmap} inflation radius {radius:.2f} m: {"set" if ok else "FAILED"}')
+    def _set_remote(self, node, params):
+        helper = rclpy.create_node('param_setter')
+        cli = helper.create_client(SetParameters, f'husky1/{node}/set_parameters')
+        ok = cli.wait_for_service(timeout_sec=10.0)
+        if ok:
+            f = cli.call_async(SetParameters.Request(parameters=params))
+            rclpy.spin_until_future_complete(helper, f, timeout_sec=10.0)
+            ok = f.result() is not None and all(r.successful for r in f.result().results)
+        self.get_logger().info(f'{node} {", ".join(p.name for p in params)}: {"set" if ok else "FAILED"}')
         helper.destroy_node()
+
 
     def _start_nav2(self):
         """The lifecycle manager can hang at startup on a lost change_state reply (1 run in 51), leaving Nav2
@@ -155,12 +194,19 @@ class RoverCapture(cc.CageCapture):
 
     def _quad_map(self, msg):
         occ, known = shared_map.from_message(msg)
+        if self.river:
+            if self.river_mask is None or self.river_mask.shape != occ.shape:
+                self.river_mask, self.ford_lanes = self._river_mask(occ.shape[0], msg.info.resolution,
+                                                                    -msg.info.origin.position.x)
+            occ = occ & ~self.ford_lanes  # the pebble causeway stands above the heightmap's bed: the quad maps it
         k = int(round(FOLIAGE_R_M / msg.info.resolution))
         yy, xx = np.mgrid[-k:k + 1, -k:k + 1]
         disk = (np.hypot(xx, yy) <= k).astype(float)
         hits = ndimage.convolve(occ.astype(float), disk, mode='constant')
         seen = ndimage.convolve(known.astype(float), disk, mode='constant')
         dense = occ | ((seen > 0) & (hits >= FOLIAGE_SHARE * np.maximum(seen, 1)))
+        if self.river:  # after the foliage test, which would otherwise spread the banks across the ford lanes
+            occ, dense, known = occ | self.river_mask, dense | self.river_mask, known | self.river_mask
         half = -msg.info.origin.position.x
         cells = np.argwhere(occ) * msg.info.resolution - half + msg.info.resolution / 2
         g = obstacle_map.ObstacleGrid(cells, half, 0.0)
@@ -170,6 +216,13 @@ class RoverCapture(cc.CageCapture):
         # rover into a 1 m gap between the pond's reeds and the hedge (t24d)
         unseen = np.argwhere(dense | ~known) * msg.info.resolution - half + msg.info.resolution / 2
         self.route_seen = obstacle_map.ObstacleGrid(unseen, half, ROUTE_CLEAR_M, lidar_ttl=BAD_TTL_S)
+        # fallback: the quad's own hits with a tighter clearance, no foliage-share spreading - that closed the gaps
+        # between bank plants and left a south-bank mushroom in a pocket of its own (demo)
+        lcells = np.argwhere(occ) * msg.info.resolution - half + msg.info.resolution / 2
+        self.route_light = obstacle_map.ObstacleGrid(lcells, half, LIGHT_CLEAR_M, lidar_ttl=BAD_TTL_S)
+        if self.river:  # last resort: only the channel, the fords open
+            rcells = np.argwhere(self.river_mask) * msg.info.resolution - half + msg.info.resolution / 2
+            self.route_river = obstacle_map.ObstacleGrid(rcells, half, ROUTE_CLEAR_M)
         now = self._now()
         self.bad = [(x, y, t) for x, y, t in self.bad if now - t < BAD_TTL_S]
         for x, y, t in self.bad:
@@ -181,6 +234,26 @@ class RoverCapture(cc.CageCapture):
             self.map_logged = self._now()
             self.get_logger().info(f"Quad's map: {known.mean() * 100:.0f}% of the area seen, "
                                    f'{occ.sum() * msg.info.resolution ** 2:.0f} m2 of it in the way.')
+
+    def _river_mask(self, n, res, half):
+        c = (np.arange(n) + 0.5) * res - half
+        X, Y = np.meshgrid(c, c, indexing='ij')
+        mask, lanes = np.zeros((n, n), bool), np.zeros((n, n), bool)
+        for px, py, r in self.river['line']:
+            mask |= np.hypot(X - px, Y - py) < r
+        for (fx, fy), (tx, ty) in zip(self.river_fords, self.river['ford_tangents']):
+            along, across = (X - fx) * tx + (Y - fy) * ty, -(X - fx) * ty + (Y - fy) * tx
+            lane = (abs(along) < 1.6) & (abs(across) < 10.0)  # the ford's clear lane
+            mask &= ~lane
+            lanes |= lane & (abs(along) < 1.4)
+        self.river_zone = ndimage.binary_dilation(mask, iterations=int(round(0.75 / res)))
+        self.get_logger().info(f'River blocked on the route map: {mask.sum() * res * res:.0f} m2, '
+                               f'{len(self.river_fords)} ford(s) open.')
+        return mask, lanes
+
+    def _in_river(self, x, y):
+        i, j = self.route.cell(x, y)
+        return self.route.inside(i, j) and bool(self.river_zone[i, j])
 
     def _seen_round(self, x, y):
         g, _, _, known = self.qmap
@@ -227,6 +300,13 @@ class RoverCapture(cc.CageCapture):
                 best = max(best or (key, c), (key, c))
         self.open_dir = best[1] if best else None
 
+    def _set_state(self, s):
+        if s == 'NAV' and getattr(self, 'defer_now', False):
+            self.defer_now = False
+            return self._next_target(f'No route to ({self.targets[0][0]:.1f},{self.targets[0][1]:.1f}) from any side '
+                                     f"on the quad's map.", requeue=True)
+        super()._set_state(s)
+
     # -- routes around where Nav2 failed before ------------------------------------
     def _send_nav(self, gx, gy):
         self.nav_from = (self.x, self.y)
@@ -243,16 +323,46 @@ class RoverCapture(cc.CageCapture):
             fx, fy = gx - self.ahead * math.cos(a), gy - self.ahead * math.sin(a)
             cands.append((self._approach_cost(px, py, fx, fy), -math.hypot(px - self.x, py - self.y), a))
         cands.sort(key=lambda c: (c[0], -c[1]))
-        a = cands[self.nav_tries % 12][2]
-        sx, sy = gx - cc.NAV_STANDOFF_M * math.cos(a), gy - cc.NAV_STANDOFF_M * math.sin(a)
-        path = self.route_seen.plan((self.x, self.y), (sx, sy), snap=1.0) or self.route.plan((self.x, self.y), (sx, sy))
+        start = (self.x, self.y)
+        if self.route.is_blocked(*start):  # e.g. on a river bank: plan() only looks 3 m for free ground to start from
+            start = self.route.nearest_free(*start, 6.0) or start
+        # the ranked side first, then the others: one side's standoff on a bank or in a bush is no reason to drive blind
+        for k in range(self.nav_tries, self.nav_tries + 12):
+            a = cands[k % 12][2]
+            sx, sy = gx - cc.NAV_STANDOFF_M * math.cos(a), gy - cc.NAV_STANDOFF_M * math.sin(a)
+            if self.river and self._in_river(sx, sy):  # plan() would snap it, but the last leg goes to (sx, sy)
+                path = None                                     # itself - over a bank, from the snapped far side
+                continue
+            path = self.route_seen.plan(start, (sx, sy), snap=1.0) or self.route.plan(start, (sx, sy))
+            if path is not None or not self.river:
+                break
+        for grid, name in ((getattr(self, 'route_light', None), "the quad's hits alone"),
+                           (getattr(self, 'route_river', None), 'the river alone')):
+            if path is not None or grid is None or not self.river:  # other worlds: Nav2 chooses, as before
+                continue
+            # boulders on all three ford approaches sealed the quad's map, and every far-side mushroom was deferred
+            # for the rest of the run (stress1): route on the channel alone and let Nav2 go round what is in the way
+            for k in range(12):
+                a = cands[k][2]
+                sx, sy = gx - cc.NAV_STANDOFF_M * math.cos(a), gy - cc.NAV_STANDOFF_M * math.sin(a)
+                if not (self.river and self._in_river(sx, sy)):
+                    path = grid.plan(start, (sx, sy))
+                    if path is not None:
+                        self.get_logger().info(f"No route on the quad's map - routing on {name}.")
+                        break
+        if path is None and self.river:  # Nav2 alone heads straight for the water and sticks on the bank (river7)
+            self.defer_now = True  # the caller sets NAV next; _set_state turns that into a deferral
+            return
         if path is None:
             self.get_logger().info(f"No route to ({sx:.1f},{sy:.1f}) on the quad's map around {len(self.bad)} failed "
                                    f'spot(s) - letting Nav2 choose.')
             return super()._send_nav(gx, gy)
         vias, last = [], (self.x, self.y)
+        if self.river:
+            path = self._ford_vias(path)
         for p in path[:-1]:
-            if math.hypot(p[0] - last[0], p[1] - last[1]) >= VIA_STEP_M:
+            # tighter near water: Nav2 cuts the corner between via points, and a 3 m cut put it on a ford's bank
+            if math.hypot(p[0] - last[0], p[1] - last[1]) >= (VIA_STEP_M / 2 if self.river else VIA_STEP_M):
                 vias.append((p[0], p[1], math.atan2(p[1] - last[1], p[0] - last[0])))
                 last = p
         # one NavigateToPose per via point: NavigateThroughPoses' tree looks up a frame called 'map', which this
@@ -261,6 +371,29 @@ class RoverCapture(cc.CageCapture):
         self.get_logger().info(f'Nav2 -> ({sx:.2f},{sy:.2f}) facing ({gx:.1f},{gy:.1f}) through {len(vias)} via point(s) '
                                f"on the quad's map ({len(self.bad)} spot(s) where Nav2 failed before).")
         self._nav_to(*self.via_queue.pop(0))
+
+    def _ford_vias(self, path):
+        """The smoothed path's straight legs can run through a ford with no point near it, and Nav2 then picks its
+        own way over to the far side - onto a bank and into the water (defaults run02). Fill the legs in every
+        VIA_STEP_M / 2 and keep one point on the near bank inside FORD_TRIGGER_M, so the ford lane takes over."""
+        out, prev = [], (self.x, self.y)
+        for p in path:
+            n = max(1, int(math.hypot(p[0] - prev[0], p[1] - prev[1]) / (VIA_STEP_M / 2)))
+            for s in range(1, n + 1):
+                q = (prev[0] + (p[0] - prev[0]) * s / n, prev[1] + (p[1] - prev[1]) * s / n)
+                near = [k for k, (fx, fy) in enumerate(self.river_fords)
+                        if math.hypot(q[0] - fx, q[1] - fy) < FORD_TRIGGER_M]
+                if near and q != p:
+                    k = near[0]
+                    r = min(self.river['line'], key=lambda c: math.hypot(c[0] - self.river_fords[k][0],
+                                                                         c[1] - self.river_fords[k][1]))[2]
+                    across = self._lane(k, *q)[1]
+                    if abs(across) < r - 0.4 or (out and math.hypot(out[-1][0] - self.river_fords[k][0],
+                                                              out[-1][1] - self.river_fords[k][1]) < FORD_TRIGGER_M):
+                        continue  # in the lane, or the approach point is already in
+                out.append(q)
+            prev = p
+        return out
 
     def _unwedge_step(self):
         """Reverse along the rover's own track (unguarded: the guard reads the foliage it is in as a wall all round)."""
@@ -294,6 +427,7 @@ class RoverCapture(cc.CageCapture):
             lambda f, h=h: setattr(self, 'nav_result', f.result().status == 4) if h is self.nav_handle else None)
 
     def _nav_to(self, x, y, yaw):
+        self.nav_goal = (x, y, yaw)
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = 'husky1_map'
         goal.pose.pose.position.x, goal.pose.pose.position.y = float(x), float(y)
@@ -307,10 +441,13 @@ class RoverCapture(cc.CageCapture):
     def _block(self, x, y, t):
         ang = np.linspace(0, 2 * math.pi, 16, endpoint=False)
         for r in (0.0, BAD_R_M / 2, BAD_R_M):
-            for g in (self.route, self.route_seen):
+            for g in (self.route, self.route_seen, getattr(self, 'route_light', None)):
+                if g is None:
+                    continue
                 g.add_lidar(x + r * np.cos(ang), y + r * np.sin(ang), t)
-        for g in (self.route, self.route_seen):
-            g.rebuild(self._now())  # against now: marks older than BAD_TTL_S drop out
+        for g in (self.route, self.route_seen, getattr(self, 'route_light', None)):
+            if g is not None:
+                g.rebuild(self._now())  # against now: marks older than BAD_TTL_S drop out
 
     def _remember_failure(self):
         if self.nav_from is None or self.route is None:
@@ -347,6 +484,95 @@ class RoverCapture(cc.CageCapture):
         self.nav_tries, self.idle_stopped = 0, False
         self.get_logger().info(f'Queue empty - retrying the {len(self.targets)} mushroom(s) given up earlier.')
 
+    # -- ford crossings -------------------------------------------------------------
+    def _lane(self, k, x, y):
+        (fx, fy), (tx, ty) = self.river_fords[k], self.river['ford_tangents'][k]
+        return (x - fx) * tx + (y - fy) * ty, -(x - fx) * ty + (y - fy) * tx  # along the river, across it
+
+    def _ford_check(self):
+        if not self.river or self.nav_goal is None or self.nav_result is not None:
+            return False
+        gx, gy = self.nav_goal[:2]
+        for k, (fx, fy) in enumerate(self.river_fords):
+            along, across = self._lane(k, self.x, self.y)
+            g_across = self._lane(k, gx, gy)[1]
+            if (math.hypot(self.x - fx, self.y - fy) > FORD_TRIGGER_M or abs(along) >= 1.6
+                    or g_across * across > 0 or abs(g_across) < 1.0):
+                continue
+            side = 1.0 if g_across > 0 else -1.0
+            r = min(self.river['line'], key=lambda p: math.hypot(p[0] - fx, p[1] - fy))[2]
+            exit_m = r + 0.75 + FORD_PAST_M
+            self.ford = {'k': k, 'side': side, 'exit': exit_m, 't0': self._now(),
+                         'timeout': (exit_m - across * side) / FORD_SPEED * FORD_SLACK + 5.0,
+                         'pending': [self.nav_goal] + self.via_queue}
+            self._cancel_nav()
+            self.via_queue = []
+            self.get_logger().info(f'At ford {k} ({fx:.1f},{fy:.1f}) - driving the lane across myself.')
+            self._set_state('FORD')
+            return True
+        return False
+
+    def _ford_step(self):
+        f, cmd = self.ford, Twist()
+        k, side = f['k'], f['side']
+        along, across = self._lane(k, self.x, self.y)
+        timed_out = self._now() - f['t0'] > f['timeout']
+        if across * side >= f['exit'] or timed_out:
+            self.cmd_pub_unguarded.publish(cmd)
+            if timed_out:
+                self.get_logger().warn(f'Ford {k} crossing timed out at ({self.x:.1f},{self.y:.1f}) - back to Nav2.')
+            # via points still on the near side or in the lane are behind
+            rest = [p for p in f['pending'] if not (self._lane(k, p[0], p[1])[1] * side < f['exit']
+                                                     and math.hypot(p[0] - self.x, p[1] - self.y) < 2 * f['exit'])]
+            self.ford, self.nav_from, self.stall_ref = None, (self.x, self.y), None
+            self.state, self.state_since = 'NAV', self._now()
+            if rest:
+                self.via_queue = rest[1:]
+                self._nav_to(*rest[0])
+            else:
+                self._send_nav(*self.targets[0])
+            return
+        (tx, ty) = self.river['ford_tangents'][k]
+        ax, ay = -ty * side, tx * side  # lane axis toward the far bank
+        aim_x = self.x + ax * 1.5 - tx * along  # 1.5 m ahead on the lane's centreline
+        aim_y = self.y + ay * 1.5 - ty * along
+        err = math.remainder(math.atan2(aim_y - self.y, aim_x - self.x) - self.yaw, 2 * math.pi)
+        cmd.angular.z = max(-self.ford_turn, min(self.ford_turn, 1.5 * err))
+        cmd.linear.x = FORD_SPEED if abs(err) < 0.5 else 0.0
+        self.cmd_pub_unguarded.publish(cmd)
+
+    def _queue(self, x, y):
+        if any(math.hypot(x - ex, y - ey) < EMPTY_R_M for ex, ey in self.empty):
+            return
+        super()._queue(x, y)
+
+    def _wedge_check(self, stalled=False):
+        """Two legs in a row that went nowhere: a pocket, whether or not the lidar sees it (at the oak at (-6,-10.5)
+        the depth guard saw drooping leaves the lidar plane missed - t24n). Counted on leg stalls too: those went
+        straight to the next mushroom, so a rover against a boulder retried from the same spot all run (demo)."""
+        moved = math.hypot(self.x - self.nav_from[0], self.y - self.nav_from[1])
+        self.wedged = self.wedged + 1 if stalled or moved < 0.3 else 0
+        if self.wedged < 2 or len(self.crumbs) <= 2:
+            return False
+        self.wedged = 0
+        self._cancel_nav()
+        self.nav_result = None
+        if self.route is not None:  # later routes keep off the spot it stuck at
+            self.bad.append((self.x, self.y, self._now()))
+            self._block(self.x, self.y, self._now())
+        back, path, last = [], 0.0, (self.x, self.y)
+        for c in reversed(self.crumbs[:-1]):
+            back.append(c)
+            path += math.hypot(c[0] - last[0], c[1] - last[1])
+            last = c
+            if path >= UNWEDGE_M:
+                break
+        self.unwedge, self.unwedge_since = back, self._now()
+        self.get_logger().warn(f'Boxed in at ({self.x:.1f},{self.y:.1f}) ({self.nearest_rng:.2f} m to the nearest '
+                               f'lidar return) - reversing {path:.1f} m back along the way in.')
+        self._set_state('UNWEDGE')
+        return True
+
     def _step(self):
         self._retry_given_up()
         if self.have_odom and self.state not in ('UNWEDGE',) and (
@@ -354,27 +580,12 @@ class RoverCapture(cc.CageCapture):
             self.crumbs = (self.crumbs + [(self.x, self.y)])[-CRUMBS:]
         if self.state == 'UNWEDGE':
             return self._unwedge_step()
-        if self.state == 'NAV' and self.nav_result is False and self.nav_from is not None:
-            moved = math.hypot(self.x - self.nav_from[0], self.y - self.nav_from[1])
-            # two legs in a row that went nowhere: a pocket, whether or not the lidar sees it (at the oak at
-            # (-6,-10.5) the depth guard saw drooping leaves the lidar plane missed, and 8 legs stalled - t24n)
-            self.wedged = self.wedged + 1 if moved < 0.3 else 0
-            if self.wedged >= 2 and len(self.crumbs) > 2:
-                self.wedged = 0
-                self._cancel_nav()
-                self.nav_result = None
-                back, path, last = [], 0.0, (self.x, self.y)
-                for c in reversed(self.crumbs[:-1]):
-                    back.append(c)
-                    path += math.hypot(c[0] - last[0], c[1] - last[1])
-                    last = c
-                    if path >= UNWEDGE_M:
-                        break
-                self.unwedge, self.unwedge_since = back, self._now()
-                self.get_logger().warn(f'Boxed in at ({self.x:.1f},{self.y:.1f}) ({self.nearest_rng:.2f} m to the nearest '
-                                       f'lidar return) - reversing {path:.1f} m back along the way in.')
-                self._set_state('UNWEDGE')
-                return
+        if self.state == 'FORD':
+            return self._ford_step()
+        if self.state == 'NAV' and self._ford_check():
+            return
+        if self.state == 'NAV' and self.nav_result is False and self.nav_from is not None and self._wedge_check():
+            return
         if self.state == 'NAV' and self.nav_handle is not None and self.nav_result is None and self.have_odom:
             now = self._now()
             if self.stall_ref is None or math.hypot(self.x - self.stall_ref[1], self.y - self.stall_ref[2]) > NAV_STALL_M:
@@ -384,8 +595,12 @@ class RoverCapture(cc.CageCapture):
                 self.stall_ref = None
                 self._cancel_nav()
                 self.nav_result = False
+                if self.nav_from is not None and self._wedge_check(stalled=True):
+                    return
         elif self.state != 'NAV':
             self.stall_ref = None
+        if self.state == 'NAV' and self.nav_result is True:
+            self.wedged = 0
         if self.state == 'NAV' and self.nav_result is True and self.via_queue:
             self._nav_to(*self.via_queue.pop(0))  # reached a via point: on to the next (the parent would ALIGN here)
             self.state_since = self._now()
@@ -442,6 +657,8 @@ class RoverCapture(cc.CageCapture):
             if attempt < 2:
                 self.get_logger().warn(f'No mushroom within {cc.CAGE_HALF_M} m of ({cx:.2f},{cy:.2f}) on query '
                                        f'{attempt + 1}/3 - asking Gazebo again.')
+        self.empty.append((cx, cy))
+        self.get_logger().info(f'Nothing at ({cx:.2f},{cy:.2f}) - later handoffs within {EMPTY_R_M} m are dropped.')
         return found
 
     def _shape(self, cmd):

@@ -64,8 +64,24 @@ To use one in your own launch, add `forest_worlds/models/*` and `forest_worlds/w
 ## Crossing the river
 
 The channel is a 0.75 m drop, so robots can only cross at the fords (printed by `build_world.py`; with the default
-seed they are at about (-8.8, -4.8), (8.8, -1.5) and (-22.0, -13.8)). Each ford is a pebble causeway with boulders on
-both edges and a clear lane about 3.2 m wide. The water is visual only.
+seed they are at about (-8.8, -11.5), (8.8, -8.3) and (-22.0, -20.6)). Each ford is a pebble causeway with boulders on
+both edges, 2.9 m either side of its centreline, and a clear lane about 3.2 m wide. The water is visual only.
+
+## Mushroom demo
+
+`river_moderate_aus` is the moderate world with gum trees, 12 invasive mushrooms (6 each side of the river) and 6 native
+ones that are detected but left in place. `setup.sh` builds it; on its own:
+
+```bash
+python3 make_gums.py
+python3 build_world.py --preset moderate --flora australian
+```
+
+Then run the full mission with the Gazebo window and the dashboard:
+
+```bash
+./demo_river.sh
+```
 
 ## Rebuilding
 

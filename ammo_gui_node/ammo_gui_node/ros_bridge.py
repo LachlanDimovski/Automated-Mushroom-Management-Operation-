@@ -14,6 +14,7 @@ running mission.
 import json
 import math
 import threading
+import time
 
 import rclpy
 from geometry_msgs.msg import PointStamped, Twist
@@ -34,6 +35,7 @@ EVENT_QOS = QoSProfile(depth=1000,
                        durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 HOLD_HZ = 20.0   # rate we publish zero velocity at while paused
+IMAGE_HZ = 5.0   # camera frames converted per feed; the rest are dropped
 
 
 def yaw_of(q):
@@ -47,6 +49,7 @@ class _LinkNode(Node):
         super().__init__(f'ammo_{role}_link')
         self.link = link
         self.role = role
+        self._last_image = {}
 
         self.create_subscription(String, C.STATUS_TOPIC, self._on_status, LIVE_QOS)
         self.create_subscription(String, C.EVENTS_TOPIC, self._on_event, EVENT_QOS)
@@ -199,6 +202,10 @@ class _LinkNode(Node):
         self.link.quad_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
 
     def _image(self, msg, signal):
+        now = time.monotonic()
+        if now - self._last_image.get(id(signal), 0.0) < 1.0 / IMAGE_HZ:
+            return
+        self._last_image[id(signal)] = now
         img = qimage_from_ros(msg)
         if img is not None:
             signal.emit(img)

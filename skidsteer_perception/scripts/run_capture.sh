@@ -5,6 +5,7 @@
 #   ./run_capture.sh --frames 400 --out ~/mydata
 #   ./run_capture.sh --target walking_person --frames 400
 #   ./run_capture.sh --platform parrot1 --hover 2.5
+#   ./run_capture.sh --world river_moderate_aus --target mushroom_native   # forest_worlds world, on its terrain
 #
 # One sim at a time, deliberately. Running two in parallel halved the frame
 # rate and eventually stalled one of them.
@@ -15,6 +16,7 @@ PLATFORM=husky1
 FRAMES=600
 REPOSITION=5          # frames per camera pose; low = more distinct scenes
 HOVER=""
+WORLD=simple_trees
 OUT=""
 
 while [ $# -gt 0 ]; do
@@ -24,6 +26,7 @@ while [ $# -gt 0 ]; do
         --frames)     FRAMES=$2; shift 2 ;;
         --reposition) REPOSITION=$2; shift 2 ;;
         --hover)      HOVER=$2; shift 2 ;;
+        --world)      WORLD=$2; shift 2 ;;
         --out)        OUT=$2; shift 2 ;;
         *) echo "unknown option: $1"; exit 1 ;;
     esac
@@ -39,6 +42,13 @@ mkdir -p "$LOG"
 # aborts under `set -u`. Relax it just for the sourcing.
 set +u; source "$WS/install/setup.bash"; set -u
 
+# forest_worlds worlds need their own models on the Gazebo path
+F="$WS/src/RS1_Team5_/forest_worlds"
+export IGN_GAZEBO_RESOURCE_PATH="$(ls -d "$F"/models/* "$F"/world_assets 2>/dev/null | tr '\n' ':')${IGN_GAZEBO_RESOURCE_PATH:-}"
+
+FW="$WS/src/RS1_Team5_/forest_worlds/worlds/$WORLD.sdf"
+LAUNCH_WORLD=$WORLD; [ -f "$FW" ] && LAUNCH_WORLD=${FW%.sdf}
+
 cleanup() { pkill -f "ign gazebo"; pkill -f parameter_bridge; pkill -f ruby; }
 trap cleanup EXIT INT TERM
 
@@ -52,13 +62,13 @@ echo "starting sim (headless, no detectors - capture does not use them)..."
 ros2 launch 41068_ignition_bringup 41068_ignition.launch.py \
     husky:="$( [ "$PLATFORM" = husky1 ] && echo True || echo False )" \
     parrot:="$( [ "$PLATFORM" = parrot1 ] && echo True || echo False )" \
-    rviz:=False headless:=True yolo:=False hazard:=False \
+    world:="$LAUNCH_WORLD" rviz:=False headless:=True yolo:=False hazard:=False \
     > "$LOG/sim.log" 2>&1 &
 
-for i in $(seq 30); do
+for i in $(seq 120); do   # heavy forest worlds take minutes to load
     sleep 2
     timeout 10 ign model --list 2>/dev/null | grep -q "$PLATFORM" && break
-    [ "$i" = 30 ] && { echo "$PLATFORM never appeared - see $LOG/sim.log"; exit 1; }
+    [ "$i" = 120 ] && { echo "$PLATFORM never appeared - see $LOG/sim.log"; exit 1; }
 done
 echo "  $PLATFORM up"
 
@@ -66,12 +76,16 @@ rm -rf "$OUT"
 ARGS=(-p target:="$TARGET" -p platform:="$PLATFORM" -p num_frames:="$FRAMES"
       -p reposition_every:="$REPOSITION" -p out_dir:="$OUT")
 [ -n "$HOVER" ] && ARGS+=(-p hover_z:="$HOVER")
+[ -f "$FW" ] && ARGS+=(-p world_sdf:="$FW" -p world:="$(grep -o '<world name="[^"]*' "$FW" | cut -d'"' -f2)")
 
 echo "capturing $FRAMES frames of $TARGET -> $OUT"
 ros2 run skidsteer_perception capture_sim_dataset --ros-args "${ARGS[@]}" \
     2>&1 | tee "$LOG/capture.log"
 
 [ -d "$OUT/images/train" ] || { echo "capture produced nothing"; exit 1; }
+
+# the red-pixel checks below only suit the red amanita; the capture's depth test already drops occluded boxes
+if [ "$TARGET" != mushroom_amanita ]; then echo; echo "done -> $OUT"; exit 0; fi
 
 echo; echo "verifying labels..."
 python3 "$S/annotate_dataset.py" "$OUT" | tail -3
