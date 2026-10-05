@@ -139,6 +139,7 @@ void CollisionGuard::navCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
   }
   if (depthBlocksForward(cmd.linear.x)) {
     cmd.linear.x = 0.0;
+    lastBlocked_ = t;
     if (!blocked_) {
       blocked_ = true;
       blockedSince_ = t;
@@ -157,7 +158,7 @@ void CollisionGuard::navCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
           escapeTurn_ > 0 ? "left" : "right", leftClear(s), rightClear(s), s.rear);
       }
     }
-  } else {
+  } else if (cmd.linear.x > 0.0 || (blocked_ && (t - lastBlocked_).seconds() > BLOCK_GAP_S)) {
     blocked_ = false;
   }
   if (cmd.linear.x < 0.0 && s.rear < REAR_STOP_DIST_M) {
