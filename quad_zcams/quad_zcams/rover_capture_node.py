@@ -23,6 +23,10 @@ quad's map around those spots and sent as a chain of NavigateToPose via points, 
 """
 import json
 import math
+import os
+import re
+import time
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import rclpy
@@ -35,6 +39,7 @@ from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Bool, Float64
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy import ndimage
 
@@ -75,8 +80,14 @@ ROCK_RANGE_M = 3.0        # rover depth hits nearer than this...
 ROCK_HITS = 3             # ...on this many frames make a 0.25 m cell a permanent obstacle on the route maps
 ROCK_TARGET_M = 1.2       # never round a queued mushroom
 ROCK_PERIOD_S = 0.5
+TELEOP_HOLD_S = 0.5        # the PS4 node's husky1/teleop_active heartbeat counts for this long
+HEDGE_KEEP_M = 2.6        # routes stay this far inside the hedge's centreline: its fern rows reach ~1.1 m in, Nav2's
+                          # inflation does the rest, and it gave up 1.4-2.3 m from the hedge (15 of 60 give-ups, Oct 7)
 # crossing crossings drive the lane unguarded: the depth guard reads the causeway's edge boulders as a wall (river SW crossing)
-CROSSING_TRIGGER_M = 5.0
+CROSSING_TRIGGER_M = 5.0      # at least this, and CROSSING_PAST_BANK_M past the bank zone (crossing 1's is 4.4 m)
+CROSSING_PAST_BANK_M = 1.6    # approach point 0.3 out + Nav2's 0.6 m goal tolerance + coasting: at 1.0 the lane missed
+                              # its turn by a few cm and Nav2 went for the far bank on its own (val1 m3, m1)
+CROSSING_APPROACH_M = 0.3     # the approach point: on the lane's axis, this far out from the bank zone
 CROSSING_SPEED = 0.3
 CROSSING_PAST_M = 3.5         # past the far edge of the bank zone before Nav2 takes over again
 CROSSING_SLACK = 1.5          # timeout: the lane's length at CROSSING_SPEED times this, plus 5 s
@@ -98,7 +109,19 @@ class _ShapedPublisher:
         self.node, self.pub = node, pub
 
     def publish(self, cmd):
-        self.pub.publish(self.node._shape(cmd))
+        if not self.node._teleop():
+            self.pub.publish(self.node._shape(cmd))
+
+
+class _TeleopGate:
+    """Drops the node's commands while the operator is driving."""
+
+    def __init__(self, node, pub):
+        self.node, self.pub = node, pub
+
+    def publish(self, cmd):
+        if not self.node._teleop():
+            self.pub.publish(cmd)
 
 
 NAV2_NODES = ['controller_server', 'smoother_server', 'planner_server', 'behavior_server', 'bt_navigator',
@@ -118,6 +141,7 @@ class RoverCapture(cc.CageCapture):
         # a generated world's .meta.json: its river channel is blocked on the route map except at the crossings, so routes
         # cross there (Nav2 alone drove at the bank between crossings and gave up - river5)
         self.declare_parameter('river_meta', '')
+        self.declare_parameter('known_rocks', True)  # route round the world's rock and trunk colliders from the start
         meta = self.get_parameter('river_meta').value
         d = json.load(open(meta)) if meta else {}
         self.river = d.get('river')
@@ -142,12 +166,23 @@ class RoverCapture(cc.CageCapture):
             cc.CAGE_TOL_M, cc.SETTLE_S, cc.CLAW_MOVE_S = 0.12, 0.4, 0.8
         self.clear_since, self.clear_from, self.open_dir = None, None, None
         self.cmd_pub = _ShapedPublisher(self, self.cmd_pub)
+        self.cmd_pub_unguarded = _TeleopGate(self, self.cmd_pub_unguarded)
+        self.teleop_until = 0.0
+        self.create_subscription(Bool, 'husky1/teleop_active', self._teleop_msg, 10)
         self.checked = set()
         self.bad, self.nav_from = [], None
         self.qmap, self.route, self.route_seen, self.map_logged = None, None, None, -1e9
         self.create_subscription(OccupancyGrid, 'parrot1/ground_obstacles', self._quad_map,
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
-        self.rock_hits, self.rocks, self.rock_t = {}, set(), -1e9
+        self.rock_hits, self.rock_t = {}, -1e9
+        self.rock_cells = self._known_rocks(meta) if meta and self.get_parameter('known_rocks').value else set()
+        # route_light's own clearance is 0.6: known rocks get 0.9 there too (it squeezed routes through 1.2 m gaps - m3)
+        k = int((ROUTE_CLEAR_M - LIGHT_CLEAR_M) / shared_map.RES + 0.5)
+        self.rock_cells_light = {(i + a, j + b) for i, j in self.rock_cells
+                                 for a in range(-k, k + 1) for b in range(-k, k + 1)}
+        self.rocks = set()  # what the rover's own depth marked
+        hedge = (d.get('hedge') or {}).get('half_size') if meta else None
+        self.square = hedge - HEDGE_KEEP_M if hedge else None
         self.create_subscription(PointCloud2, 'husky1/depth_obstacles', self._depth_hits, 1)
         if not self.nav.server_is_ready():
             self._start_nav2()
@@ -223,19 +258,23 @@ class RoverCapture(cc.CageCapture):
         cells = np.argwhere(occ) * msg.info.resolution - half + msg.info.resolution / 2
         g = obstacle_map.ObstacleGrid(cells, half, 0.0)
         dcells = np.argwhere(dense) * msg.info.resolution - half + msg.info.resolution / 2
-        self.route = obstacle_map.ObstacleGrid(dcells, half, ROUTE_CLEAR_M, lidar_ttl=BAD_TTL_S)
+        self.route = obstacle_map.ObstacleGrid(dcells, half, ROUTE_CLEAR_M, lidar_ttl=BAD_TTL_S, square=self.square)
         # the same, with ground the quad has not seen counted as blocked: a route through unseen ground took the
         # rover into a 1 m gap between the pond's reeds and the hedge (t24d)
         unseen = np.argwhere(dense | ~known) * msg.info.resolution - half + msg.info.resolution / 2
-        self.route_seen = obstacle_map.ObstacleGrid(unseen, half, ROUTE_CLEAR_M, lidar_ttl=BAD_TTL_S)
+        self.route_seen = obstacle_map.ObstacleGrid(unseen, half, ROUTE_CLEAR_M, lidar_ttl=BAD_TTL_S,
+                                                    square=self.square)
         # fallback: the quad's own hits with a tighter clearance, no foliage-share spreading - that closed the gaps
         # between bank plants and left a south-bank mushroom in a pocket of its own (demo)
         lcells = np.argwhere(occ) * msg.info.resolution - half + msg.info.resolution / 2
-        self.route_light = obstacle_map.ObstacleGrid(lcells, half, LIGHT_CLEAR_M, lidar_ttl=BAD_TTL_S)
+        self.route_light = obstacle_map.ObstacleGrid(lcells, half, LIGHT_CLEAR_M, lidar_ttl=BAD_TTL_S,
+                                                     square=self.square)
         if self.river:  # last resort: only the channel, the crossings open
             rcells = np.argwhere(self.river_mask) * msg.info.resolution - half + msg.info.resolution / 2
-            self.route_river = obstacle_map.ObstacleGrid(rcells, half, ROUTE_CLEAR_M)
-        self._mark_rocks(self.rocks)
+            self.route_river = obstacle_map.ObstacleGrid(rcells, half, ROUTE_CLEAR_M, square=self.square)
+        self._mark_rocks(self.rock_cells | self.rocks, (self.route, self.route_seen))
+        self._mark_rocks(self.rock_cells_light | self.rocks, (self.route_light,))
+        self._mark_rocks(self.rock_cells, (getattr(self, 'route_river', None),))  # real rocks: in the last resort too
         now = self._now()
         self.bad = [(x, y, t) for x, y, t in self.bad if now - t < BAD_TTL_S]
         for x, y, t in self.bad:
@@ -385,26 +424,35 @@ class RoverCapture(cc.CageCapture):
                                f"on the quad's map ({len(self.bad)} spot(s) where Nav2 failed before).")
         self._nav_to(*self.via_queue.pop(0))
 
+    def _bank(self, k):
+        """Half-width of crossing k's bank zone (the river line's bank-top radius there)."""
+        fx, fy = self.river_crossings[k]
+        return min(self.river['line'], key=lambda c: math.hypot(c[0] - fx, c[1] - fy))[2]
+
+    def _trigger(self, k):
+        return max(CROSSING_TRIGGER_M, self._bank(k) + CROSSING_PAST_BANK_M)
+
     def _crossing_vias(self, path):
         """The smoothed path's straight legs can run through a crossing with no point near it, and Nav2 then picks its
         own way over to the far side - onto a bank and into the water (defaults run02). Fill the legs in every
-        VIA_STEP_M / 2 and keep one point on the near bank inside CROSSING_TRIGGER_M, so the crossing lane takes over."""
-        out, prev = [], (self.x, self.y)
+        VIA_STEP_M / 2, and where the path enters a crossing's zone put one approach point on the lane's axis just
+        outside the bank zone, so the crossing lane takes over from there. (The first path point in the zone, used
+        before, could sit 3 m off the axis or just outside the trigger: the lane never took over and Nav2 drove at
+        the river east of crossing 1 until the cliff guard stopped it - m3.)"""
+        out, prev, done = [], (self.x, self.y), set()
         for p in path:
             n = max(1, int(math.hypot(p[0] - prev[0], p[1] - prev[1]) / (VIA_STEP_M / 2)))
             for s in range(1, n + 1):
                 q = (prev[0] + (p[0] - prev[0]) * s / n, prev[1] + (p[1] - prev[1]) * s / n)
-                near = [k for k, (fx, fy) in enumerate(self.river_crossings)
-                        if math.hypot(q[0] - fx, q[1] - fy) < CROSSING_TRIGGER_M]
-                if near and q != p:
-                    k = near[0]
-                    r = min(self.river['line'], key=lambda c: math.hypot(c[0] - self.river_crossings[k][0],
-                                                                         c[1] - self.river_crossings[k][1]))[2]
-                    across = self._lane(k, *q)[1]
-                    if abs(across) < r - 0.4 or (out and math.hypot(out[-1][0] - self.river_crossings[k][0],
-                                                              out[-1][1] - self.river_crossings[k][1]) < CROSSING_TRIGGER_M):
-                        continue  # in the lane, or the approach point is already in
-                out.append(q)
+                k = next((k for k, (fx, fy) in enumerate(self.river_crossings)
+                          if math.hypot(q[0] - fx, q[1] - fy) < self._trigger(k)), None)
+                if k is None or q == path[-1]:  # the lane drive covers the rest of the zone
+                    out.append(q)
+                elif k not in done:
+                    done.add(k)
+                    (fx, fy), (tx, ty) = self.river_crossings[k], self.river['crossing_tangents'][k]
+                    a = math.copysign(self._bank(k) + CROSSING_APPROACH_M, self._lane(k, *q)[1])
+                    out.append((fx - a * ty, fy + a * tx))
             prev = p
         return out
 
@@ -465,7 +513,7 @@ class RoverCapture(cc.CageCapture):
                   int(math.floor((self.y + s * px + c * py) / shared_map.RES))) for px, py in pts}
         keep = list(self.targets) + list(self.given_up)
         new = set()
-        for k in cells - self.rocks:
+        for k in cells - self.rocks - self.rock_cells:
             x, y = (k[0] + 0.5) * shared_map.RES, (k[1] + 0.5) * shared_map.RES
             if any(math.hypot(x - tx, y - ty) < ROCK_TARGET_M for tx, ty in keep) or self._in_crossing_lane(x, y):
                 continue
@@ -474,7 +522,36 @@ class RoverCapture(cc.CageCapture):
                 new.add(k)
         if new:
             self.rocks |= new
-            self._mark_rocks(new)
+            self._mark_rocks(new, (self.route, self.route_seen, self.route_light))
+
+    def _known_rocks(self, meta):
+        """Cells under the generated world's colliders (rocks are boxes, trunks cylinders). The rover's depth only
+        marks a low rock within 3 m, by when the route had already committed to the 1 m gap at (0,-20)."""
+        sdf = meta[:-len('.meta.json')] + '.sdf'
+        m = re.search(r'model://(forest_colliders_[^<]+)<', open(sdf).read()) if os.path.exists(sdf) else None
+        path = os.path.join(os.path.dirname(os.path.dirname(sdf)), 'world_assets', m.group(1), 'model.sdf') if m else ''
+        if not os.path.exists(path):
+            self.get_logger().warn(f'known_rocks: no collider model for {sdf}')
+            return set()
+        cells, step = set(), shared_map.RES / 2
+        for c in ET.parse(path).getroot().iter('collision'):
+            g = c.find('geometry')[0]
+            if c.find('pose') is None or g.tag not in ('box', 'cylinder'):
+                continue
+            x, y, _, _, _, yaw = map(float, c.find('pose').text.split())
+            if g.tag == 'box':
+                hx, hy = (float(v) / 2 for v in g.find('size').text.split()[:2])
+            else:
+                hx = hy = float(g.find('radius').text)
+            u, v = np.meshgrid(np.arange(-hx, hx + step, step), np.arange(-hy, hy + step, step))
+            if g.tag == 'cylinder':
+                u, v = u[np.hypot(u, v) <= hx], v[np.hypot(u, v) <= hx]
+            px = x + u * math.cos(yaw) - v * math.sin(yaw)
+            py = y + u * math.sin(yaw) + v * math.cos(yaw)
+            cells |= set(zip(np.floor(np.ravel(px) / shared_map.RES).astype(int).tolist(),
+                             np.floor(np.ravel(py) / shared_map.RES).astype(int).tolist()))
+        self.get_logger().info(f'known_rocks: {len(cells)} cells from {m.group(1)}')
+        return cells
 
     def _in_crossing_lane(self, x, y):
         if self.route is None or self.crossing_lanes is None:
@@ -482,11 +559,11 @@ class RoverCapture(cc.CageCapture):
         i, j = self.route.cell(x, y)
         return self.route.inside(i, j) and bool(self.crossing_lanes[i, j])
 
-    def _mark_rocks(self, cells):
+    def _mark_rocks(self, cells, grids):
         if not cells or self.route is None:
             return
         xy = (np.array(list(cells)) + 0.5) * shared_map.RES
-        for g in (self.route, self.route_seen, getattr(self, 'route_light', None)):  # not route_river: the last resort
+        for g in grids:
             if g is not None:
                 i, j = g._cells(xy[:, 0], xy[:, 1])
                 ok = (i >= 0) & (i < g.n) & (j >= 0) & (j < g.n)
@@ -551,7 +628,7 @@ class RoverCapture(cc.CageCapture):
         for k, (fx, fy) in enumerate(self.river_crossings):
             along, across = self._lane(k, self.x, self.y)
             g_across = self._lane(k, gx, gy)[1]
-            if (math.hypot(self.x - fx, self.y - fy) > CROSSING_TRIGGER_M or abs(along) >= 1.6
+            if (math.hypot(self.x - fx, self.y - fy) > self._trigger(k) or abs(along) >= 1.6
                     or g_across * across > 0 or abs(g_across) < 1.0):
                 continue
             side = 1.0 if g_across > 0 else -1.0
@@ -628,7 +705,39 @@ class RoverCapture(cc.CageCapture):
         self._set_state('UNWEDGE')
         return True
 
+    def _teleop_msg(self, msg):
+        self.teleop_until = time.monotonic() + TELEOP_HOLD_S if msg.data else 0.0
+
+    def _teleop(self):
+        return time.monotonic() < self.teleop_until
+
+    def _teleop_step(self):
+        """The operator has the rover while the PS4 deadman is held: Nav2's goal is cancelled and the node goes quiet;
+        a grab already lifting finishes first. On release it re-plans from wherever it was left, with no failure
+        counted (a cancelled goal would otherwise mark the spot bad and defer the mushroom)."""
+        if self._teleop() and self.state not in ('TELEOP', 'COLLECT', 'RAISE'):
+            self._cancel_nav()
+            self.nav_result, self.via_queue, self.crossing, self.unwedge = None, [], None, []
+            if self.state in ('LOWER', 'ALIGN', 'RETRACT'):  # never close the claws after being driven off the spot
+                self.boom, self.claw, self.pitch = cc.BOOM_UP, cc.CLAW_OPEN, cc.PITCH_UP
+            self.get_logger().warn(f'Operator took over the rover (was {self.state}) - autonomy paused.')
+            self._set_state('TELEOP')
+        elif not self._teleop() and self.state == 'TELEOP':
+            self.nav_from, self.stall_ref, self.wedged = None, None, 0
+            self.get_logger().info(f'Operator released the rover at ({self.x:.1f},{self.y:.1f}) - re-planning.')
+            self._set_state('DRIVE')
+        if self.state != 'TELEOP':
+            return False
+        self.boom_pub.publish(Float64(data=self.boom))  # the arm holds where it is
+        self.cage_pub.publish(Float64(data=-self.boom))
+        self.claw_pubs[0].publish(Float64(data=self.claw))
+        self.claw_pubs[1].publish(Float64(data=-self.claw))
+        self.pitch_pub.publish(Float64(data=self.pitch))
+        return True
+
     def _step(self):
+        if self._teleop_step():
+            return
         self._retry_given_up()
         if self.have_odom and self.state not in ('UNWEDGE',) and (
                 not self.crumbs or math.hypot(self.x - self.crumbs[-1][0], self.y - self.crumbs[-1][1]) >= CRUMB_M):

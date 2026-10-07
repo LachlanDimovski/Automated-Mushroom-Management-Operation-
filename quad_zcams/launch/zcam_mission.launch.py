@@ -11,6 +11,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription, LaunchDescriptionSource
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -118,7 +119,8 @@ def generate_launch_description():
                           ('quad_routes', 'true'),     # route on the quad's map from the first attempt
                           ('rover_speed', '1.3'),      # Nav2 cruise speed (m/s) set at startup; 0 = the yaml's 0.9
                           ('crossing_speed', '0.8'),       # crossing lane speed (m/s)
-                          ('turn_speed', '1.2')):      # turn-in-place rate (rad/s); 0 = the yaml's 0.6
+                          ('turn_speed', '1.2'),       # turn-in-place rate (rad/s); 0 = the yaml's 0.6
+                          ('ps4', 'true')):            # PS4 teleop (R1 rover, L1 quad); idle without a controller
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
     # everything but the stock quad (its URDF and search node are swapped for the z-camera ones below)
     ld.add_action(IncludeLaunchDescription(LaunchDescriptionSource(_cage_mission()),
@@ -137,4 +139,9 @@ def generate_launch_description():
     base.add_perception(ld, use_sim_time=LaunchConfiguration('use_sim_time'), robot_arg='zcam_parrot',
                         robot_namespace='parrot1', start_delay=11.0, core='7')
     ld.add_action(OpaqueFunction(function=_quad))
+    ps4 = IfCondition(LaunchConfiguration('ps4'))
+    ld.add_action(Node(package='joy', executable='joy_node', output='screen', condition=ps4,
+                       parameters=[{'autorepeat_rate': 30.0, 'deadzone': 0.02}]))
+    ld.add_action(Node(package='quad_zcams', executable='ps4_teleop', output='screen', condition=ps4,
+                       parameters=[{'start_joy': False}]))
     return ld

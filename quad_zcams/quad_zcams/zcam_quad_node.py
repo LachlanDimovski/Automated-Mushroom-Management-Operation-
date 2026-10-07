@@ -20,7 +20,7 @@ from nav_msgs.msg import OccupancyGrid
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy import ndimage
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float32
+from std_msgs.msg import Bool, Float32
 
 from ammo_mission_control import quad_search_node as qs
 from ammo_mission_control.drive_utils import steer_angular
@@ -33,6 +33,7 @@ DOWN_CAM_Z = -0.12        # camera mounts below / above base_link (parrot_zcams.
 COLUMN_R_M = 0.8          # clearance is measured within this radius of the quad's vertical axis
 DEPTH_STALE_S = 1.0       # older than this: fall back to height above the spawn ground
 HEADROOM_M = 1.5          # never rise with anything closer than this overhead
+TELEOP_HOLD_S = 0.5        # the PS4 node's parrot1/teleop_active heartbeat counts for this long
 HANDOVER_S = 15.0         # holding this long since the last waypoint went out with no new one: the rover already has
                           # it queued, so resume (the parent waited for 3 waypoints or 150 s, under foliage often 150 s)
 
@@ -91,7 +92,8 @@ class _ShapedPublisher:
         self.node, self.pub = node, pub
 
     def publish(self, cmd):
-        self.pub.publish(self.node._shape(cmd))
+        if not self.node._teleop():
+            self.pub.publish(self.node._shape(cmd))
 
 
 class ZCamQuad(qs.QuadSearchController):
@@ -161,6 +163,8 @@ class ZCamQuad(qs.QuadSearchController):
             self.waypoints = self._prepare_sweep(self.waypoints)
             self._reset_cover()
         self.cmd_pub = _ShapedPublisher(self, self.cmd_pub)
+        self.teleop_until, self.teleop_on = 0.0, False
+        self.create_subscription(Bool, 'parrot1/teleop_active', self._teleop_msg, 10)
         self.waypoint_pub = _LastPoint(self.waypoint_pub)
         self.agl_pub = self.create_publisher(Float32, 'parrot1/agl', 10)
         self.create_subscription(Image, 'parrot1/down_depth/image', lambda m: self._zcam(m, True), qs.LIVE_QOS)
@@ -552,6 +556,26 @@ class ZCamQuad(qs.QuadSearchController):
         if self.holding:  # the rover is finished with it (collected or skipped): never hold for it again
             self.dispatched.append((msg.point.x, msg.point.y))
         super()._done_cb(msg)
+
+    def _teleop_msg(self, msg):
+        self.teleop_until = time.monotonic() + TELEOP_HOLD_S if msg.data else 0.0
+
+    def _teleop(self):
+        return time.monotonic() < self.teleop_until
+
+    def _control_step(self):
+        """The operator flies while the PS4 deadman is held (detections still go to the rover); on release the quad
+        plans from where it was left, with the stuck clock restarted."""
+        if self._teleop():
+            if not self.teleop_on:
+                self.teleop_on = True
+                self.get_logger().warn('Operator took over the quad - search paused.')
+            return
+        if self.teleop_on:
+            self.teleop_on = False
+            self.replan, self.prog, self.progress_time = True, None, None
+            self.get_logger().info(f'Operator released the quad at ({self.x:.1f},{self.y:.1f}) - resuming the search.')
+        super()._control_step()
 
     # -- stuck: no progress along the path -> replan, slide, skip ----------------
     def _check_stuck(self, now):

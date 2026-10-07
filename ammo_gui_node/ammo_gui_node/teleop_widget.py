@@ -5,6 +5,10 @@ through `collision_guard_node` on the way like every other transit command.
 That means holding W into a tree trunk gets vetoed by the guard rather than
 driving into it, which is the behaviour you want from a teleop panel.
 
+Ticking Armed takes the rover: every command also sends the
+`husky1/teleop_active` heartbeat, so `rover_capture_node` stands down until
+the panel is disarmed, then re-plans from where it was left.
+
 Speeds are kept near what `cage_capture_node` uses for its own approach
 (0.4 m/s, 1.2 rad/s), so driving by hand feels like the rover behaves on its
 own rather than something twitchier.
@@ -122,7 +126,7 @@ class TeleopWidget(QWidget):
         else:
             self.held.clear()
             self._sync_caps()
-            self.link.publish_drive(0.0, 0.0)
+            self.link.publish_drive(0.0, 0.0, active=False)
         self._update_hint()
 
     def _update_hint(self):

@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'zcam_quad_node = quad_zcams.zcam_quad_node:main',
             'rover_capture_node = quad_zcams.rover_capture_node:main',
+            'ps4_teleop = quad_zcams.ps4_teleop:main',
         ],
     },
 )
