@@ -1,7 +1,7 @@
 # River forest worlds
 
 Realistic forest worlds for Ignition Gazebo Fortress: terrain from Forest3D's real elevation survey, a river with
-three rocky fords, a hedge round the map edge, Poly Haven CC0 trees, shrubs, rocks and grass. Built to run on
+three rocky crossings, a hedge round the map edge, Poly Haven CC0 trees, shrubs, rocks and grass. Built to run on
 integrated graphics (about 2 M triangles, all physics in one static link).
 
 ## Run it on any laptop
@@ -63,8 +63,8 @@ To use one in your own launch, add `forest_worlds/models/*` and `forest_worlds/w
 
 ## Crossing the river
 
-The channel is a 0.75 m drop, so robots can only cross at the fords (printed by `build_world.py`; with the default
-seed they are at about (-8.8, -11.5), (8.8, -8.3) and (-22.0, -20.6)). Each ford is a pebble causeway with boulders on
+The channel is a 0.75 m drop, so robots can only cross at the crossings (printed by `build_world.py`; with the default
+seed they are at about (-8.8, -11.5), (8.8, -8.3) and (-22.0, -20.6)). Each crossing is a pebble causeway with boulders on
 both edges, 2.9 m either side of its centreline, and a clear lane about 3.2 m wide. The water is visual only.
 
 ## Mushroom demo

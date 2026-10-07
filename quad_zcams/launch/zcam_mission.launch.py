@@ -57,7 +57,7 @@ def _cage_mission():
                                         'river_meta': meta if os.path.exists(meta) else '',
                                         'quad_routes': LaunchConfiguration('quad_routes').perform(context).lower() == 'true',
                                         'rover_speed': float(LaunchConfiguration('rover_speed').perform(context)),
-                                        'ford_speed': float(LaunchConfiguration('ford_speed').perform(context)),
+                                        'crossing_speed': float(LaunchConfiguration('crossing_speed').perform(context)),
                                         'turn_speed': float(LaunchConfiguration('turn_speed').perform(context))}])]
     mod._nodes = _nodes
     return mod.generate_launch_description()
@@ -117,7 +117,7 @@ def generate_launch_description():
                           ('inflation', '0.9'),        # costmap inflation radius set at startup (Nav2 yaml: 1.5)
                           ('quad_routes', 'true'),     # route on the quad's map from the first attempt
                           ('rover_speed', '1.3'),      # Nav2 cruise speed (m/s) set at startup; 0 = the yaml's 0.9
-                          ('ford_speed', '0.8'),       # ford lane speed (m/s)
+                          ('crossing_speed', '0.8'),       # crossing lane speed (m/s)
                           ('turn_speed', '1.2')):      # turn-in-place rate (rad/s); 0 = the yaml's 0.6
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
     # everything but the stock quad (its URDF and search node are swapped for the z-camera ones below)

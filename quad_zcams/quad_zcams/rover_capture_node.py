@@ -33,6 +33,8 @@ from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy import ndimage
 
@@ -68,11 +70,16 @@ CRUMBS = 200
 UNWEDGE_M = 3.0           # ...then reverse along the track this far (driven already, so passable), clear the costmaps
 UNWEDGE_SPEED = 0.15
 UNWEDGE_TIMEOUT_S = 40.0
-# ford crossings drive the lane unguarded: the depth guard reads the causeway's edge boulders as a wall (river SW ford)
-FORD_TRIGGER_M = 5.0
-FORD_SPEED = 0.3
-FORD_PAST_M = 3.5         # past the far edge of the bank zone before Nav2 takes over again
-FORD_SLACK = 1.5          # timeout: the lane's length at FORD_SPEED times this, plus 5 s
+# low rocks the quad's map misses (it caught a few cells of each at (0,-20), so routes went through a 1 m gap)
+ROCK_RANGE_M = 3.0        # rover depth hits nearer than this...
+ROCK_HITS = 3             # ...on this many frames make a 0.25 m cell a permanent obstacle on the route maps
+ROCK_TARGET_M = 1.2       # never round a queued mushroom
+ROCK_PERIOD_S = 0.5
+# crossing crossings drive the lane unguarded: the depth guard reads the causeway's edge boulders as a wall (river SW crossing)
+CROSSING_TRIGGER_M = 5.0
+CROSSING_SPEED = 0.3
+CROSSING_PAST_M = 3.5         # past the far edge of the bank zone before Nav2 takes over again
+CROSSING_SLACK = 1.5          # timeout: the lane's length at CROSSING_SPEED times this, plus 5 s
 EMPTY_R_M = cc.CAGE_HALF_M  # handoffs this close to a spot already found empty are dropped: only what the grab
 #   covered (at 1.5 m a 0.55 m-off handoff blocked the quad's correct one 0.63 m away for the rest of the run - defaults2)
 
@@ -108,26 +115,29 @@ class RoverCapture(cc.CageCapture):
         self.quad_routes = bool(self.get_parameter('quad_routes').value)
         if self.quad_routes:  # routes avoid what failed before, so a later attempt is worth more than giving up
             cc.MAX_DEFERS = 4
-        # a generated world's .meta.json: its river channel is blocked on the route map except at the fords, so routes
-        # cross there (Nav2 alone drove at the bank between fords and gave up - river5)
+        # a generated world's .meta.json: its river channel is blocked on the route map except at the crossings, so routes
+        # cross there (Nav2 alone drove at the bank between crossings and gave up - river5)
         self.declare_parameter('river_meta', '')
         meta = self.get_parameter('river_meta').value
-        self.river = json.load(open(meta)).get('river') if meta else None
-        self.river_fords = json.load(open(meta))['fords'] if self.river else []
-        self.river_mask = None
+        d = json.load(open(meta)) if meta else {}
+        self.river = d.get('river')
+        self.river_crossings = d.get('crossings', d.get('fords', [])) if self.river else []  # 'fords': worlds built before the rename
+        if self.river and 'crossing_tangents' not in self.river:
+            self.river['crossing_tangents'] = self.river.get('ford_tangents', [])
+        self.river_mask = self.crossing_lanes = None
         self.declare_parameter('inflation', 0.0)  # > 0: costmap inflation radius set at startup (the yaml has 1.5)
         self.declare_parameter('rover_speed', 0.0)  # > 0: Nav2 cruise speed set at startup (the yaml has 0.9)
-        self.declare_parameter('ford_speed', FORD_SPEED)
-        self.declare_parameter('turn_speed', 0.0)  # > 0: Nav2's turn-in-place rate (yaml 0.6) and the ford lane's turn cap
-        self.ford_turn = max(0.8, float(self.get_parameter('turn_speed').value))
-        globals()['FORD_SPEED'] = float(self.get_parameter('ford_speed').value)  # read at run time
+        self.declare_parameter('crossing_speed', CROSSING_SPEED)
+        self.declare_parameter('turn_speed', 0.0)  # > 0: Nav2's turn-in-place rate (yaml 0.6) and the crossing lane's turn cap
+        self.crossing_turn = max(0.8, float(self.get_parameter('turn_speed').value))
+        globals()['CROSSING_SPEED'] = float(self.get_parameter('crossing_speed').value)  # read at run time
         self.nearest_first = bool(self.get_parameter('nearest_first').value)
         self.map_deferred = set()
         self.via_queue = []
         self.stall_ref = None  # (t, x, y) while in NAV
         self.crumbs, self.wedged, self.unwedge, self.unwedge_since = [], 0, [], 0.0
         self.given_up, self.idle_since = [], None
-        self.nav_goal, self.ford, self.empty = None, None, []
+        self.nav_goal, self.crossing, self.empty = None, None, []
         if self.get_parameter('fast_pickup').value:  # the parent reads these at run time; the grab covers 0.6 m
             cc.CAGE_TOL_M, cc.SETTLE_S, cc.CLAW_MOVE_S = 0.12, 0.4, 0.8
         self.clear_since, self.clear_from, self.open_dir = None, None, None
@@ -137,6 +147,8 @@ class RoverCapture(cc.CageCapture):
         self.qmap, self.route, self.route_seen, self.map_logged = None, None, None, -1e9
         self.create_subscription(OccupancyGrid, 'parrot1/ground_obstacles', self._quad_map,
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.rock_hits, self.rocks, self.rock_t = {}, set(), -1e9
+        self.create_subscription(PointCloud2, 'husky1/depth_obstacles', self._depth_hits, 1)
         if not self.nav.server_is_ready():
             self._start_nav2()
         if self.get_parameter('inflation').value > 0.0:
@@ -196,16 +208,16 @@ class RoverCapture(cc.CageCapture):
         occ, known = shared_map.from_message(msg)
         if self.river:
             if self.river_mask is None or self.river_mask.shape != occ.shape:
-                self.river_mask, self.ford_lanes = self._river_mask(occ.shape[0], msg.info.resolution,
+                self.river_mask, self.crossing_lanes = self._river_mask(occ.shape[0], msg.info.resolution,
                                                                     -msg.info.origin.position.x)
-            occ = occ & ~self.ford_lanes  # the pebble causeway stands above the heightmap's bed: the quad maps it
+            occ = occ & ~self.crossing_lanes  # the pebble causeway stands above the heightmap's bed: the quad maps it
         k = int(round(FOLIAGE_R_M / msg.info.resolution))
         yy, xx = np.mgrid[-k:k + 1, -k:k + 1]
         disk = (np.hypot(xx, yy) <= k).astype(float)
         hits = ndimage.convolve(occ.astype(float), disk, mode='constant')
         seen = ndimage.convolve(known.astype(float), disk, mode='constant')
         dense = occ | ((seen > 0) & (hits >= FOLIAGE_SHARE * np.maximum(seen, 1)))
-        if self.river:  # after the foliage test, which would otherwise spread the banks across the ford lanes
+        if self.river:  # after the foliage test, which would otherwise spread the banks across the crossing lanes
             occ, dense, known = occ | self.river_mask, dense | self.river_mask, known | self.river_mask
         half = -msg.info.origin.position.x
         cells = np.argwhere(occ) * msg.info.resolution - half + msg.info.resolution / 2
@@ -220,9 +232,10 @@ class RoverCapture(cc.CageCapture):
         # between bank plants and left a south-bank mushroom in a pocket of its own (demo)
         lcells = np.argwhere(occ) * msg.info.resolution - half + msg.info.resolution / 2
         self.route_light = obstacle_map.ObstacleGrid(lcells, half, LIGHT_CLEAR_M, lidar_ttl=BAD_TTL_S)
-        if self.river:  # last resort: only the channel, the fords open
+        if self.river:  # last resort: only the channel, the crossings open
             rcells = np.argwhere(self.river_mask) * msg.info.resolution - half + msg.info.resolution / 2
             self.route_river = obstacle_map.ObstacleGrid(rcells, half, ROUTE_CLEAR_M)
+        self._mark_rocks(self.rocks)
         now = self._now()
         self.bad = [(x, y, t) for x, y, t in self.bad if now - t < BAD_TTL_S]
         for x, y, t in self.bad:
@@ -241,14 +254,14 @@ class RoverCapture(cc.CageCapture):
         mask, lanes = np.zeros((n, n), bool), np.zeros((n, n), bool)
         for px, py, r in self.river['line']:
             mask |= np.hypot(X - px, Y - py) < r
-        for (fx, fy), (tx, ty) in zip(self.river_fords, self.river['ford_tangents']):
+        for (fx, fy), (tx, ty) in zip(self.river_crossings, self.river['crossing_tangents']):
             along, across = (X - fx) * tx + (Y - fy) * ty, -(X - fx) * ty + (Y - fy) * tx
-            lane = (abs(along) < 1.6) & (abs(across) < 10.0)  # the ford's clear lane
+            lane = (abs(along) < 1.6) & (abs(across) < 10.0)  # the crossing's clear lane
             mask &= ~lane
             lanes |= lane & (abs(along) < 1.4)
         self.river_zone = ndimage.binary_dilation(mask, iterations=int(round(0.75 / res)))
         self.get_logger().info(f'River blocked on the route map: {mask.sum() * res * res:.0f} m2, '
-                               f'{len(self.river_fords)} ford(s) open.')
+                               f'{len(self.river_crossings)} crossing(s) open.')
         return mask, lanes
 
     def _in_river(self, x, y):
@@ -340,7 +353,7 @@ class RoverCapture(cc.CageCapture):
                            (getattr(self, 'route_river', None), 'the river alone')):
             if path is not None or grid is None or not self.river:  # other worlds: Nav2 chooses, as before
                 continue
-            # boulders on all three ford approaches sealed the quad's map, and every far-side mushroom was deferred
+            # boulders on all three crossing approaches sealed the quad's map, and every far-side mushroom was deferred
             # for the rest of the run (stress1): route on the channel alone and let Nav2 go round what is in the way
             for k in range(12):
                 a = cands[k][2]
@@ -359,9 +372,9 @@ class RoverCapture(cc.CageCapture):
             return super()._send_nav(gx, gy)
         vias, last = [], (self.x, self.y)
         if self.river:
-            path = self._ford_vias(path)
+            path = self._crossing_vias(path)
         for p in path[:-1]:
-            # tighter near water: Nav2 cuts the corner between via points, and a 3 m cut put it on a ford's bank
+            # tighter near water: Nav2 cuts the corner between via points, and a 3 m cut put it on a crossing's bank
             if math.hypot(p[0] - last[0], p[1] - last[1]) >= (VIA_STEP_M / 2 if self.river else VIA_STEP_M):
                 vias.append((p[0], p[1], math.atan2(p[1] - last[1], p[0] - last[0])))
                 last = p
@@ -372,24 +385,24 @@ class RoverCapture(cc.CageCapture):
                                f"on the quad's map ({len(self.bad)} spot(s) where Nav2 failed before).")
         self._nav_to(*self.via_queue.pop(0))
 
-    def _ford_vias(self, path):
-        """The smoothed path's straight legs can run through a ford with no point near it, and Nav2 then picks its
+    def _crossing_vias(self, path):
+        """The smoothed path's straight legs can run through a crossing with no point near it, and Nav2 then picks its
         own way over to the far side - onto a bank and into the water (defaults run02). Fill the legs in every
-        VIA_STEP_M / 2 and keep one point on the near bank inside FORD_TRIGGER_M, so the ford lane takes over."""
+        VIA_STEP_M / 2 and keep one point on the near bank inside CROSSING_TRIGGER_M, so the crossing lane takes over."""
         out, prev = [], (self.x, self.y)
         for p in path:
             n = max(1, int(math.hypot(p[0] - prev[0], p[1] - prev[1]) / (VIA_STEP_M / 2)))
             for s in range(1, n + 1):
                 q = (prev[0] + (p[0] - prev[0]) * s / n, prev[1] + (p[1] - prev[1]) * s / n)
-                near = [k for k, (fx, fy) in enumerate(self.river_fords)
-                        if math.hypot(q[0] - fx, q[1] - fy) < FORD_TRIGGER_M]
+                near = [k for k, (fx, fy) in enumerate(self.river_crossings)
+                        if math.hypot(q[0] - fx, q[1] - fy) < CROSSING_TRIGGER_M]
                 if near and q != p:
                     k = near[0]
-                    r = min(self.river['line'], key=lambda c: math.hypot(c[0] - self.river_fords[k][0],
-                                                                         c[1] - self.river_fords[k][1]))[2]
+                    r = min(self.river['line'], key=lambda c: math.hypot(c[0] - self.river_crossings[k][0],
+                                                                         c[1] - self.river_crossings[k][1]))[2]
                     across = self._lane(k, *q)[1]
-                    if abs(across) < r - 0.4 or (out and math.hypot(out[-1][0] - self.river_fords[k][0],
-                                                              out[-1][1] - self.river_fords[k][1]) < FORD_TRIGGER_M):
+                    if abs(across) < r - 0.4 or (out and math.hypot(out[-1][0] - self.river_crossings[k][0],
+                                                              out[-1][1] - self.river_crossings[k][1]) < CROSSING_TRIGGER_M):
                         continue  # in the lane, or the approach point is already in
                 out.append(q)
             prev = p
@@ -438,6 +451,48 @@ class RoverCapture(cc.CageCapture):
             return
         self.nav.send_goal_async(goal).add_done_callback(self._nav_accepted)
 
+    def _depth_hits(self, msg):
+        now = self._now()
+        if now - self.rock_t < ROCK_PERIOD_S or not self.have_odom:
+            return
+        self.rock_t = now
+        pts = np.array([(p[0], p[1]) for p in point_cloud2.read_points(msg, ('x', 'y'), skip_nans=True)])
+        if not len(pts):
+            return
+        pts = pts[np.hypot(pts[:, 0], pts[:, 1]) < ROCK_RANGE_M]
+        c, s = math.cos(self.yaw), math.sin(self.yaw)
+        cells = {(int(math.floor((self.x + c * px - s * py) / shared_map.RES)),
+                  int(math.floor((self.y + s * px + c * py) / shared_map.RES))) for px, py in pts}
+        keep = list(self.targets) + list(self.given_up)
+        new = set()
+        for k in cells - self.rocks:
+            x, y = (k[0] + 0.5) * shared_map.RES, (k[1] + 0.5) * shared_map.RES
+            if any(math.hypot(x - tx, y - ty) < ROCK_TARGET_M for tx, ty in keep) or self._in_crossing_lane(x, y):
+                continue
+            self.rock_hits[k] = self.rock_hits.get(k, 0) + 1
+            if self.rock_hits[k] >= ROCK_HITS:
+                new.add(k)
+        if new:
+            self.rocks |= new
+            self._mark_rocks(new)
+
+    def _in_crossing_lane(self, x, y):
+        if self.route is None or self.crossing_lanes is None:
+            return False
+        i, j = self.route.cell(x, y)
+        return self.route.inside(i, j) and bool(self.crossing_lanes[i, j])
+
+    def _mark_rocks(self, cells):
+        if not cells or self.route is None:
+            return
+        xy = (np.array(list(cells)) + 0.5) * shared_map.RES
+        for g in (self.route, self.route_seen, getattr(self, 'route_light', None)):  # not route_river: the last resort
+            if g is not None:
+                i, j = g._cells(xy[:, 0], xy[:, 1])
+                ok = (i >= 0) & (i < g.n) & (j >= 0) & (j < g.n)
+                g.lidar_seen[i[ok], j[ok]] = 1e12  # outlives any ttl
+                g.rebuild(self._now())
+
     def _block(self, x, y, t):
         ang = np.linspace(0, 2 * math.pi, 16, endpoint=False)
         for r in (0.0, BAD_R_M / 2, BAD_R_M):
@@ -484,47 +539,47 @@ class RoverCapture(cc.CageCapture):
         self.nav_tries, self.idle_stopped = 0, False
         self.get_logger().info(f'Queue empty - retrying the {len(self.targets)} mushroom(s) given up earlier.')
 
-    # -- ford crossings -------------------------------------------------------------
+    # -- crossing crossings -------------------------------------------------------------
     def _lane(self, k, x, y):
-        (fx, fy), (tx, ty) = self.river_fords[k], self.river['ford_tangents'][k]
+        (fx, fy), (tx, ty) = self.river_crossings[k], self.river['crossing_tangents'][k]
         return (x - fx) * tx + (y - fy) * ty, -(x - fx) * ty + (y - fy) * tx  # along the river, across it
 
-    def _ford_check(self):
+    def _crossing_check(self):
         if not self.river or self.nav_goal is None or self.nav_result is not None:
             return False
         gx, gy = self.nav_goal[:2]
-        for k, (fx, fy) in enumerate(self.river_fords):
+        for k, (fx, fy) in enumerate(self.river_crossings):
             along, across = self._lane(k, self.x, self.y)
             g_across = self._lane(k, gx, gy)[1]
-            if (math.hypot(self.x - fx, self.y - fy) > FORD_TRIGGER_M or abs(along) >= 1.6
+            if (math.hypot(self.x - fx, self.y - fy) > CROSSING_TRIGGER_M or abs(along) >= 1.6
                     or g_across * across > 0 or abs(g_across) < 1.0):
                 continue
             side = 1.0 if g_across > 0 else -1.0
             r = min(self.river['line'], key=lambda p: math.hypot(p[0] - fx, p[1] - fy))[2]
-            exit_m = r + 0.75 + FORD_PAST_M
-            self.ford = {'k': k, 'side': side, 'exit': exit_m, 't0': self._now(),
-                         'timeout': (exit_m - across * side) / FORD_SPEED * FORD_SLACK + 5.0,
+            exit_m = r + 0.75 + CROSSING_PAST_M
+            self.crossing = {'k': k, 'side': side, 'exit': exit_m, 't0': self._now(),
+                         'timeout': (exit_m - across * side) / CROSSING_SPEED * CROSSING_SLACK + 5.0,
                          'pending': [self.nav_goal] + self.via_queue}
             self._cancel_nav()
             self.via_queue = []
-            self.get_logger().info(f'At ford {k} ({fx:.1f},{fy:.1f}) - driving the lane across myself.')
-            self._set_state('FORD')
+            self.get_logger().info(f'At crossing {k} ({fx:.1f},{fy:.1f}) - driving the lane across myself.')
+            self._set_state('CROSSING')
             return True
         return False
 
-    def _ford_step(self):
-        f, cmd = self.ford, Twist()
+    def _crossing_step(self):
+        f, cmd = self.crossing, Twist()
         k, side = f['k'], f['side']
         along, across = self._lane(k, self.x, self.y)
         timed_out = self._now() - f['t0'] > f['timeout']
         if across * side >= f['exit'] or timed_out:
             self.cmd_pub_unguarded.publish(cmd)
             if timed_out:
-                self.get_logger().warn(f'Ford {k} crossing timed out at ({self.x:.1f},{self.y:.1f}) - back to Nav2.')
+                self.get_logger().warn(f'Crossing {k} crossing timed out at ({self.x:.1f},{self.y:.1f}) - back to Nav2.')
             # via points still on the near side or in the lane are behind
             rest = [p for p in f['pending'] if not (self._lane(k, p[0], p[1])[1] * side < f['exit']
                                                      and math.hypot(p[0] - self.x, p[1] - self.y) < 2 * f['exit'])]
-            self.ford, self.nav_from, self.stall_ref = None, (self.x, self.y), None
+            self.crossing, self.nav_from, self.stall_ref = None, (self.x, self.y), None
             self.state, self.state_since = 'NAV', self._now()
             if rest:
                 self.via_queue = rest[1:]
@@ -532,13 +587,13 @@ class RoverCapture(cc.CageCapture):
             else:
                 self._send_nav(*self.targets[0])
             return
-        (tx, ty) = self.river['ford_tangents'][k]
+        (tx, ty) = self.river['crossing_tangents'][k]
         ax, ay = -ty * side, tx * side  # lane axis toward the far bank
         aim_x = self.x + ax * 1.5 - tx * along  # 1.5 m ahead on the lane's centreline
         aim_y = self.y + ay * 1.5 - ty * along
         err = math.remainder(math.atan2(aim_y - self.y, aim_x - self.x) - self.yaw, 2 * math.pi)
-        cmd.angular.z = max(-self.ford_turn, min(self.ford_turn, 1.5 * err))
-        cmd.linear.x = FORD_SPEED if abs(err) < 0.5 else 0.0
+        cmd.angular.z = max(-self.crossing_turn, min(self.crossing_turn, 1.5 * err))
+        cmd.linear.x = CROSSING_SPEED if abs(err) < 0.5 else 0.0
         self.cmd_pub_unguarded.publish(cmd)
 
     def _queue(self, x, y):
@@ -580,9 +635,9 @@ class RoverCapture(cc.CageCapture):
             self.crumbs = (self.crumbs + [(self.x, self.y)])[-CRUMBS:]
         if self.state == 'UNWEDGE':
             return self._unwedge_step()
-        if self.state == 'FORD':
-            return self._ford_step()
-        if self.state == 'NAV' and self._ford_check():
+        if self.state == 'CROSSING':
+            return self._crossing_step()
+        if self.state == 'NAV' and self._crossing_check():
             return
         if self.state == 'NAV' and self.nav_result is False and self.nav_from is not None and self._wedge_check():
             return

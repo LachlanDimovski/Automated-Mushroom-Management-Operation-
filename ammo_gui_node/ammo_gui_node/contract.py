@@ -112,7 +112,7 @@ STATE_DETAIL = {
 ROVER_STATE_MAP = {
     'DRIVE': TRANSIT,
     'NAV': TRANSIT,
-    'FORD': TRANSIT,       # rover_capture_node: crossing the river
+    'CROSSING': TRANSIT,       # rover_capture_node: crossing the river
     'UNWEDGE': TRANSIT,    # rover_capture_node: backing out of a stall
     'ALIGN': ALIGN,
     'LOWER': CAPTURE,
