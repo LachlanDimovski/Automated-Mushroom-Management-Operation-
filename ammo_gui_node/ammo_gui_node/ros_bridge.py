@@ -56,6 +56,8 @@ class _LinkNode(Node):
         self.create_subscription(Bool, C.PAUSE_TOPIC, self._on_pause, 10)
         self.create_subscription(Odometry, C.HUSKY_ODOM, self._on_rover_odom, LIVE_QOS)
         self.create_subscription(Odometry, C.PARROT_ODOM, self._on_quad_odom, LIVE_QOS)
+        self.create_subscription(String, C.TELEOP_STATUS, lambda m: link.teleop_status.emit(m.data), QoSProfile(
+            depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
         # Raw feeds drive the live panels; the annotated ones are only
         # subscribed so a frame is available the moment a sighting lands.
@@ -258,6 +260,7 @@ class RosLink(QObject):
     quad_frame = Signal(object)
     rover_yolo_frame = Signal(object)
     quad_yolo_frame = Signal(object)
+    teleop_status = Signal(str)
     nav_goal_finished = Signal(bool)
 
     def __init__(self, role='gui'):

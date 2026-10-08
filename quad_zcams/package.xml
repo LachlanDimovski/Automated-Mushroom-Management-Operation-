@@ -17,6 +17,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs_py</exec_depend>
   <exec_depend>joy</exec_depend>
+  <exec_depend>vision_msgs</exec_depend>
   <exec_depend>ammo_mission_control</exec_depend>
   <exec_depend>41068_ignition_bringup</exec_depend>
   <exec_depend>ros_ign_bridge</exec_depend>

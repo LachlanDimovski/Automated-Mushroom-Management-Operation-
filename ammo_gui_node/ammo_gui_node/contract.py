@@ -36,6 +36,7 @@ HUSKY_CAM = 'husky1/camera/image'
 HUSKY_CAM_YOLO = 'husky1/detections/image'
 PARROT_CAM = 'parrot1/camera/image'
 PARROT_CAM_YOLO = 'parrot1/detections/image'
+TELEOP_STATUS = 'ammo/teleop_status'  # ps4_teleop: who is driving which robot
 HUSKY_DETECTIONS = 'husky1/detections'
 PARROT_DETECTIONS = 'parrot1/detections'
 

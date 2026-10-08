@@ -26,6 +26,7 @@ import math
 import os
 import re
 import signal
+import threading
 import time
 import xml.etree.ElementTree as ET
 
@@ -180,6 +181,8 @@ class RoverCapture(cc.CageCapture):
         self.complete_pub = self.create_publisher(Bool, 'ammo/mission_complete', latched)
         self.create_subscription(Bool, 'parrot1/landed', self._landed_msg, latched)
         self.create_subscription(Bool, 'husky1/teleop_active', self._teleop_msg, 10)
+        self.create_subscription(Bool, 'husky1/teleop_grab', self._grab_msg, 10)
+        self.grab_t0, self.grab_thread = None, None
         self.checked = set()
         self.bad, self.nav_from = [], None
         self.qmap, self.route, self.route_seen, self.map_logged = None, None, None, -1e9
@@ -724,6 +727,33 @@ class RoverCapture(cc.CageCapture):
     def _teleop(self):
         return time.monotonic() < self.teleop_until
 
+    def _grab_msg(self, msg):
+        if msg.data and self.state == 'TELEOP' and self.grab_t0 is None:
+            self.grab_t0 = self._now()
+            self.get_logger().info(f'Operator grab at ({self.x:.1f},{self.y:.1f}).')
+
+    def _manual_grab(self):
+        """The autonomous gripper sequence, run where the operator parked: bar down, close, collect, open and lift."""
+        t = self._now() - self.grab_t0
+        self.pitch = cc.PITCH_DOWN
+        self.claw = cc.CLAW_OPEN if t < cc.CLAW_MOVE_S else cc.CLAW_CLOSE
+        if t < 2 * cc.CLAW_MOVE_S:
+            return
+        if self.grab_thread is None:
+            cx, cy = self.x + self.ahead * math.cos(self.yaw), self.y + self.ahead * math.sin(self.yaw)
+            self.grab_thread = threading.Thread(target=self._collect, args=(cx, cy), daemon=True)
+            self.grab_thread.start()
+            self.grab_raise = None
+        elif not self.grab_thread.is_alive():
+            if self.grab_raise is None:
+                self.grab_raise = self._now()
+                cx, cy = self.x + self.ahead * math.cos(self.yaw), self.y + self.ahead * math.sin(self.yaw)
+                # what the operator picked up is no longer the mission's to fetch
+                self.targets = [p for p in self.targets if math.hypot(p[0] - cx, p[1] - cy) > EMPTY_R_M]
+            self.claw, self.pitch = cc.CLAW_OPEN, cc.PITCH_UP
+            if self._now() - self.grab_raise > cc.CLAW_MOVE_S:
+                self.grab_t0 = self.grab_thread = None
+
     def _teleop_step(self):
         """The operator has the rover while the PS4 deadman is held: Nav2's goal is cancelled and the node goes quiet;
         a grab already lifting finishes first. On release it re-plans from wherever it was left, with no failure
@@ -735,12 +765,14 @@ class RoverCapture(cc.CageCapture):
                 self.boom, self.claw, self.pitch = cc.BOOM_UP, cc.CLAW_OPEN, cc.PITCH_UP
             self.get_logger().warn(f'Operator took over the rover (was {self.state}) - autonomy paused.')
             self._set_state('TELEOP')
-        elif not self._teleop() and self.state == 'TELEOP':
+        elif not self._teleop() and self.state == 'TELEOP' and self.grab_t0 is None:  # a grab finishes first
             self.nav_from, self.stall_ref, self.wedged = None, None, 0
             self.get_logger().info(f'Operator released the rover at ({self.x:.1f},{self.y:.1f}) - re-planning.')
             self._set_state('DRIVE')
         if self.state != 'TELEOP':
             return False
+        if self.grab_t0 is not None:
+            self._manual_grab()
         self.boom_pub.publish(Float64(data=self.boom))  # the arm holds where it is
         self.cage_pub.publish(Float64(data=-self.boom))
         self.claw_pubs[0].publish(Float64(data=self.claw))

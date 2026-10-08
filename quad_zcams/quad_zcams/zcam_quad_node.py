@@ -16,7 +16,7 @@ import time
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PointStamped, Twist
 from nav_msgs.msg import OccupancyGrid
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy import ndimage
@@ -34,6 +34,7 @@ DOWN_CAM_Z = -0.12        # camera mounts below / above base_link (parrot_zcams.
 COLUMN_R_M = 0.8          # clearance is measured within this radius of the quad's vertical axis
 DEPTH_STALE_S = 1.0       # older than this: fall back to height above the spawn ground
 HEADROOM_M = 1.5          # never rise with anything closer than this overhead
+MARK_FRESH_S = 3.0         # the operator's mark uses a sighting at most this old
 LANDED_Z_M = 0.15          # landed below this height
 LAND_SPEED = 0.3           # m/s down
 TELEOP_HOLD_S = 0.5        # the PS4 node's parrot1/teleop_active heartbeat counts for this long
@@ -168,6 +169,8 @@ class ZCamQuad(qs.QuadSearchController):
         self.cmd_pub = _ShapedPublisher(self, self.cmd_pub)
         self.teleop_until, self.teleop_on = 0.0, False
         self.create_subscription(Bool, 'parrot1/teleop_active', self._teleop_msg, 10)
+        self.create_subscription(Bool, 'parrot1/teleop_mark', self._mark_msg, 10)
+        self.sighting = None  # (t, x, y): the latest gated sighting, for the operator's mark
         # end of mission: the rover reports every mushroom collected -> fly back to the take-off point and land
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.home, self.returning, self.landing, self.landed = None, False, False, False
@@ -537,9 +540,28 @@ class ZCamQuad(qs.QuadSearchController):
             return g
         return None
 
+    def _mark_msg(self, msg):
+        """The operator flying the quad marks the mushroom in view: it goes to the rover's queue as a hold would send it."""
+        if not msg.data:
+            return
+        if self.sighting is None or self._now_s() - self.sighting[0] > MARK_FRESH_S:
+            self.get_logger().warn(f'Mark ignored: no mushroom seen in the last {MARK_FRESH_S:.0f} s.')
+            return
+        m = PointStamped()
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.header.frame_id = 'map'
+        m.point.x, m.point.y = self.sighting[1], self.sighting[2]
+        self.waypoint_pub.publish(m)
+        self.dispatched.append((m.point.x, m.point.y))
+        self.get_logger().info(f'Operator marked ({m.point.x:.1f},{m.point.y:.1f}) - sent to the rover.')
+
     def _det_cb(self, msg):
         """eager_hold: the parent ignores a lone sighting while turning and waits for a second one, by when the turn
         has carried the mushroom out of view (pond1: seen once, never held). The hold itself confirms it."""
+        if msg.detections and self.taken_off:
+            g = self._gated_projection(msg)
+            if g is not None:
+                self.sighting = (self._now_s(), g[0], g[1])
         if not self.eager_hold:
             super()._det_cb(msg)
         else:
