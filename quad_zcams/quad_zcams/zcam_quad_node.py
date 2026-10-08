@@ -16,6 +16,7 @@ import time
 
 import numpy as np
 import rclpy
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy import ndimage
@@ -33,6 +34,8 @@ DOWN_CAM_Z = -0.12        # camera mounts below / above base_link (parrot_zcams.
 COLUMN_R_M = 0.8          # clearance is measured within this radius of the quad's vertical axis
 DEPTH_STALE_S = 1.0       # older than this: fall back to height above the spawn ground
 HEADROOM_M = 1.5          # never rise with anything closer than this overhead
+LANDED_Z_M = 0.15          # landed below this height
+LAND_SPEED = 0.3           # m/s down
 TELEOP_HOLD_S = 0.5        # the PS4 node's parrot1/teleop_active heartbeat counts for this long
 HANDOVER_S = 15.0         # holding this long since the last waypoint went out with no new one: the rover already has
                           # it queued, so resume (the parent waited for 3 waypoints or 150 s, under foliage often 150 s)
@@ -165,6 +168,11 @@ class ZCamQuad(qs.QuadSearchController):
         self.cmd_pub = _ShapedPublisher(self, self.cmd_pub)
         self.teleop_until, self.teleop_on = 0.0, False
         self.create_subscription(Bool, 'parrot1/teleop_active', self._teleop_msg, 10)
+        # end of mission: the rover reports every mushroom collected -> fly back to the take-off point and land
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.home, self.returning, self.landing, self.landed = None, False, False, False
+        self.create_subscription(Bool, 'ammo/mission_complete', self._complete_msg, latched)
+        self.landed_pub = self.create_publisher(Bool, 'parrot1/landed', latched)
         self.waypoint_pub = _LastPoint(self.waypoint_pub)
         self.agl_pub = self.create_publisher(Float32, 'parrot1/agl', 10)
         self.create_subscription(Image, 'parrot1/down_depth/image', lambda m: self._zcam(m, True), qs.LIVE_QOS)
@@ -276,6 +284,8 @@ class ZCamQuad(qs.QuadSearchController):
         return int(self.labels[self.grid.cell(*p)]) if p else 0
 
     def _advance_leg(self):
+        if self.returning:
+            return
         q = self.waypoints[self.wp_idx] if self.waypoints else None
         if q in self.look and q not in self.look_done and not self.holding and self.mode == 'cruise':
             if self.looking != q:
@@ -563,9 +573,39 @@ class ZCamQuad(qs.QuadSearchController):
     def _teleop(self):
         return time.monotonic() < self.teleop_until
 
+    def _complete_msg(self, msg):
+        if msg.data and not self.returning and self.home is not None:
+            self.returning = True
+            self.holding, self.looking, self.ignore_detections_until = False, None, float('inf')
+            self.waypoints, self.wp_idx, self.path, self.path_goal = [self.home], 0, [], None
+            self.get_logger().info(f'Mission complete - flying home to ({self.home[0]:.1f},{self.home[1]:.1f}) to land.')
+
+    def _return_step(self):
+        """Fly to the take-off point with the usual avoidance, then descend and report landed."""
+        hx, hy = self.home
+        if math.hypot(hx - self.x, hy - self.y) > qs.WAYPOINT_TOLERANCE_M + 0.1 and not self.landing:
+            return super()._control_step()  # one waypoint: the parent hovers on reaching it
+        self.landing = True
+        cmd = Twist()
+        if self.z > LANDED_Z_M:
+            cmd.linear.z = -LAND_SPEED
+            dx, dy = hx - self.x, hy - self.y  # centre over the take-off point on the way down (body frame)
+            c, s_ = math.cos(self.yaw), math.sin(self.yaw)
+            cmd.linear.x = max(-0.3, min(0.3, 0.5 * (c * dx + s_ * dy)))
+            cmd.linear.y = max(-0.3, min(0.3, 0.5 * (-s_ * dx + c * dy)))
+        elif not self.landed:
+            self.landed = True
+            self.landed_pub.publish(Bool(data=True))
+            self.get_logger().info(f'Landed at ({self.x:.1f},{self.y:.1f}).')
+        self.cmd_pub.publish(cmd)
+
     def _control_step(self):
         """The operator flies while the PS4 deadman is held (detections still go to the rover); on release the quad
         plans from where it was left, with the stuck clock restarted."""
+        if self.home is None and self.have_odom:
+            self.home = (self.x, self.y)
+        if self.returning and not self._teleop():
+            return self._return_step()
         if self._teleop():
             if not self.teleop_on:
                 self.teleop_on = True

@@ -25,6 +25,7 @@ import json
 import math
 import os
 import re
+import signal
 import time
 import xml.etree.ElementTree as ET
 
@@ -80,6 +81,8 @@ ROCK_RANGE_M = 3.0        # rover depth hits nearer than this...
 ROCK_HITS = 3             # ...on this many frames make a 0.25 m cell a permanent obstacle on the route maps
 ROCK_TARGET_M = 1.2       # never round a queued mushroom
 ROCK_PERIOD_S = 0.5
+HOME_TIMEOUT_S = 300.0     # give up driving home after this and park where it is
+LAND_WAIT_S = 120.0        # end the sim this long after parking even if the quad never reports landed
 TELEOP_HOLD_S = 0.5        # the PS4 node's husky1/teleop_active heartbeat counts for this long
 HEDGE_KEEP_M = 2.6        # routes stay this far inside the hedge's centreline: its fern rows reach ~1.1 m in, Nav2's
                           # inflation does the rest, and it gave up 1.4-2.3 m from the hedge (15 of 60 give-ups, Oct 7)
@@ -168,6 +171,14 @@ class RoverCapture(cc.CageCapture):
         self.cmd_pub = _ShapedPublisher(self, self.cmd_pub)
         self.cmd_pub_unguarded = _TeleopGate(self, self.cmd_pub_unguarded)
         self.teleop_until = 0.0
+        # end of mission: once every mushroom in the world is collected, drive home, wait for the quad to land, end the sim
+        self.declare_parameter('total', 0)  # 0: the mushrooms in river_meta
+        self.declare_parameter('end_sim', True)
+        self.total = int(self.get_parameter('total').value) or len(d.get('mushrooms', []))
+        self.n_collected, self.home, self.homing, self.quad_landed, self.done_at = 0, None, False, False, None
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.complete_pub = self.create_publisher(Bool, 'ammo/mission_complete', latched)
+        self.create_subscription(Bool, 'parrot1/landed', self._landed_msg, latched)
         self.create_subscription(Bool, 'husky1/teleop_active', self._teleop_msg, 10)
         self.checked = set()
         self.bad, self.nav_from = [], None
@@ -674,6 +685,8 @@ class RoverCapture(cc.CageCapture):
         self.cmd_pub_unguarded.publish(cmd)
 
     def _queue(self, x, y):
+        if getattr(self, 'homing', False):  # the parent can queue while it waits for Nav2
+            return
         if any(math.hypot(x - ex, y - ey) < EMPTY_R_M for ex, ey in self.empty):
             return
         super()._queue(x, y)
@@ -735,8 +748,46 @@ class RoverCapture(cc.CageCapture):
         self.pitch_pub.publish(Float64(data=self.pitch))
         return True
 
+    def _landed_msg(self, msg):
+        self.quad_landed = self.quad_landed or msg.data
+
+    def _end_step(self):
+        """True while the mission is over and the rover is going home or parked."""
+        if self.have_odom and self.home is None:
+            self.home = (self.x, self.y)
+        if (not self.homing and self.total and self.n_collected >= self.total
+                and self.state not in ('ALIGN', 'LOWER', 'COLLECT', 'RAISE', 'RETRACT')):
+            self.get_logger().info(f'All {self.total} mushrooms collected - returning home to '
+                                   f'({self.home[0]:.1f},{self.home[1]:.1f}).')
+            self.complete_pub.publish(Bool(data=True))
+            self._cancel_nav()
+            self.homing, self.via_queue, self.crossing, self.unwedge = True, [], None, []
+            self.boom, self.claw, self.pitch = cc.BOOM_UP, cc.CLAW_OPEN, cc.PITCH_UP
+            self.targets, self.nav_tries, self.home_since = [self.home], 0, self._now()
+            self._set_state('DRIVE')
+        if not self.homing:
+            return False
+        if self.state != 'DONE' and (not self.targets or self._now() - self.home_since > HOME_TIMEOUT_S or (
+                self.state == 'NAV' and self.nav_result is True and not self.via_queue)):
+            self._cancel_nav()
+            self.targets = []
+            self.cmd_pub.publish(Twist())
+            self.get_logger().info(f'Rover home at ({self.x:.1f},{self.y:.1f}) - waiting for the quad to land.')
+            self._set_state('DONE')
+            self.done_at = self._now()
+        if self.state != 'DONE':
+            return False
+        if self.get_parameter('end_sim').value and (self.quad_landed or self._now() - self.done_at > LAND_WAIT_S):
+            self.get_logger().info(f'Mission complete: {self.n_collected}/{self.total} collected, both robots home - '
+                                   'ending the simulation.')
+            os.killpg(os.getpgid(0), signal.SIGINT)  # as Ctrl-C on the launch: every node and Gazebo
+            self.done_at = float('inf')
+        return True
+
     def _step(self):
         if self._teleop_step():
+            return
+        if self._end_step():
             return
         self._retry_given_up()
         if self.have_odom and self.state not in ('UNWEDGE',) and (
@@ -817,6 +868,7 @@ class RoverCapture(cc.CageCapture):
         for attempt in range(3):
             found = super()._mushrooms_near(cx, cy)
             if found:
+                self.n_collected += len(found)
                 return found
             if attempt < 2:
                 self.get_logger().warn(f'No mushroom within {cc.CAGE_HALF_M} m of ({cx:.2f},{cy:.2f}) on query '
