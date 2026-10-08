@@ -98,7 +98,7 @@ def generate_launch_description():
     ld = LaunchDescription()
     for name, default in (('world', 'simple_trees'), ('rviz', 'true'), ('headless', 'false'), ('count', '0'),
                           ('meta_goals', 'true'), ('yolo', 'true'), ('tool', 'gripper'), ('quad_waypoints', ''),
-                          ('mushrooms', ''), ('husky_yolo', 'false'), ('hazard', 'false'), ('use_sim_time', 'True'),
+                          ('mushrooms', ''), ('husky_yolo', 'true'), ('hazard', 'false'), ('use_sim_time', 'True'),
                           ('planner', 'true'),         # false = the first z-camera trial (straight legs)
                           ('cruise_alt', '1.0'), ('clearance', '0.6'),  # under the leaf-mesh canopies
                           ('imgsz', '640'),            # quad YOLO input; at 384 caps further than ~2 m were missed
