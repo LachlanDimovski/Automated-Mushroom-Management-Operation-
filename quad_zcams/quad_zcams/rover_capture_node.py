@@ -32,7 +32,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PointStamped, Twist
 from lifecycle_msgs.msg import Transition
 from lifecycle_msgs.srv import ChangeState, GetState
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
@@ -41,7 +41,7 @@ from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
-from std_msgs.msg import Bool, Float64
+from std_msgs.msg import Bool, Float64, Int32
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy import ndimage
 
@@ -80,6 +80,8 @@ UNWEDGE_TIMEOUT_S = 40.0
 # low rocks the quad's map misses (it caught a few cells of each at (0,-20), so routes went through a 1 m gap)
 ROCK_RANGE_M = 3.0        # rover depth hits nearer than this...
 ROCK_HITS = 3             # ...on this many frames make a 0.25 m cell a permanent obstacle on the route maps
+CANCEL_M = 1.5             # a fleet cancel drops queued mushrooms this close to its point
+REMOVE_TRIES = 4           # a collected mushroom's Gazebo remove, checked and retried
 ROCK_TARGET_M = 1.2       # never round a queued mushroom
 ROCK_PERIOD_S = 0.5
 HOME_TIMEOUT_S = 300.0     # give up driving home after this and park where it is
@@ -176,12 +178,20 @@ class RoverCapture(cc.CageCapture):
         self.declare_parameter('total', 0)  # 0: the mushrooms in river_meta
         self.declare_parameter('end_sim', True)
         self.total = int(self.get_parameter('total').value) or len(d.get('mushrooms', []))
+        self.removed = set()
         self.n_collected, self.home, self.homing, self.quad_landed, self.done_at = 0, None, False, False, None
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.complete_pub = self.create_publisher(Bool, 'ammo/mission_complete', latched)
         self.create_subscription(Bool, 'parrot1/landed', self._landed_msg, latched)
+        # a fleet: the coordinator counts every rover's collections and says when the mission is complete
+        self.fleet_complete = False
+        self.create_subscription(Bool, 'ammo/mission_complete', lambda m: setattr(
+            self, 'fleet_complete', self.fleet_complete or m.data), latched)
+        self.collected_pub = self.create_publisher(Int32, 'husky1/collected', latched)
+        self.home_pub = self.create_publisher(Bool, 'husky1/home', latched)
         self.create_subscription(Bool, 'husky1/teleop_active', self._teleop_msg, 10)
         self.create_subscription(Bool, 'husky1/teleop_grab', self._grab_msg, 10)
+        self.create_subscription(PointStamped, 'husky1/cage/cancel', self._cancel_msg, 10)  # fleet: given to another rover
         self.grab_t0, self.grab_thread = None, None
         self.checked = set()
         self.bad, self.nav_from = [], None
@@ -536,7 +546,7 @@ class RoverCapture(cc.CageCapture):
                 new.add(k)
         if new:
             self.rocks |= new
-            self._mark_rocks(new, (self.route, self.route_seen, self.route_light))
+            self._mark_rocks(new, (self.route, self.route_seen, getattr(self, 'route_light', None)))
 
     def _known_rocks(self, meta):
         """Cells under the generated world's colliders (rocks are boxes, trunks cylinders). The rover's depth only
@@ -787,9 +797,10 @@ class RoverCapture(cc.CageCapture):
         """True while the mission is over and the rover is going home or parked."""
         if self.have_odom and self.home is None:
             self.home = (self.x, self.y)
-        if (not self.homing and self.total and self.n_collected >= self.total
+        if (not self.homing and (self.fleet_complete or self.total and self.n_collected >= self.total)
                 and self.state not in ('ALIGN', 'LOWER', 'COLLECT', 'RAISE', 'RETRACT')):
-            self.get_logger().info(f'All {self.total} mushrooms collected - returning home to '
+            self.get_logger().info(('The fleet has collected every mushroom' if self.fleet_complete else
+                                    f'All {self.total} mushrooms collected') + ' - returning home to '
                                    f'({self.home[0]:.1f},{self.home[1]:.1f}).')
             self.complete_pub.publish(Bool(data=True))
             self._cancel_nav()
@@ -806,6 +817,7 @@ class RoverCapture(cc.CageCapture):
             self.cmd_pub.publish(Twist())
             self.get_logger().info(f'Rover home at ({self.x:.1f},{self.y:.1f}) - waiting for the quad to land.')
             self._set_state('DONE')
+            self.home_pub.publish(Bool(data=True))
             self.done_at = self._now()
         if self.state != 'DONE':
             return False
@@ -900,14 +912,46 @@ class RoverCapture(cc.CageCapture):
         for attempt in range(3):
             found = super()._mushrooms_near(cx, cy)
             if found:
-                self.n_collected += len(found)
-                return found
+                return found  # counted in _remove, once Gazebo confirms the model is gone
             if attempt < 2:
                 self.get_logger().warn(f'No mushroom within {cc.CAGE_HALF_M} m of ({cx:.2f},{cy:.2f}) on query '
                                        f'{attempt + 1}/3 - asking Gazebo again.')
         self.empty.append((cx, cy))
         self.get_logger().info(f'Nothing at ({cx:.2f},{cy:.2f}) - later handoffs within {EMPTY_R_M} m are dropped.')
         return found
+
+    def _cancel_msg(self, msg):
+        """The fleet coordinator gave this mushroom to another rover (this one made no progress on it): drop it,
+        unless a grab is already under way there."""
+        x, y = msg.point.x, msg.point.y
+        near = lambda t: math.hypot(t[0] - x, t[1] - y) < CANCEL_M
+        if self.targets and near(self.targets[0]) and self.state in ('ALIGN', 'LOWER', 'COLLECT', 'RAISE', 'RETRACT'):
+            self.get_logger().info(f'Cancel for ({x:.1f},{y:.1f}) ignored - already grabbing it.')
+            return
+        current = bool(self.targets) and near(self.targets[0])
+        self.targets = [t for t in self.targets if not near(t)]
+        self.given_up = [t for t in self.given_up if not near(t)]
+        if current:
+            self._cancel_nav()
+            self.nav_result, self.via_queue, self.crossing, self.unwedge = None, [], None, []
+            self.nav_tries = 0
+            self._set_state('DRIVE')
+        self.get_logger().info(f'({x:.1f},{y:.1f}) handed to another rover - {len(self.targets)} left in my queue.')
+
+    def _remove(self, name):
+        """The parent's remove, checked: under fleet load the 2 s ign call timed out, the mushroom was counted but
+        stayed in the world, and a later grab counted it again (13 counted, 11 removed - bench q6r2_lite_v2).
+        A mushroom counts once, by name, when the model list no longer has it."""
+        for attempt in range(REMOVE_TRIES):
+            super()._remove(name)
+            models = self._models()
+            if models and name not in models:  # an empty list is a timed-out query, not proof
+                if self._is_mushroom(name) and name not in self.removed:
+                    self.removed.add(name)
+                    self.n_collected = len(self.removed)
+                    self.collected_pub.publish(Int32(data=self.n_collected))
+                return
+            self.get_logger().warn(f'{name} still in the world after remove {attempt + 1}/{REMOVE_TRIES}.')
 
     def _shape(self, cmd):
         clearing = (self.state == 'DRIVE' and self.targets and self.nearest_dir is not None
