@@ -95,6 +95,9 @@ CROSSING_PAST_BANK_M = 1.6    # approach point 0.3 out + Nav2's 0.6 m goal toler
                               # its turn by a few cm and Nav2 went for the far bank on its own (val1 m3, m1)
 CROSSING_APPROACH_M = 0.3     # the approach point: on the lane's axis, this far out from the bank zone
 CROSSING_SPEED = 0.3
+BANK_OK_M = 1.2               # a standoff this far up a bank's slope is still drivable, when no side is off the bank
+SEEN_DETOUR = 1.5             # take the route through unseen ground when the seen-only one is this much longer...
+SEEN_DETOUR_M = 10.0          # ...plus this: unseen ground by crossing 1 sent r2 round by crossing 0 (bench v5)
 CROSSING_PAST_M = 3.5         # past the far edge of the bank zone before Nav2 takes over again
 CROSSING_SLACK = 1.5          # timeout: the lane's length at CROSSING_SPEED times this, plus 5 s
 EMPTY_R_M = cc.CAGE_HALF_M  # handoffs this close to a spot already found empty are dropped: only what the grab
@@ -188,6 +191,7 @@ class RoverCapture(cc.CageCapture):
         self.create_subscription(Bool, 'ammo/mission_complete', lambda m: setattr(
             self, 'fleet_complete', self.fleet_complete or m.data), latched)
         self.collected_pub = self.create_publisher(Int32, 'husky1/collected', latched)
+        self.gave_up_pub = self.create_publisher(PointStamped, 'husky1/cage/gave_up', 10)
         self.home_pub = self.create_publisher(Bool, 'husky1/home', latched)
         self.create_subscription(Bool, 'husky1/teleop_active', self._teleop_msg, 10)
         self.create_subscription(Bool, 'husky1/teleop_grab', self._grab_msg, 10)
@@ -327,6 +331,17 @@ class RoverCapture(cc.CageCapture):
                                f'{len(self.river_crossings)} crossing(s) open.')
         return mask, lanes
 
+    def _bank_depth(self, x, y):
+        """How far inside the river's bank-top line (x, y) is; negative outside it."""
+        return max(r - math.hypot(x - px, y - py) for px, py, r in self.river['line'])
+
+    @staticmethod
+    def _shorter(seen, any_path):
+        if seen is None or any_path is None:
+            return seen or any_path
+        length = lambda p: sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(p, p[1:]))
+        return any_path if length(seen) > SEEN_DETOUR * length(any_path) + SEEN_DETOUR_M else seen
+
     def _in_river(self, x, y):
         i, j = self.route.cell(x, y)
         return self.route.inside(i, j) and bool(self.river_zone[i, j])
@@ -377,6 +392,8 @@ class RoverCapture(cc.CageCapture):
         self.open_dir = best[1] if best else None
 
     def _set_state(self, s):
+        if s == 'NAV' and self.river and self.route is None:  # no quad map yet: a far-bank goal sent straight drove r2
+            return                                             # into the river, so wait in DRIVE until it arrives
         if s == 'NAV' and getattr(self, 'defer_now', False):
             self.defer_now = False
             return self._next_target(f'No route to ({self.targets[0][0]:.1f},{self.targets[0][1]:.1f}) from any side '
@@ -385,6 +402,8 @@ class RoverCapture(cc.CageCapture):
 
     # -- routes around where Nav2 failed before ------------------------------------
     def _send_nav(self, gx, gy):
+        if self.river and self.route is None:  # see _set_state
+            return
         self.nav_from = (self.x, self.y)
         self.via_queue = []
         # quad_routes: route on the quad's map from the first attempt - left to itself Nav2 drove into pine foliage
@@ -409,9 +428,29 @@ class RoverCapture(cc.CageCapture):
             if self.river and self._in_river(sx, sy):  # plan() would snap it, but the last leg goes to (sx, sy)
                 path = None                                     # itself - over a bank, from the snapped far side
                 continue
-            path = self.route_seen.plan(start, (sx, sy), snap=1.0) or self.route.plan(start, (sx, sy))
+            path = self._shorter(self.route_seen.plan(start, (sx, sy), snap=1.0), self.route.plan(start, (sx, sy)))
+            light = getattr(self, 'route_light', None)
+            if path is not None and self.river and light is not None:  # foliage on crossing 1's bank sent r2 45 m
+                path = self._shorter(path, light.plan(start, (sx, sy)))  # round by crossing 0 on the dense maps (v16)
             if path is not None or not self.river:
                 break
+        if path is None and self.river and self._bank_depth(gx, gy) > 0:  # on a bank's slope: every side is in the
+            sides = sorted((c[2] for c in cands), key=lambda a: self._bank_depth(  # river zone (bench v5)
+                gx - cc.NAV_STANDOFF_M * math.cos(a), gy - cc.NAV_STANDOFF_M * math.sin(a)))
+            sides = [a for a in sides if self._bank_depth(gx - cc.NAV_STANDOFF_M * math.cos(a),
+                                                          gy - cc.NAV_STANDOFF_M * math.sin(a)) <= BANK_OK_M]
+            k = self.nav_tries % len(sides) if sides else 0  # a retry tries the next side, not the same one (v11)
+            for a in sides[k:] + sides[:k]:
+                sx, sy = gx - cc.NAV_STANDOFF_M * math.cos(a), gy - cc.NAV_STANDOFF_M * math.sin(a)
+                for grid in (self.route_seen, self.route, getattr(self, 'route_light', None),
+                             getattr(self, 'route_river', None)):
+                    path = grid.plan(start, (sx, sy), snap=3.5) if grid is not None else None
+                    if path is not None:
+                        break
+                if path is not None:
+                    self.get_logger().info(f'({gx:.1f},{gy:.1f}) is on a bank - approaching from {self._bank_depth(sx, sy):.1f} m '
+                                           'up the slope.')
+                    break
         for grid, name in ((getattr(self, 'route_light', None), "the quad's hits alone"),
                            (getattr(self, 'route_river', None), 'the river alone')):
             if path is not None or grid is None or not self.river:  # other worlds: Nav2 chooses, as before
@@ -621,6 +660,12 @@ class RoverCapture(cc.CageCapture):
         key = (round(gx, 1), round(gy, 1))
         if requeue and self.defer_count.get(key, 0) > cc.MAX_DEFERS:
             self.given_up.append((gx, gy))
+            # the parent reported it on cage/done; this tells the fleet coordinator it is still out there
+            msg = PointStamped()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = 'map'
+            msg.point.x, msg.point.y = gx, gy
+            self.gave_up_pub.publish(msg)
 
     def _retry_given_up(self):
         """Given up is only for now: with the queue empty and the rover idle, try those again from wherever it is
