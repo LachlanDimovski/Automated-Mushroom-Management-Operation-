@@ -32,6 +32,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import PointStamped, Twist
 from lifecycle_msgs.msg import Transition
 from lifecycle_msgs.srv import ChangeState, GetState
@@ -448,8 +449,8 @@ class RoverCapture(cc.CageCapture):
                     if path is not None:
                         break
                 if path is not None:
-                    self.get_logger().info(f'({gx:.1f},{gy:.1f}) is on a bank - approaching from {self._bank_depth(sx, sy):.1f} m '
-                                           'up the slope.')
+                    self.get_logger().info(f'({gx:.1f},{gy:.1f}) has no normal route ({self._bank_depth(gx, gy):.1f} m inside the '
+                                           f'bank top) - bank fallback from {self._bank_depth(sx, sy):.1f} m up the slope.')
                     break
         for grid, name in ((getattr(self, 'route_light', None), "the quad's hits alone"),
                            (getattr(self, 'route_river', None), 'the river alone')):
@@ -1030,8 +1031,11 @@ def main(args=None):
     node = RoverCapture()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RuntimeError:
+        if rclpy.ok():
+            raise
     finally:
         for name, _, _ in node.spawned:
             node._remove(name)

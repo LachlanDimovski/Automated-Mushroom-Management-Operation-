@@ -13,6 +13,7 @@ Launched by fleet_mission.launch.py with every parrot1/* topic remapped to the q
 import math
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import PointStamped
 
 from ammo_mission_control import quad_search_node as qs
@@ -113,8 +114,11 @@ def main(args=None):
     node = FleetQuad()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RuntimeError:
+        if rclpy.ok():
+            raise
     finally:
         node.destroy_node()
         if rclpy.ok():

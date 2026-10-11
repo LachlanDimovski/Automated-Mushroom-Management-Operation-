@@ -20,6 +20,7 @@ import signal
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import PointStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
@@ -140,7 +141,6 @@ class FleetCoordinator(Node):
                 pend = [m for m in self.mushrooms if m['state'] == 'pending' and m.get('hold_until', 0.0) <= self._now()]
                 if not pend:
                     break
-                pend = [m for m in pend if m.get('from') != r] or pend  # not straight back to a rover stuck on it
                 plan = self._plan(pend)
                 if not plan[r]:  # every pending one is better left to another rover: wait, re-planned every tick
                     break
@@ -163,7 +163,11 @@ class FleetCoordinator(Node):
                 o, m = om
                 crowd = any(math.hypot(m['x'] - at[p][0], m['y'] - at[p][1]) < CROWD_R_M for p in self.rovers if p != o)
                 return t[o] + self._dist(at[o], (m['x'], m['y'])) + (CROWD_COST_M if crowd else 0.0)
-            o, m = min(((o, m) for o in self.rovers for m in left), key=arrive)
+            # never back to the rover that dropped it (an 'or pend' fallback here undid every give-up handover)
+            pairs = [(o, m) for o in self.rovers for m in left if m.get('from') != o or len(self.rovers) == 1]
+            if not pairs:
+                break
+            o, m = min(pairs, key=arrive)
             t[o] += self._dist(at[o], (m['x'], m['y'])) + PICK_COST_M
             at[o] = (m['x'], m['y'])
             plan[o].append(m)
@@ -351,8 +355,11 @@ def main(args=None):
     node = FleetCoordinator()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RuntimeError:
+        if rclpy.ok():
+            raise
     finally:
         node.destroy_node()
         if rclpy.ok():

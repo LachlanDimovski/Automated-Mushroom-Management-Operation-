@@ -23,7 +23,7 @@ import numpy as np
 import rclpy
 import torch
 from cv_bridge import CvBridge
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
@@ -99,7 +99,12 @@ class YoloPool(Node):
             t0 = time.monotonic()
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             res = model.predict(frame, conf=self.conf, imgsz=self.imgsz, verbose=False)[0]
-            self._publish(r, msg, frame, res)
+            try:
+                self._publish(r, msg, frame, res)
+            except Exception:
+                if rclpy.ok():
+                    raise
+                break
             with self.lock:
                 self.stats['frames'] += 1
                 self.stats['busy_s'] += time.monotonic() - t0
@@ -145,8 +150,11 @@ def main(args=None):
     ex.add_node(node)
     try:
         ex.spin()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RuntimeError:
+        if rclpy.ok():
+            raise
     finally:
         node.destroy_node()
         if rclpy.ok():
