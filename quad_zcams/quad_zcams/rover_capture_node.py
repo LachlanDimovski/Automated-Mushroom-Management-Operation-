@@ -393,6 +393,8 @@ class RoverCapture(cc.CageCapture):
         self.open_dir = best[1] if best else None
 
     def _set_state(self, s):
+        if s == 'COLLECT':  # the grab's ign calls finish on their thread (_collect); waiting on them cost 7-13 s a pickup
+            s = 'RAISE'
         if s == 'NAV' and self.river and self.route is None:  # no quad map yet: a far-bank goal sent straight drove r2
             return                                             # into the river, so wait in DRIVE until it arrives
         if s == 'NAV' and getattr(self, 'defer_now', False):
@@ -983,6 +985,22 @@ class RoverCapture(cc.CageCapture):
             self.nav_tries = 0
             self._set_state('DRIVE')
         self.get_logger().info(f'({x:.1f},{y:.1f}) handed to another rover - {len(self.targets)} left in my queue.')
+
+    def _collect(self, cx, cy):
+        """The parent's grab, with done reported as soon as the mushroom is found under the gripper: the coordinator
+        sends the next one on done, and the checked remove below takes two more ign calls."""
+        under = self._mushrooms_near(cx, cy)
+        self._done(cx, cy)
+        if not under:
+            m = PointStamped()
+            m.header.stamp = self.get_clock().now().to_msg()
+            m.header.frame_id = 'map'
+            m.point.x, m.point.y = cx, cy
+            self.missed_pub.publish(m)
+        for name in under:
+            self._remove(name)
+        self.spawned = [m for m in self.spawned if m[0] not in under]
+        self.get_logger().info(f'Collected {len(under)} mushroom(s) with the {self.tool}.')
 
     def _remove(self, name):
         """The parent's remove, checked: under fleet load the 2 s ign call timed out, the mushroom was counted but

@@ -42,12 +42,20 @@ class _FleetNode(Node):
         self.create_timer(2.0, self._discover)
 
     def _discover(self):
-        for topic, _types in self.get_topic_names_and_types():
+        topics = [t for t, _ in self.get_topic_names_and_types()]
+        for topic in topics:
             for suffix, yolo in FEEDS:
                 if topic.endswith('/' + suffix) and topic not in self.subs:
                     robot = topic[1:-len(suffix) - 1]
+                    # a robot with a YOLO feed never shows its raw camera: decoding every raw 720x480 frame in Python
+                    # cost ~70% of a core and slowed the sim ~20% (demo run, 2 quads + 1 rover)
+                    if not yolo and f'/{robot}/detections/image' in topics:
+                        continue
                     self.subs[topic] = self.create_subscription(
                         Image, topic, lambda m, r=robot, y=yolo: self._image(m, r, y), LIVE_QOS)
+                    raw = f'/{robot}/camera/image'
+                    if yolo and raw in self.subs:
+                        self.destroy_subscription(self.subs.pop(raw))
                     if robot not in self.robots:
                         self.robots.append(robot)
                         self.link.robots_changed.emit(sorted(self.robots, key=_order))

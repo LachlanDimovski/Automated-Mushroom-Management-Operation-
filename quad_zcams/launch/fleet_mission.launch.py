@@ -114,12 +114,20 @@ def generate_launch_description():
             zm.Node = node
         kw = captured[0]
         out = []
+        standdown = LaunchConfiguration('standdown').perform(context) == 'true'
         for k in range(n):
             ns = f'parrot{k + 1}'
             params = dict(kw['parameters'][0], fleet_name=ns, sector=k, sectors=n)
             remaps = FLEET_TOPICS + [(f'parrot1/{t}', f'{ns}/{t}') for t in QUAD_TOPICS if ns != 'parrot1']
+            # home and land once the search is done, not at mission complete (quad_standdown); parrot1 keeps
+            # searching: a YOLO false positive on the list hid a real mushroom from the stood-down quads (q4r1_ub)
+            if standdown and k > 0:
+                remaps.append(('ammo/mission_complete', 'fleet/search_done'))
             out.append(Node(package='quad_zcams', executable='fleet_quad_node', name=f'fleet_quad_{ns}',
                             output='screen', parameters=[params], remappings=remaps))
+        if standdown:
+            out.append(Node(package='quad_zcams', executable='quad_standdown', output='screen',
+                            parameters=[{'use_sim_time': True, 'world': LaunchConfiguration('world').perform(context)}]))
         out.append(Node(package='quad_zcams', executable='fleet_coordinator', output='screen',
                         parameters=[{'use_sim_time': True, 'rovers': _rover_names(_count(context, 'rovers', MAX_ROVERS)),
                                      'quads': [f'parrot{k + 1}' for k in range(n)], 'total': _total(context)}]))
@@ -204,6 +212,7 @@ def generate_launch_description():
     zm.Node = node
     zm._quad_stock, zm._quad = zm._quad, quads
     return LaunchDescription([DeclareLaunchArgument('quads', default_value='2'),
+                              DeclareLaunchArgument('standdown', default_value='true'),
                               DeclareLaunchArgument('rovers', default_value='1'),
                               DeclareLaunchArgument('rover_yolo', default_value='false'),  # YOLO on rovers 2..
                               DeclareLaunchArgument('yolo_pool', default_value='true'),

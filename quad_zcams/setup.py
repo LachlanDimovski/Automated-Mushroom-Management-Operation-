@@ -32,6 +32,7 @@ setup(
             'fleet_quad_node = quad_zcams.fleet_quad_node:main',
             'fleet_coordinator = quad_zcams.fleet_coordinator:main',
             'fleet_yolo_pool = quad_zcams.fleet_yolo_pool:main',
+            'quad_standdown = quad_zcams.quad_standdown:main',
         ],
     },
 )

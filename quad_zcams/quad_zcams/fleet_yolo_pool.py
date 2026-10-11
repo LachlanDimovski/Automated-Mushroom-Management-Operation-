@@ -159,6 +159,7 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+        os._exit(0)  # torch's exit handlers aborted with the worker threads still in predict()
 
 
 if __name__ == '__main__':
