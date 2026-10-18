@@ -30,6 +30,8 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from vision_msgs.msg import Detection2DArray
+
+from quad_zcams import husky_projection as hjp
 import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -381,11 +383,17 @@ class RoverCapture(cc.CageCapture):
     
     def _detections(self, msg):
         for det in msg.detections:
-            if det.results:
-                self.get_logger().info(
-                    f'det conf={det.results[0].hypothesis.score:.2f} '
-                    f'at px=({det.bbox.center.position.x:.0f},{det.bbox.center.position.y:.0f}) '
-                    f'size={det.bbox.size_x:.0f}x{det.bbox.size_y:.0f}')
+            if not det.results:
+                continue
+            px, py = det.bbox.center.position.x, det.bbox.center.position.y
+            g = hjp.project(self.x, self.y, self.yaw, px, py)
+            if g is None:
+                continue
+            bearing = math.degrees(hjp.bearing_of(px))
+            rng = math.hypot(g[0] - self.x, g[1] - self.y)
+            self.get_logger().info(
+                f'det conf={det.results[0].hypothesis.score:.2f} px=({px:.0f},{py:.0f}) '
+                f'-> world ({g[0]:+.2f},{g[1]:+.2f}) bearing={bearing:+.0f}deg range={rng:.2f}m')
             
     def _scan(self, msg):
         super()._scan(msg)
