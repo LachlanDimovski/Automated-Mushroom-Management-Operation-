@@ -32,6 +32,13 @@ import xml.etree.ElementTree as ET
 from vision_msgs.msg import Detection2DArray
 
 from quad_zcams import husky_projection as hjp
+
+# A sighting counts as 'our' mushroom within this far of the waypoint. Matches
+# cage_capture's MERGE_M, and has to stay loose: the camera sits 0.38 m up and
+# the ray grazes the ground, so 10 px of bbox jitter moves the projected range
+# by 0.7 m at 3 m even with the rover stationary.
+VIS_GATE_M = 1.0
+VIS_STALE_S = 1.0        # a sighting older than this is not worth steering on
 import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -201,6 +208,9 @@ class RoverCapture(cc.CageCapture):
         self.create_subscription(Detection2DArray, 'husky1/detections', self._detections, 10)
         self.create_subscription(PointStamped, 'husky1/cage/cancel', self._cancel_msg, 10)  # fleet: given to another rover
         self.grab_t0, self.grab_thread = None, None
+        # last camera sighting that passed the association gate
+        self.vis_bearing, self.vis_stamp, self.vis_logged = None, 0.0, 0.0
+        self.vis_steering = False     # whether ALIGN is currently using the camera
         self.checked = set()
         self.bad, self.nav_from = [], None
         self.qmap, self.route, self.route_seen, self.map_logged = None, None, None, -1e9
@@ -382,18 +392,76 @@ class RoverCapture(cc.CageCapture):
         return cost if self.qmap is None or self._side_ok(px, py, fx, fy) else max(cost, 100)
     
     def _detections(self, msg):
+        """Keep the sighting that matches the waypoint we were sent to, if any.
+
+        Everything the rover's camera finds is a candidate; only one of them is
+        the mushroom the quad asked for. Without this gate the rover will servo
+        onto whichever mushroom happens to look biggest, which is the failure
+        the odom-only ALIGN was written to avoid in the first place.
+        """
+        if not self.targets:
+            return
+        tx, ty = self.targets[0]
+        best = None                       # (gate distance, bearing, projected point)
+        rejected = 0
         for det in msg.detections:
             if not det.results:
                 continue
             px, py = det.bbox.center.position.x, det.bbox.center.position.y
             g = hjp.project(self.x, self.y, self.yaw, px, py)
             if g is None:
-                continue
-            bearing = math.degrees(hjp.bearing_of(px))
-            rng = math.hypot(g[0] - self.x, g[1] - self.y)
+                continue                  # above the horizon or out of range
+            d = math.hypot(g[0] - tx, g[1] - ty)
+            if d > VIS_GATE_M:
+                rejected += 1
+                continue                  # a real mushroom, but not our one
+            if best is None or d < best[0]:
+                best = (d, hjp.bearing_of(px), g)
+
+        if best is None:
+            if rejected and self._now() - self.vis_logged > 1.0:
+                self.vis_logged = self._now()
+                self.get_logger().info(
+                    f'vis: {rejected} detection(s) rejected, none within '
+                    f'{VIS_GATE_M:.1f}m of target ({tx:+.2f},{ty:+.2f})')
+            return
+
+        d, bearing, g = best
+        self.vis_bearing, self.vis_stamp = bearing, self._now()
+        if self._now() - self.vis_logged > 1.0:
+            self.vis_logged = self._now()
             self.get_logger().info(
-                f'det conf={det.results[0].hypothesis.score:.2f} px=({px:.0f},{py:.0f}) '
-                f'-> world ({g[0]:+.2f},{g[1]:+.2f}) bearing={bearing:+.0f}deg range={rng:.2f}m')
+                f'vis: locked ({g[0]:+.2f},{g[1]:+.2f}) {d:.2f}m from target, '
+                f'bearing {math.degrees(bearing):+.0f}deg'
+                + (f', {rejected} other(s) rejected' if rejected else ''))
+
+    def _align_err(self, odom_err):
+        """Steer ALIGN on the camera when the gate has a fresh match.
+
+        Falls back to odometry the moment the sighting goes stale, so losing
+        the mushroom behind the chassis on the last half metre degrades to the
+        old behaviour rather than steering on a number that stopped updating.
+
+        Both conventions are positive-to-the-left, so they are interchangeable:
+        odom_err is atan2(dy, dx) - yaw, and bearing_of() is
+        atan2(IMG_W/2 - px, FOCAL_PX).
+        """
+        if not self._vis_fresh():
+            if self.vis_steering:
+                self.vis_steering = False
+                self.get_logger().info('vis: sighting stale, ALIGN back on odometry')
+            return odom_err
+        if not self.vis_steering:
+            self.vis_steering = True
+            self.get_logger().info(
+                f'vis: ALIGN steering on camera '
+                f'(camera {math.degrees(self.vis_bearing):+.1f}deg, '
+                f'odom {math.degrees(odom_err):+.1f}deg)')
+        return self.vis_bearing
+
+    def _vis_fresh(self):
+        """True when the last gated sighting is recent enough to steer on."""
+        return self.vis_bearing is not None and self._now() - self.vis_stamp < VIS_STALE_S
             
     def _scan(self, msg):
         super()._scan(msg)
