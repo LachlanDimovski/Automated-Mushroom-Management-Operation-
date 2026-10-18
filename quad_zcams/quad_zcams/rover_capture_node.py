@@ -29,7 +29,7 @@ import signal
 import threading
 import time
 import xml.etree.ElementTree as ET
-
+from vision_msgs.msg import Detection2DArray
 import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -196,6 +196,7 @@ class RoverCapture(cc.CageCapture):
         self.home_pub = self.create_publisher(Bool, 'husky1/home', latched)
         self.create_subscription(Bool, 'husky1/teleop_active', self._teleop_msg, 10)
         self.create_subscription(Bool, 'husky1/teleop_grab', self._grab_msg, 10)
+        self.create_subscription(Detection2DArray, 'husky1/detections', self._detections, 10)
         self.create_subscription(PointStamped, 'husky1/cage/cancel', self._cancel_msg, 10)  # fleet: given to another rover
         self.grab_t0, self.grab_thread = None, None
         self.checked = set()
@@ -377,7 +378,15 @@ class RoverCapture(cc.CageCapture):
     def _approach_cost(self, px, py, fx, fy):
         cost = super()._approach_cost(px, py, fx, fy)
         return cost if self.qmap is None or self._side_ok(px, py, fx, fy) else max(cost, 100)
-
+    
+    def _detections(self, msg):
+        for det in msg.detections:
+            if det.results:
+                self.get_logger().info(
+                    f'det conf={det.results[0].hypothesis.score:.2f} '
+                    f'at px=({det.bbox.center.position.x:.0f},{det.bbox.center.position.y:.0f}) '
+                    f'size={det.bbox.size_x:.0f}x{det.bbox.size_y:.0f}')
+            
     def _scan(self, msg):
         super()._scan(msg)
         r = np.asarray(msg.ranges, float)
