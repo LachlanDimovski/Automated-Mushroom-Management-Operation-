@@ -13,6 +13,12 @@ is where every piece of trouble the rover reports ends up in plain English.
 Everything comes from `ammo/mission/status` and `ammo/mission/events` plus
 the camera topics and odometry. Because the events topic is transient-local,
 opening this window ten minutes in still draws the timeline from t = 0.
+
+Until a mission is actually launched, the banner across the top says so and
+the timeline and event feed stay empty rather than filling with the last
+run's events or a clock that is not counting. The camera feeds are live
+throughout - they are the only way to see whether the detectors have come up
+while a run is being prepared, which is exactly when you want to know.
 """
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar, QPushButton,
@@ -28,6 +34,19 @@ from ammo_gui_node.timeline import Timeline, format_clock
 LEGEND = [C.SEARCH, C.FOUND, C.TRANSIT, C.FORD, C.ALIGN, C.CAPTURE, C.STUCK,
           C.OPERATOR, C.PAUSED]
 
+# phase from the status message -> (chip, what to say about it)
+BANNER = {
+    'idle': ('NO MISSION', 'Nothing is running. Press Prepare to Launch in the '
+                           'operator window; the cameras below go live as soon as '
+                           'the simulation is up.'),
+    'preparing': ('PREPARING', 'The simulation is coming up. Nothing is searching, '
+                               'driving or being timed yet - watch the checklist in '
+                               'the operator window.'),
+    'ready': ('HELD', 'Everything is up and both mission nodes are held. The clock '
+                      'starts when the operator presses Launch.'),
+    'running': ('RUNNING', ''),
+}
+
 
 class DebugWindow(QWidget):
 
@@ -37,6 +56,7 @@ class DebugWindow(QWidget):
         self.events = []
         self.status = {}
         self.world = None
+        self.phase = 'idle'
         self.setWindowTitle('AMMO Field Debug')
         self.resize(1500, 980)
         self._build()
@@ -69,10 +89,39 @@ class DebugWindow(QWidget):
         head_lay.addWidget(self.clock)
         shell.addWidget(head)
 
+        self.banner = self._banner()
+        shell.addWidget(self.banner)
+        self._set_phase('idle')
+
         self.stack = QStackedWidget()
         self.stack.addWidget(self._main_page())
         self.stack.addWidget(self._expanded_page())
         shell.addWidget(self.stack, 1)
+
+    def _banner(self):
+        """Shown until a mission is launched; hidden the moment one is."""
+        bar = QWidget()
+        bar.setStyleSheet(
+            f'background: {theme.PANEL_DEEP}; border-bottom: 2px solid {theme.AMBER};')
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(22, 11, 22, 11)
+        lay.setSpacing(14)
+        self.banner_chip = cards.Chip('NO MISSION', theme.AMBER)
+        lay.addWidget(self.banner_chip)
+        self.banner_text = cards.label('', 'Dim')
+        self.banner_text.setWordWrap(True)
+        lay.addWidget(self.banner_text, 1)
+        return bar
+
+    def _set_phase(self, phase):
+        """What the banner says, and whether the lower half takes data."""
+        self.phase = phase
+        chip, text = BANNER.get(phase, BANNER['idle'])
+        colour = theme.GREEN if phase == 'running' else theme.AMBER
+        self.banner_chip.setText(chip)
+        self.banner_chip.set_colour(colour, colour)
+        self.banner_text.setText(text)
+        self.banner.setVisible(phase != 'running')
 
     def _main_page(self):
         page = QWidget()
@@ -267,23 +316,38 @@ class DebugWindow(QWidget):
     # -- data ---------------------------------------------------------------
     def apply_status(self, status):
         self.status = status
-        self.clock.setText('t + ' + format_clock(status.get('elapsed', 0)))
+        # 'phase' is new; a bridge that does not send it still gives us
+        # 'running', which is the distinction that matters most.
+        phase = status.get('phase') or ('running' if status.get('running') else 'idle')
+        if phase != self.phase:
+            self._set_phase(phase)
+            if phase in ('idle', 'preparing'):
+                self._forget_run()
+        self.clock.setText('t + ' + format_clock(status.get('elapsed', 0))
+                           if phase == 'running' else 't + 00:00')
 
         world = status.get('world')
         if world and world != self.world:
             self.world = world
             self.map.set_world(world_meta_full(world))
 
+        # The robots' own state and speed are live whatever stage we are in -
+        # during Prepare they are how you tell the simulation really came up.
+        # Everything counted, mapped or remembered belongs to a mission, and
+        # before one is launched there is nothing honest to put there.
+        live = self.phase == 'running'
         rover = status.get('rover', {})
         quad = status.get('quad', {})
         self.rover_state.set(rover.get('state', '--'), rover.get('detail', ''))
 
         legs = quad.get('legs')
-        leg_note = f"leg {quad.get('leg', 0)}/{legs}" if legs else ''
-        counts = (f"{status.get('found', 0)} found, {status.get('collected', 0)} collected")
-        natives = len(status.get('natives') or [])
-        if natives:
-            counts += f', {natives} native'
+        leg_note = f"leg {quad.get('leg', 0)}/{legs}" if legs and live else ''
+        counts = ''
+        if live:
+            counts = f"{status.get('found', 0)} found, {status.get('collected', 0)} collected"
+            natives = len(status.get('natives') or [])
+            if natives:
+                counts += f', {natives} native'
         self.quad_state.set(quad.get('state', '--'),
                             '  ·  '.join(x for x in (quad.get('detail', ''), leg_note, counts) if x))
 
@@ -292,11 +356,12 @@ class DebugWindow(QWidget):
         self.quad_vel.set(f"{quad.get('speed', 0.0):.2f}", 'm/s',
                           f"alt {quad.get('alt', 0.0):.2f}   climb {quad.get('climb', 0.0):+.2f}")
 
-        coverage = status.get('coverage')
+        coverage = status.get('coverage') if live else None
         if coverage is None:
             self.coverage_value.setText('--')
             self.coverage_bar.setValue(0)
-            self.coverage_sub.setText('waiting for the quadcopter\'s map')
+            self.coverage_sub.setText('waiting for the quadcopter\'s map' if live
+                                      else 'nothing mapped yet')
         else:
             self.coverage_value.setText(f'{coverage * 100:.0f} %')
             self.coverage_bar.setValue(int(coverage * 100))
@@ -309,29 +374,45 @@ class DebugWindow(QWidget):
         self.rover_cam.set_frozen(paused)
         self.quad_cam.set_frozen(paused)
         self.big_cam.set_frozen(paused)
-        self.map.set_mushrooms(status.get('mushrooms', []))
-        self.map.set_markers(status.get('markers', []))
-        self.map.set_natives(status.get('natives', []))
-        self.map.set_route(status.get('route'))
-        self.map.set_goal(status.get('operator_goal'))
+        self.map.set_mushrooms(status.get('mushrooms', []) if live else [])
+        self.map.set_markers(status.get('markers', []) if live else [])
+        self.map.set_natives(status.get('natives', []) if live else [])
+        self.map.set_route(status.get('route') if live else None)
+        self.map.set_goal(status.get('operator_goal') if live else None)
 
         live = sum(1 for ok in (rover.get('fresh'), quad.get('fresh'),
                                 self.rover_cam.any_fresh(), self.quad_cam.any_fresh()) if ok)
         self.feeds.setText(f'{live} / 4 feeds live')
 
     def apply_event(self, ev):
-        self.events.append(ev)
         if ev.get('kind') == C.EV_MISSION_START:
+            # A new run: drop whatever the transient-local topic replayed
+            # from the last one.
             self.events = [ev]
             self.map.clear()
+            self.feed.clear()
+            self._set_phase('running')
+        elif self.phase != 'running':
+            # Prepare-stage chatter is not mission history, and a timeline
+            # drawn before t = 0 exists is a lie about what happened.
+            return
+        else:
+            self.events.append(ev)
         self.timeline.apply_events(self.events)
         self.feed.add(ev)
         self._autoscroll()
 
+    def _forget_run(self):
+        """Back to nothing: the last run's timeline and feed are not this run's."""
+        self.events = []
+        self.timeline.clear()
+        self.feed.clear()
+        self.map.clear()
+
     def _tick(self):
         status = self.status
-        self.timeline.set_now(status.get('elapsed', 0.0),
-                              status.get('running', False),
+        self.timeline.set_now(status.get('elapsed', 0.0) if self.phase == 'running' else 0.0,
+                              self.phase == 'running',
                               status.get('state', C.IDLE),
                               C.STATE_DETAIL.get(status.get('state', C.IDLE), ''),
                               status.get('state_since', 0.0))

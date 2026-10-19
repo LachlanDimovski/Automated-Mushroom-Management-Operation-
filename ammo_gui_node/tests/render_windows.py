@@ -33,6 +33,7 @@ class FakeLink(QObject):
     rover_detections = Signal(list)
     quad_detections = Signal(list)
     nav_goal_finished = Signal(bool)
+    topdown_frame = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -41,7 +42,17 @@ class FakeLink(QObject):
         self.drives = []
         self.quad_drives = []
         self.holding = False
+        self.hold_log = []
         self.goals = []
+        self.started = False
+        # What the readiness probe will report; tests set it.
+        self.probe = {}
+
+    def start(self):
+        self.started = True
+
+    def probe_readiness(self):
+        return dict(self.probe)
 
     def publish_command(self, payload):
         self.commands.append(payload)
@@ -57,6 +68,7 @@ class FakeLink(QObject):
 
     def set_holding(self, holding):
         self.holding = bool(holding)
+        self.hold_log.append(self.holding)
 
     def cancel_all_nav(self):
         return True
@@ -199,8 +211,58 @@ def render(widget, path, size=(1500, 980)):
     print('wrote', path, f'({os.path.getsize(path)} bytes)')
 
 
+# Rendered widgets are kept alive deliberately: a shown QWidget collected by
+# Python while the offscreen platform still holds it takes the process down
+# at exit.
+_KEEP = []
+
+
+def render_setup_and_ready():
+    """The two pages a run now starts on, so a layout change is visible."""
+    from ammo_gui_node import mission_launcher as ml
+    from ammo_gui_node.home_page import HomePage
+    from ammo_gui_node.readiness import CHECK_KEYS
+    from ammo_gui_node.ready_page import ReadyPage
+
+    home = HomePage()
+    worlds = [home.world_box.itemText(i) for i in range(home.world_box.count())]
+    if 'forest_random' in worlds:
+        home.world_box.setCurrentText('forest_random')
+    home.pattern_toggle.setChecked(True)
+    app.processEvents()
+    render(home, _paths.out_dir() + '/setup_page.png', size=(1500, 950))
+
+    world = home.world_box.currentText()
+    points = ml.shuffle_mushrooms(world, 5, seed=3)
+
+    # half way up: some checks in, some not - the state you actually watch
+    coming = ReadyPage()
+    coming.begin({'world': world, 'points': points,
+                  'meta': ml.world_meta_full(world)})
+    coming.apply_probe({'sim': True, 'nodes': True, 'rover_odom': True,
+                        'quad_odom': True, 'quad_cam': True}, 18.0)
+    app.processEvents()
+    render(coming, _paths.out_dir() + '/ready_page_preparing.png', size=(1500, 950))
+
+    ready = ReadyPage()
+    ready.begin({'world': world, 'points': points,
+                 'meta': ml.world_meta_full(world)})
+    ready.apply_probe({k: True for k in CHECK_KEYS}, 41.0)
+    ready.set_ready(points)
+    ready.set_photo(fake_camera(w=760, h=760, tint=(44, 58, 44), boxes=False))
+    app.processEvents()
+    render(ready, _paths.out_dir() + '/ready_page.png', size=(1500, 950))
+
+    _KEEP.extend((home, coming, ready))
+    for widget in _KEEP:
+        widget.hide()
+    app.processEvents()
+
+
 if __name__ == '__main__':
     from ammo_gui_node.debug_window import DebugWindow
+
+    render_setup_and_ready()
 
     link = FakeLink()
     win = DebugWindow(link)
@@ -219,3 +281,11 @@ if __name__ == '__main__':
     render(win, _paths.out_dir() + '/debug_ui.png')
     print('feed rows:', win.feed.row_count())
     print('timeline rows:', win.timeline.row_count())
+
+    held = DebugWindow(FakeLink())
+    held.link.rover_frame.emit(fake_camera(tint=(34, 54, 40), boxes=False))
+    held.link.quad_frame.emit(fake_camera(tint=(40, 62, 46), boxes=False))
+    held.link.status_updated.emit(mission_status(running=False, phase='ready',
+                                                 elapsed=0.0))
+    app.processEvents()
+    render(held, _paths.out_dir() + '/debug_ui_held.png')

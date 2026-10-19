@@ -63,6 +63,9 @@ class Node:
         self.timers = []
         self.params = {}
         self.log_lines = []
+        # How many publishers the graph claims each topic has. Tests set it;
+        # the real Node answers from the ROS graph.
+        self.graph_publishers = {}
         self._logger = _Logger(self.log_lines)
         self._clock = _Clock()
 
@@ -96,6 +99,9 @@ class Node:
 
     def get_clock(self):
         return self._clock
+
+    def count_publishers(self, topic):
+        return int(self.graph_publishers.get(topic, 0))
 
     def destroy_node(self):
         pass

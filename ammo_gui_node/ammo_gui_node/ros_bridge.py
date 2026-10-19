@@ -34,6 +34,11 @@ EVENT_QOS = QoSProfile(depth=1000,
                        reliability=ReliabilityPolicy.RELIABLE,
                        durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
+LATCHED_TF_QOS = QoSProfile(depth=100,
+                            history=HistoryPolicy.KEEP_LAST,
+                            reliability=ReliabilityPolicy.RELIABLE,
+                            durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
 HOLD_HZ = 20.0   # rate we publish zero velocity at while paused
 IMAGE_HZ = 5.0   # camera frames converted per feed; the rest are dropped
 
@@ -50,6 +55,11 @@ class _LinkNode(Node):
         self.link = link
         self.role = role
         self._last_image = {}
+        # What has been seen at least once, for the readiness checklist. A
+        # frame or a message arriving is a much better answer to "is the
+        # camera working" than a publisher existing on the topic.
+        self.seen = set()
+        self._tf_ok = False
 
         self.create_subscription(String, C.STATUS_TOPIC, self._on_status, LIVE_QOS)
         self.create_subscription(String, C.EVENTS_TOPIC, self._on_event, EVENT_QOS)
@@ -62,9 +72,11 @@ class _LinkNode(Node):
         # yolo_node publishes its annotated image lazily - only while
         # something is subscribed - so these subscriptions are what turn it on.
         self.create_subscription(Image, C.HUSKY_CAM,
-                                 lambda m: self._image(m, self.link.rover_frame), LIVE_QOS)
+                                 lambda m: self._image(m, self.link.rover_frame,
+                                                       'rover_cam'), LIVE_QOS)
         self.create_subscription(Image, C.PARROT_CAM,
-                                 lambda m: self._image(m, self.link.quad_frame), LIVE_QOS)
+                                 lambda m: self._image(m, self.link.quad_frame,
+                                                       'quad_cam'), LIVE_QOS)
         self.create_subscription(Image, C.HUSKY_CAM_YOLO,
                                  lambda m: self._image(m, self.link.rover_yolo_frame), LIVE_QOS)
         self.create_subscription(Image, C.PARROT_CAM_YOLO,
@@ -82,6 +94,23 @@ class _LinkNode(Node):
                                      LIVE_QOS)
         except ImportError:
             self.get_logger().warn('vision_msgs not available - no boxes on the camera feeds')
+
+        # One frame from the camera mission_launcher spawns over the world
+        # while a run is being prepared. Subscribed always: the topic simply
+        # has no publisher until that camera exists.
+        self.create_subscription(Image, C.TOPDOWN_TOPIC, self._on_topdown, LIVE_QOS)
+
+        # The rover's map frame is the one detail that quietly breaks operator
+        # goals, so the checklist waits to actually see it rather than
+        # assuming Nav2 being up implies it.
+        try:
+            from tf2_msgs.msg import TFMessage
+            for topic in (C.ROVER_TF_TOPIC, C.GLOBAL_TF_TOPIC):
+                self.create_subscription(TFMessage, topic, self._on_tf, LIVE_QOS)
+            for topic in (C.ROVER_TF_STATIC, C.GLOBAL_TF_STATIC):
+                self.create_subscription(TFMessage, topic, self._on_tf, LATCHED_TF_QOS)
+        except ImportError:
+            self._tf_ok = None       # unknown rather than missing
 
         self.pause_pub = self.command_pub = self.waypoint_pub = None
         self.hold_timer = None
@@ -214,10 +243,12 @@ class _LinkNode(Node):
         self.link.pause_changed.emit(bool(msg.data))
 
     def _on_rover_odom(self, msg):
+        self.seen.add('rover_odom')
         p = msg.pose.pose.position
         self.link.rover_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation))
 
     def _on_quad_odom(self, msg):
+        self.seen.add('quad_odom')
         p = msg.pose.pose.position
         self.link.quad_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
 
@@ -249,7 +280,9 @@ class _LinkNode(Node):
                 continue
         signal.emit(boxes)
 
-    def _image(self, msg, signal):
+    def _image(self, msg, signal, seen=None):
+        if seen:
+            self.seen.add(seen)
         now = time.monotonic()
         if now - self._last_image.get(id(signal), 0.0) < 1.0 / IMAGE_HZ:
             return
@@ -257,6 +290,54 @@ class _LinkNode(Node):
         img = qimage_from_ros(msg)
         if img is not None:
             signal.emit(img)
+
+    def _on_topdown(self, msg):
+        img = qimage_from_ros(msg)
+        if img is not None:
+            self.link.topdown_frame.emit(img)
+
+    def _on_tf(self, msg):
+        if self._tf_ok:
+            return
+        for tr in getattr(msg, 'transforms', []):
+            if (getattr(tr.header, 'frame_id', '') == C.ROVER_MAP_FRAME
+                    or getattr(tr, 'child_frame_id', '') == C.ROVER_MAP_FRAME):
+                self._tf_ok = True
+                return
+
+    # -- readiness ----------------------------------------------------------
+    def probe_readiness(self):
+        """One look at everything the prepare stage is waiting for.
+
+        Cameras and odometry are judged by whether a message has actually
+        arrived; detectors by whether their topic has a publisher, because a
+        YOLO node with its weights loaded has created the publisher even
+        before anything walks into frame. Nav2 is asked directly.
+        """
+        probe = {key: (key in self.seen) for key in ('rover_odom', 'quad_odom',
+                                                     'rover_cam', 'quad_cam')}
+        probe['sim'] = self._has_publisher(C.CLOCK_TOPIC)
+        probe['rover_yolo'] = self._has_publisher(C.HUSKY_DETECTIONS)
+        probe['quad_yolo'] = self._has_publisher(C.PARROT_DETECTIONS)
+        probe['nav2'] = self._nav_ready()
+        # None means tf2_msgs is not installed, in which case claiming the
+        # frame is missing would block a launch that would work.
+        probe['map_frame'] = True if self._tf_ok is None else bool(self._tf_ok)
+        return probe
+
+    def _nav_ready(self):
+        if self.nav_client is None:
+            return False
+        try:
+            return bool(self.nav_client.server_is_ready())
+        except AttributeError:
+            return bool(self.nav_client.wait_for_server(timeout_sec=0.0))
+
+    def _has_publisher(self, topic):
+        try:
+            return self.count_publishers(topic) > 0
+        except Exception:
+            return False
 
     # -- outbound -----------------------------------------------------------
     def publish_pause(self, paused):
@@ -321,6 +402,7 @@ class RosLink(QObject):
     rover_detections = Signal(list)
     quad_detections = Signal(list)
     nav_goal_finished = Signal(bool)
+    topdown_frame = Signal(object)
 
     def __init__(self, role='gui'):
         super().__init__()
@@ -370,6 +452,9 @@ class RosLink(QObject):
 
     def send_nav_goal(self, x, y, yaw=0.0):
         return self._node.send_nav_goal(x, y, yaw)
+
+    def probe_readiness(self):
+        return self._node.probe_readiness()
 
     def publish_stop(self):
         """One zero on cmd_vel_raw, so the guard stops replaying a stale command."""

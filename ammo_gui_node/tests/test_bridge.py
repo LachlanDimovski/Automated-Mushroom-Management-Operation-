@@ -29,6 +29,10 @@ def check(name, ok, detail=''):
     print(('  ok   ' if ok else '  FAIL ') + name + (f'   {detail}' if detail and not ok else ''))
 
 
+def section(title):
+    print(f'\n{title}')
+
+
 def fresh():
     bridge = MissionBridge()
     bridge.feed(C.COMMAND_TOPIC, String(data=json.dumps(
@@ -327,6 +331,35 @@ b.feed(C.ROSOUT, Log(name='yolo_node', msg=(
     "YOLO model /x/mushroom_v3.pt (classes: ['mushroom_amanita'], threshold 0.60)")))
 check('a single-class model is reported as such',
       status(b)['detector_classes'] == ['mushroom_amanita'])
+
+# ------------------------------------------------------- the two stages ----
+section('preparing, then launching')
+
+
+def send(bridge, payload):
+    bridge.feed(C.COMMAND_TOPIC, String(data=json.dumps(payload)))
+
+
+b = MissionBridge()
+check('it starts idle', status(b)['phase'] == 'idle' and not status(b)['running'])
+send(b, {'cmd': 'prepare', 'stage': 'preparing'})
+check('preparing is reported', status(b)['phase'] == 'preparing')
+check('but no mission is running yet', status(b)['running'] is False)
+check('and the clock has not started', status(b)['elapsed'] == 0.0)
+send(b, {'cmd': 'prepare', 'stage': 'ready'})
+check('held is reported', status(b)['phase'] == 'ready')
+check('still nothing running', status(b)['running'] is False)
+send(b, {'cmd': 'start', 'mode': 'autonomous', 'world': 'forest_random',
+         'layout': 'random', 'total': 4})
+check('launching reports running', status(b)['phase'] == 'running'
+      and status(b)['running'] is True)
+send(b, {'cmd': 'end'})
+check('ending goes back to held, not idle - the simulation is still up',
+      status(b)['phase'] == 'ready')
+check('and nothing is running', status(b)['running'] is False)
+send(b, {'cmd': 'prepare', 'stage': 'nonsense'})
+check('a stage it does not know is treated as preparing',
+      status(b)['phase'] == 'preparing')
 
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:

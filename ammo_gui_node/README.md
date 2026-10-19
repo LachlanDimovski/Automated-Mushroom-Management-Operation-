@@ -17,7 +17,7 @@ images with numpy (`image_utils.py`).
 ## Running
 
 The GUI starts the simulation itself. Close any Gazebo that is already
-running first; Launch refuses to start a second one.
+running first; Prepare refuses to start a second one.
 
 **1. The operator GUI.** Starts the status bridge with it.
 
@@ -34,34 +34,94 @@ ros2 launch ammo_gui_node debug.launch.py
 River worlds need `bash forest_worlds/setup.sh` once; they only appear in the
 world list after that.
 
-> On WSL, if Gazebo dies a few seconds after Launch with an Ogre or
+> On WSL, if Gazebo dies a few seconds after Prepare with an Ogre or
 > `GL3PlusTextureGpu` error, untick **Show the Gazebo window** on the setup
 > page, or export `LIBGL_ALWAYS_SOFTWARE=1` before launching. The GUI watches
 > for that specific crash and says so rather than leaving you with an empty
 > mission page.
 
-## What the GUI does
+## Starting a run: Prepare, then Launch
+
+A run starts in two stages, and almost everything awkward about the old
+one-button Launch goes away as a result.
+
+**Prepare** runs `cage_mission.launch.py` - Gazebo, Nav2, the z-camera quad,
+`rover_capture_node`, `truth_localizer`, `collision_guard_node` and both
+YOLO instances. **The moment the two mission node processes appear they are
+frozen** and both robots are sent zero velocity, so neither one ever searches
+or drives during Prepare. The checklist keeps filling in behind that, and
+when the last piece arrives the mushrooms are spawned and one photo is taken
+of the world from directly above.
+
+Freezing early is the whole point: the quadcopter takes off a few seconds
+after its node starts, so holding only at the end of the checklist meant
+watching it fly a search pattern over an empty world while the page still
+said PREPARING. Nothing else on the checklist depends on those two nodes -
+cameras, odometry and TF come from Gazebo's bridges, the detectors are their
+own processes, and Nav2, `truth_localizer` and `collision_guard` are all
+separate - so there is nothing to lose by holding them at once.
+
+**Launch** thaws those two processes and starts the clock.
+
+Three things follow from the split, and they are the reason for it:
+
+- The mission clock starts when the mission does. It used to start when the
+  launch command returned and spend its first minute on Gazebo's start-up.
+- The quadcopter has never seen the mushrooms when the run begins, because
+  they are spawned after it is frozen. So you can look at where they landed,
+  shuffle them, and look again, without giving anything away.
+- A run that will not work says so before you have watched it for a minute.
+  The checklist names what has not arrived, and Nav2 or a detector that never
+  comes up is visible rather than looking like a robot that does nothing.
+
+Ending a mission zeroes both robots, freezes the mission nodes again and
+removes the mushrooms, but **leaves Gazebo up**, with the zero-velocity hold
+still running so nothing coasts away while it sits idle. Preparing the same
+world again is instant; only changing world tears the simulation down.
 
 **Setup page.** Pick the world, pick or edit the mushroom layout, choose the
-search pattern, choose Autonomous or Manual drive, press Launch. (The capture
-tool is always the gripper now, so that choice is gone. The robot counts are
-visible but inert - see the note under them.) Launch runs
-`cage_mission.launch.py` (Gazebo, Nav2, the z-camera quad,
-`rover_capture_node`, `truth_localizer` and `collision_guard_node`) with the
-listed mushrooms and starts the clock. Worlds that already contain mushrooms
-offer them as the first preset rather than spawning a second set on top.
+search pattern, choose Autonomous or Manual drive, press Prepare. The capture
+tool is always the gripper now, so that choice is gone; the robot counts are
+visible but inert - see the note under them.
+
+Layout presets are the world's own mushrooms (on a world that ships some),
+whatever is in `layouts/<world>.json`, and **Random placement**, which puts
+them clear of trunks and water and away from the spawn clearing and can be
+rolled again as often as you like. Every preset is editable: the coordinate
+rows are the real list, and Prepare spawns exactly what is in them.
 
 The preview beside the setup is drawn from the world's own `.meta.json` using
 the same widget the live map uses, so a mushroom that would spawn inside a
-pond is visible before you press Launch rather than after.
+pond is visible before you press Prepare rather than after.
+
+**Ready page.** The checklist on the left fills in as each piece arrives:
+Gazebo's clock, both mission node processes, both robots' odometry, both
+cameras, both detectors, Nav2's action server, and the rover's `husky1_map`
+frame on `/husky1/tf` (**not** `/tf` - every robot gets its own TF topic). On the right is the photo from above, the same placement drawn from
+the world file, and the coordinates. Shuffle moves the mushrooms and
+re-photographs; Retake just re-photographs; Back to setup leaves everything
+running.
+
+If something never arrives, the button offers to launch anyway and says what
+will be missing. Patience is measured from the last thing that arrived rather
+than from the start - a river world takes far longer to come up, but in both
+cases pieces keep arriving until the last one does, so forty-five seconds
+with nothing new is a stall whatever the world. Launching anyway still
+freezes the nodes and spawns the mushrooms; it just does not wait for the
+photo. Gazebo and the mission nodes are the two checks it will not waive -
+without those there is no mission to run.
+
+The photo needs a working camera in Gazebo. On software rendering it can
+take a long time or never arrive, which is why there is a timeout and the
+drawing underneath - the drawing has the same information in it.
 
 **Search pattern** exposes the quad's own launch arguments: square loops out
 from the spawn or lawnmower rows, the spacing between them, cruise speed and
 height, whether to keep moving through corners, and whether to plan around
 the world file at all. The defaults are the ones the team's launch file uses.
 
-**Mission page.** The clock, mushrooms found and collected counted
-separately, natives identified and left alone, how much of the area the
+**Mission page.** Everything here starts when you press Launch: the clock,
+mushrooms found and collected counted separately, natives identified and left alone, how much of the area the
 quadcopter has mapped, both robots' states, the map, both camera feeds, and
 the mushroom log with a camera still per mushroom.
 
@@ -85,7 +145,14 @@ front of it.
 
 ## What the Debug UI does
 
-Both camera feeds, large, showing the raw camera with the detector's boxes
+Until a mission is launched, a banner across the top says which stage the
+run is in - nothing running, preparing, or held and ready - and the
+timeline, the event feed, the minimap's markers and the coverage figure stay
+empty. The camera feeds and both robots' states and speeds are live
+throughout, because during Prepare they are how you tell the simulation
+really came up.
+
+Once a mission starts: both camera feeds, large, showing the raw camera with the detector's boxes
 drawn over it - red for an invasive amanita, teal for a native - so you can
 see the classification live rather than at the detector's 2 Hz. The map, the
 robots' states and velocities, the area mapped, the mission timeline at two
@@ -138,11 +205,20 @@ driving.
   stopping the nodes alone would leave them coasting. On resume the rover
   re-plans, and because its own timers were frozen, a long pause can make it
   give up on the waypoint it was on and re-queue it.
-- **Ending a mission closes the simulation.** Keeping Gazebo up between runs
-  needs a mission-only launch path, which this package does not have any
-  more; the clean way to add it back is to load `cage_mission.launch.py` as a
-  module and reuse its own node factory, the way `zcam_mission.launch.py`
-  does, so the node set cannot drift.
+- **Ending a mission keeps the simulation.** It freezes the two mission node
+  processes and removes the mushrooms the GUI spawned; Gazebo, Nav2 and the
+  perception stack stay up. That is done by stopping processes rather than by
+  a second, mission-only launch path, which is deliberate: a launch path of
+  our own would drift from the team's the first time they edited theirs.
+  Changing world is what tears it down.
+- **Mushrooms are spawned by the GUI**, not by `mushrooms:=`, and they are
+  spawned after the mission nodes are frozen. Spawn height is estimated from
+  the world file's own objects, because `forest_random` rises over three
+  metres and a mushroom spawned at z = 0 there is underground.
+- **A world's own mushrooms can be taken out** - the generators name them
+  `mushroom_00`, `mushroom_01`, ... and write the names into the meta - which
+  is what lets Shuffle work on `forest_flat` and `forest_random`. They do not
+  come back until Gazebo restarts.
 - **Snapshots** in the mushroom log are held in memory only. Closing the
   window loses them.
 - **Native mushrooms** are wired end to end, but whether any appear depends
@@ -160,10 +236,11 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-218 checks, a few seconds, no ROS, no simulation, no display and no built
+405 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
-`--render` flag also writes pictures of both windows and the map into
-`tests/out/`, which is the quickest way to see what a change did to a layout.
+`--render` flag also writes pictures of the setup page, the ready page
+part-way through and finished, both windows, the Debug UI's held state and
+the map into `tests/out/`, which is the quickest way to see what a change did to a layout.
 
 One of those suites, `test_log_lines.py`, checks the lines the bridge reads
 are still present in the mission nodes' source. If a teammate rewords one,

@@ -114,7 +114,12 @@ What is left:
    both go to `cmd_vel_raw`, which is not a clean arrangement. The same
    applies to the quadcopter, which the GUI can now hand-fly by suspending
    its node.
-4. **Publish the detection confidence alongside the waypoint.** The bridge
+4. **A way to start the mission nodes held.** Prepare freezes them with
+   `SIGSTOP` once they are up, which works but is blunt: a frozen node comes
+   back with stale timers, the same reason a long pause can make the rover
+   re-queue the waypoint it was on. A `start_held` parameter, or the pause
+   flag in item 2 honoured from start-up, would do the same job cleanly.
+5. **Publish the detection confidence alongside the waypoint.** The bridge
    pairs a waypoint with the most recent score off `parrot1/detections`,
    which is usually the right one but is a guess.
 
@@ -144,10 +149,22 @@ back to the `/rosout` path it used before. Nothing in either window changes.
 
 ## 5. Things worth knowing either way
 
-- `simple_trees.sdf` contains no mushrooms; the GUI's layout is passed to
-  `cage_mission.launch.py` as `mushrooms:=`. forest_flat, forest_random and
-  the river worlds already contain theirs, and the setup page offers them as
-  the first preset rather than spawning a second set on top.
+- **The GUI no longer passes `mushrooms:=`.** It spawns them itself, with
+  the same `ros2 run ros_ign_gazebo create` call `cage_mission.launch.py`
+  makes and the same `demo_mushroom_N` names, but *after* the mission nodes
+  are frozen - which is the whole point of the Prepare stage: the quadcopter
+  cannot have seen a mushroom the operator is still deciding about. It also
+  spawns at an estimated ground height rather than z = 0, because on
+  `forest_random` the terrain rises over three metres and a mushroom at z = 0
+  is underground. The height is interpolated from the trees in the world's
+  `.meta.json` and calibrated against the mushrooms in it, which sit exactly
+  on the surface.
+- **The GUI can remove a world's own mushrooms.** Both forest generators name
+  them `mushroom_00`, `mushroom_01`, ... and write the names into the meta,
+  so `ign service .../remove` can take them out - which is what lets a
+  different layout or a shuffle work on `forest_flat` and `forest_random`
+  instead of adding a second set on top. Nothing is removed unless the
+  operator picked a layout other than the world's own.
 - The search-pattern settings on the setup page (`center_out`,
   `row_spacing`, `cruise_speed`, `cruise_alt`, `strafe`, `planner`,
   `rover_speed`) are declared in `zcam_mission.launch.py`, not in
@@ -174,6 +191,32 @@ back to the `/rosout` path it used before. Nothing in either window changes.
   Arming either teleop panel suspends that robot's node for the same reason:
   two publishers on one velocity topic means the robot obeys whichever
   message arrived last.
+- **Prepare and Launch are the same mechanism.** Prepare starts your launch
+  file unchanged and then `SIGSTOP`s `rover_capture_node` and
+  `zcam_quad_node` **as soon as those processes exist** - seconds after the
+  launch, not at the end of the checklist - while publishing zero velocity to
+  both robots at 20 Hz, because VelocityControl would otherwise keep flying a
+  quadcopter whose node was frozen one second into a take-off. Launch
+  `SIGCONT`s them. `collision_guard_node` is
+  deliberately left awake throughout - it is the thing that publishes the
+  stop. Ending a mission re-freezes them and leaves Gazebo up, so a second
+  run on the same world costs nothing. None of this needs a second launch
+  path, which was the alternative and would have drifted from yours the
+  first time you edited it.
+- **The rover's TF is on `/husky1/tf`, not `/tf`.**
+  `41068_ignition.launch.py` gives every robot its own ("TF topics are under
+  `/<namespace>/tf`"), and `cage_mission.launch.py` remaps `truth_localizer`
+  and `collision_guard` onto it, so `husky1_map` never appears on the global
+  `/tf`. Worth knowing for anything else that goes looking for it - a
+  readiness check watching `/tf` waits forever, which is exactly what
+  happened the first time this ran.
+- **Nothing in the GUI watches a timer to decide the simulation is up.** It
+  waits for `/clock` to have a publisher, for both odometry topics and both
+  camera topics to deliver a message, for both `*/detections` topics to have
+  a publisher, for Nav2's `husky1/navigate_to_pose` server to answer, and for
+  `husky1_map` to appear on `/husky1/tf`. If you rename any of those, the checklist
+  stops at that line and says what it is waiting for - which is a better
+  failure than the mission starting into a robot that cannot plan.
 - With the default `quad:=zcam` the rover node is `rover_capture_node`, a
   subclass of `cage_capture_node` with the same node name (`cage_capture`)
   and the same log lines.

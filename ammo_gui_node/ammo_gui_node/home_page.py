@@ -1,8 +1,13 @@
 """Setup page: pick the world, the mushrooms, the search pattern and who drives.
 
 Everything variable about a run is decided here rather than typed as launch
-arguments. Listed mushrooms are spawned by `cage_mission.launch.py`; worlds
-that already contain mushrooms also offer them as a preset.
+arguments. Worlds that already contain mushrooms offer them as a preset;
+anything else is spawned by the GUI once the simulation is up and the mission
+nodes are held, which is what lets you look at the placement before the
+quadcopter ever gets to.
+
+This page ends at **Prepare**, not Launch. Prepare brings the simulation up
+and stops; `ready_page.py` is where you look at it and decide.
 
 The preview beside the setup is drawn from the world's own `.meta.json`
 using the same widget the live map uses, so what you see here is what the
@@ -25,7 +30,8 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBo
 from ammo_gui_node import cards, theme
 from ammo_gui_node.map_view import MapView
 from ammo_gui_node.mission_launcher import (PATTERNS, SEARCH_DEFAULTS, WORLDS,
-                                            world_available, world_meta_full,
+                                            shuffle_mushrooms, world_available,
+                                            world_meta_full, world_mushroom_names,
                                             world_mushrooms)
 
 FORMAT_HINT = ('Each mushroom is  x, y  in metres from the middle of the world.   '
@@ -50,10 +56,17 @@ SPINS = (
 
 
 def load_layouts(world):
-    """The world's own mushrooms (if any), then layouts/<world>.json or the built-ins."""
+    """The world's own mushrooms (if any), the saved layouts, then Random.
+
+    Random is last and always present: it is the one that does not care what
+    the world shipped with, and the one you come back to when the robots have
+    learnt the demo layout by heart.
+    """
     own = world_mushrooms(world)
-    first = [{'name': f"World's own {len(own)} mushrooms", 'mushrooms': own, 'in_world': True}] if own else []
-    return first + _saved_layouts(world)
+    first = [{'name': f"World's own {len(own)} mushrooms", 'mushrooms': own,
+              'in_world': True}] if own else []
+    return first + _saved_layouts(world) + [
+        {'name': 'Random placement', 'mushrooms': [], 'random': True}]
 
 
 def _saved_layouts(world):
@@ -137,12 +150,15 @@ class CoordRow(QWidget):
 
 class HomePage(QWidget):
 
-    begin_mission = Signal(dict)
+    prepare_requested = Signal(dict)
 
     def __init__(self):
         super().__init__()
         self.rows = []
         self._layouts = []
+        # Qt reports a widget inside a hidden window as not visible, so the
+        # preset's own flag decides, not random_box.isVisible().
+        self._random = False
         self._build()
         self._load_world_layouts()
 
@@ -162,13 +178,21 @@ class HomePage(QWidget):
         head_lay.addWidget(stage, 0, Qt.AlignVCenter)
         outer.addWidget(head)
 
-        body = QHBoxLayout()
+        # The whole page scrolls. With the search settings open this is taller
+        # than a laptop screen, and a Prepare button you cannot reach is worse
+        # than a scrollbar.
+        inner = QWidget()
+        body = QHBoxLayout(inner)
         body.setContentsMargins(28, 22, 28, 24)
         body.setSpacing(18)
-        outer.addLayout(body, 1)
-
         body.addWidget(self._setup_card(), 3)
         body.addLayout(self._right_column(), 2)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll, 1)
 
     def _setup_card(self):
         card = cards.panel()
@@ -182,7 +206,7 @@ class HomePage(QWidget):
         heading.setStyleSheet(
             f'color: {theme.TEXT}; font-size: 18px; font-weight: 600; letter-spacing: 1px;')
         title.addWidget(heading)
-        title.addWidget(cards.label('Nothing is spawned or started until you press Launch.', 'Dim'))
+        title.addWidget(cards.label('Prepare brings the world up and stops. Nothing is timed until you launch.', 'Dim'))
         title.addStretch(1)
         lay.addLayout(title)
 
@@ -228,6 +252,28 @@ class HomePage(QWidget):
         self.layout_box = QComboBox()
         self.layout_box.currentIndexChanged.connect(self._apply_layout)
         col.addWidget(self.layout_box)
+
+        # Only for the Random preset: how many, and roll again.
+        self.random_box = QWidget()
+        rlay = QHBoxLayout(self.random_box)
+        rlay.setContentsMargins(0, 2, 0, 0)
+        rlay.setSpacing(10)
+        rlay.addWidget(cards.label('How many', 'Dim'))
+        self.random_count = QSpinBox()
+        self.random_count.setRange(1, 12)
+        self.random_count.setValue(4)
+        self.random_count.setFixedWidth(78)
+        self.random_count.setMinimumHeight(38)
+        self.random_count.valueChanged.connect(self._reroll)
+        rlay.addWidget(self.random_count)
+        reroll = QPushButton('Roll again')
+        reroll.setObjectName('Ghost')
+        reroll.clicked.connect(self._reroll)
+        rlay.addWidget(reroll)
+        rlay.addWidget(cards.label('Clear of trunks and water, away from the spawn '
+                                   'clearing. You can still edit them below.', 'Faint'), 1)
+        self.random_box.hide()
+        col.addWidget(self.random_box)
         lay.addLayout(col)
 
         # coordinates
@@ -299,7 +345,7 @@ class HomePage(QWidget):
             'from the mission page while it is running.', 'Dim'))
         lay.addWidget(note)
 
-        self.launch_button = QPushButton('LAUNCH MISSION')
+        self.launch_button = QPushButton('PREPARE TO LAUNCH')
         self.launch_button.setObjectName('Primary')
         self.launch_button.clicked.connect(self._launch)
         lay.addWidget(self.launch_button)
@@ -457,11 +503,11 @@ class HomePage(QWidget):
         lay.setContentsMargins(20, 16, 20, 16)
         lay.setSpacing(9)
 
-        lay.addWidget(cards.section('WHAT LAUNCH DOES'))
-        for line in ('1.  Starts Gazebo, Nav2 and both robots in the chosen world',
-                     '2.  Spawns the mushrooms listed on the left',
-                     '3.  Starts the quadcopter search and the rover capture',
-                     '4.  Starts the mission clock and opens the operator view'):
+        lay.addWidget(cards.section('WHAT PREPARE DOES'))
+        for line in ('1.  Starts Gazebo, Nav2 and both robots',
+                     '2.  Waits until every camera, detector and Nav2 is really up',
+                     '3.  Holds both mission nodes, then spawns the mushrooms',
+                     '4.  Photographs the result from above, to launch or shuffle'):
             item = cards.label(line, 'Dim')
             item.setWordWrap(True)
             lay.addWidget(item)
@@ -472,7 +518,7 @@ class HomePage(QWidget):
 
         tail = cards.label(
             'The simulation takes about 30 s to come up (longer for river worlds). '
-            'Ending a mission closes it again.', 'Faint')
+            'Ending a mission leaves it up, so the next run starts straight away.', 'Faint')
         tail.setWordWrap(True)
         lay.addWidget(tail)
         return card
@@ -494,14 +540,33 @@ class HomePage(QWidget):
 
     def _apply_layout(self):
         idx = max(0, self.layout_box.currentIndex())
-        points = []
-        if 0 <= idx < len(self._layouts):
-            points = self._layouts[idx].get('mushrooms', [])
+        chosen = self._layouts[idx] if 0 <= idx < len(self._layouts) else {}
+        random_preset = bool(chosen.get('random'))
+        self._random = random_preset
+        self.random_box.setVisible(random_preset)
+        points = (self._rolled() if random_preset
+                  else chosen.get('mushrooms', []))
+        self._set_rows(points)
+
+    def _set_rows(self, points):
         for row in list(self.rows):
             self._remove_row(row)
         for x, y in points:
             self._add_row(x, y)
         self._refresh_count()
+
+    def _rolled(self):
+        """A fresh random placement for the current world.
+
+        Unseeded on purpose: pressing Roll again has to give you something
+        different, and a layout worth keeping can be saved as a preset.
+        """
+        return shuffle_mushrooms(self.world_box.currentText(),
+                                 int(self.random_count.value()))
+
+    def _reroll(self):
+        if self._random:
+            self._set_rows(self._rolled())
 
     def _add_row(self, x, y):
         row = CoordRow(len(self.rows) + 1, x, y)
@@ -546,17 +611,28 @@ class HomePage(QWidget):
 
     def _launch(self):
         points = self.points()
-        in_world = self._current_layout().get('in_world', False)
+        chosen = self._current_layout()
+        in_world = chosen.get('in_world', False)
         world = self.world_box.currentText()
-        self.begin_mission.emit({
+        self.prepare_requested.emit({
             'world': world,
             'tool': 'gripper',
             'layout': self.layout_box.currentText(),
             'mode': 'manual' if self.manual_radio.isChecked() else 'autonomous',
             'points': points,
+            # Spawn ours unless the preset is the world's own set, in which
+            # case the models are already in the .sdf and spawning would
+            # double them up.
             'spawn': not in_world,
+            # ...and if we are spawning our own on a world that shipped its
+            # own, those have to come out first, or the quadcopter finds
+            # twice as many mushrooms as the counter says exist.
+            'clear_world': (not in_world) and bool(world_mushroom_names(world)),
+            'random': bool(chosen.get('random')),
+            'count': int(self.random_count.value()),
             'show_sim': self.show_sim.isChecked(),
             'options': self.options(),
+            'meta': world_meta_full(world),
         })
 
     def _current_layout(self):

@@ -8,6 +8,9 @@ class ActionClient:
     def wait_for_server(self, timeout_sec=0.0):
         return self.available
 
+    def server_is_ready(self):
+        return self.available
+
     def send_goal_async(self, goal):
         self.goals.append(goal)
         return _Future()

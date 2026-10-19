@@ -63,6 +63,18 @@ PARROT_CMD = 'parrot1/cmd_vel'
 # the only way to stop a goal another node started.
 NAV_CANCEL_SERVICE = 'husky1/navigate_to_pose/_action/cancel_goal'
 
+# Where the rover's TF tree actually is. NOT /tf: `41068_ignition.launch.py`
+# gives every robot its own - "TF topics are under /<namespace>/tf and
+# /<namespace>/tf_static" - and `cage_mission.launch.py` remaps
+# truth_localizer, collision_guard and Nav2 onto /husky1/tf. `husky1_map` is
+# published there and nowhere else, so a readiness check watching the global
+# /tf waits forever. Both are watched anyway, in case a future launch file
+# stops namespacing them.
+ROVER_TF_TOPIC = '/husky1/tf'
+ROVER_TF_STATIC = '/husky1/tf_static'
+GLOBAL_TF_TOPIC = '/tf'
+GLOBAL_TF_STATIC = '/tf_static'
+
 # The frame a Nav2 goal for the rover must be given in. NOT 'map': with
 # truth_localizer running there is no bare `map` frame in the rover's TF
 # tree, and a goal in one is silently unusable. This is the frame
@@ -75,6 +87,20 @@ ROVER_MAP_FRAME = 'husky1_map'
 GUARD_SETTLE_S = 0.7
 
 ROSOUT = '/rosout'
+
+# The temporary camera the GUI spawns above the world to take one top-down
+# photo of the spawn, then removes again. Not part of anybody's launch file -
+# the model and the bridge are both started and stopped by mission_launcher.
+TOPDOWN_TOPIC = '/ammo/topdown/image'
+
+# Gazebo's own clock, bridged by the team's launch. Its presence is the
+# cheapest honest answer to "is the simulation actually up?".
+CLOCK_TOPIC = '/clock'
+
+# Nav2's action for the rover. The readiness check waits for this server
+# rather than for a topic, because a goal sent before it is up is simply
+# rejected - which is what used to look like the rover ignoring a click.
+NAV_ACTION = 'husky1/navigate_to_pose'
 
 # Node names as they appear in /rosout (set by each node's super().__init__).
 # rover_capture_node subclasses cage_capture_node without renaming it, so the

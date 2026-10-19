@@ -180,6 +180,11 @@ class MissionBridge(Node):
 
         # mission bookkeeping
         self.running = False
+        # Where the GUI is in the two-stage start: 'idle', 'preparing',
+        # 'ready' (simulation up, mission nodes held, clock not started) or
+        # 'running'. The Debug UI uses it to say what it is waiting for
+        # instead of drawing an empty timeline.
+        self.phase = 'idle'
         self.paused = False
         self.mode = 'autonomous'
         self.world = ''
@@ -240,7 +245,11 @@ class MissionBridge(Node):
             return
         kind = cmd.get('cmd')
 
-        if kind == 'start':
+        if kind == 'prepare':
+            stage = str(cmd.get('stage', 'preparing'))
+            self.phase = stage if stage in ('idle', 'preparing', 'ready') else 'preparing'
+
+        elif kind == 'start':
             self._start(cmd)
 
         elif kind == 'end':
@@ -248,6 +257,7 @@ class MissionBridge(Node):
                 self._emit(C.EV_MISSION_END,
                            text=f'Mission ended - {self._collected()} of {self.total or "?"} collected')
             self.running = False
+            self.phase = 'ready'
             self.paused = False
             self._paused_at = None
             self._set_state(C.IDLE)
@@ -279,6 +289,7 @@ class MissionBridge(Node):
 
     def _start(self, cmd):
         self.running = True
+        self.phase = 'running'
         self.paused = False
         self.mode = cmd.get('mode', 'autonomous')
         self.world = cmd.get('world', '')
@@ -727,6 +738,7 @@ class MissionBridge(Node):
 
         status = {
             'running': self.running,
+            'phase': self.phase,
             'paused': self.paused,
             'mode': self.mode,
             'world': self.world,
