@@ -57,6 +57,30 @@ Launch arguments:
 | `hazard` | `false` | COCO person detector + `hazard_brake` on the rover |
 | `tool` | `gripper` | `cage` selects the older boom cage (also needs `cage:=true` in `husky.urdf.xacro`) |
 
+## Running the fleet (2 quads + 1 rover) with the Fleet Debug UI
+
+The operator GUI's Launch button only starts `cage_mission.launch.py` (one quad).
+For the fleet, start the sim headless in one terminal:
+
+    F=~/41068_ws/src/RS1_Team5_/forest_worlds
+    export IGN_GAZEBO_RESOURCE_PATH="$(ls -d $F/models/* $F/world_assets | tr '\n' ':')$IGN_GAZEBO_RESOURCE_PATH"
+    ros2 launch quad_zcams fleet_mission.launch.py world:=$F/worlds/river_moderate_aus \
+        meta_goals:=false quads:=2 rovers:=1 headless:=true rviz:=false \
+        model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_river_v4_yolo11n.pt
+
+and the Fleet Debug UI in a second:
+
+    ros2 launch ammo_gui_node fleet_debug.launch.py
+
+- The `export` is required for the `forest_worlds` worlds. Without it Gazebo cannot find the
+  tree, rock and terrain models (`Unable to find uri[model://gum_05]`), the robots never spawn
+  and the sim appears frozen.
+- `fleet_debug.launch.py` also starts `mission_bridge`, which publishes the
+  `ammo/mission/status` and `ammo/mission/events` topics the timeline and state cards read.
+  Running `ros2 run ammo_gui_node fleet_debug` on its own shows the cameras and map, but the
+  timeline stays empty. Do not run it alongside the operator GUI, which starts its own bridge.
+- Drop `headless:=true` to also open the Gazebo window.
+
 ## Mission flow
 
 1. **Search.** The quad cruises under the canopy at 1 m and flies a lawnmower

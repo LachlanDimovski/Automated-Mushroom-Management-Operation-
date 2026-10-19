@@ -76,6 +76,8 @@ def wrap(a):
 
 
 class CageCapture(Node):
+    NAV2_WAIT_S = 120.0  # startup wait for navigate_to_pose (a subclass with its own fallback can wait less)
+
     def __init__(self):
         super().__init__('cage_capture')
         self.declare_parameter('world', 'simple_trees')
@@ -140,7 +142,7 @@ class CageCapture(Node):
             self.targets += list(zip(gx, gy))
         self._sweep_leftovers()
         self._spawn_test_mushrooms()
-        if not self.nav.wait_for_server(timeout_sec=120.0):
+        if not self.nav.wait_for_server(timeout_sec=self.NAV2_WAIT_S):
             self.get_logger().error('Nav2 navigate_to_pose never became available (launch with nav2:=true)')
         self._clear_costmaps()
         self.get_logger().info(f'{len(self.targets)} waypoint(s) queued; listening on husky1/cage/waypoints.')

@@ -45,13 +45,15 @@ class YoloPool(Node):
         self.declare_parameter('conf_threshold', 0.25)
         self.declare_parameter('imgsz', 640)
         self.declare_parameter('max_rate_hz', 2.0)  # per robot, as yolo_node
+        self.declare_parameter('display_rate_hz', 1.0)  # rovers: their detections only feed the debug window
         self.declare_parameter('workers', 1)
         ov = self.get_parameter('openvino_path').value
         self.model_file = ov if ov and os.path.isdir(ov) else self.get_parameter('model_path').value
         self.conf = self.get_parameter('conf_threshold').value
         self.imgsz = self.get_parameter('imgsz').value
-        rate = self.get_parameter('max_rate_hz').value
-        self.min_dt = 1.0 / rate if rate > 0 else 0.0
+        rate, disp = self.get_parameter('max_rate_hz').value, self.get_parameter('display_rate_hz').value
+        hz = {r: disp if 'husky' in r else rate for r in self.get_parameter('robots').value}
+        self.min_dt = {r: 1.0 / h if h > 0 else 0.0 for r, h in hz.items()}
         self.bridge = CvBridge()
         self.lock = threading.Condition()
         self.frames, self.last = {}, {}
@@ -72,7 +74,7 @@ class YoloPool(Node):
             threading.Thread(target=self._work, args=(m,), daemon=True).start()
         self.create_timer(30.0, self._report)
         self.get_logger().info(f'YOLO pool: {self.model_file} for {list(self.pubs)}, {n} worker(s), '
-                               f'{rate:.1f} Hz per robot, imgsz {self.imgsz}.')
+                               f'{rate:.1f} Hz per robot ({disp:.1f} Hz for rovers), imgsz {self.imgsz}.')
 
     def _frame(self, robot, msg):
         with self.lock:
@@ -82,7 +84,7 @@ class YoloPool(Node):
     def _take(self):
         """The newest frame of the most overdue robot that is due, else None."""
         now = time.monotonic()
-        due = [r for r in self.frames if now - self.last[r] >= self.min_dt]
+        due = [r for r in self.frames if now - self.last[r] >= self.min_dt[r]]
         if not due:
             return None, None
         r = min(due, key=lambda r: self.last[r])

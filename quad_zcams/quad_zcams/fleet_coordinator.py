@@ -35,12 +35,37 @@ CROSS_COST_M = 30.0  # a river crossing (lane drive, banks) counts as this much 
 STUCK_M = 1.0
 CROWD_R_M = 5.0      # two rovers working within this of each other get in each other's way...
 CROWD_COST_M = 10.0  # ...so a mushroom this close to another rover's spot counts as this much extra driving
+DETOUR_M = 4.0       # a pending mushroom that adds less than this to a busy rover's trip goes to it now (replay of
+                     # the bench logs: 4-6 m saved 13-59 s in 5 of 55 runs; 8 m cost 43 s in one)
 PICK_COST_M = 8.0    # align, lower, collect, raise: ~9 sim s, about 8 m of the rovers' real progress
 NO_PROGRESS_S = 150.0  # a rover whose route distance to its mushroom has not shrunk STUCK_M in this long gives it up
 GAVE_UP_HOLD_S = 120.0  # a mushroom every rover has given up on waits this long before it is handed out again
 END_WAIT_S = 150.0   # end the sim this long after the mission completes even if someone never reports home/landed
 LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 LIVE = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+
+
+def bank(river, x, y):
+    """+1 north of the river, -1 south (the river runs along x), 0 with no river."""
+    if not river:
+        return 0
+    i = min(range(len(river)), key=lambda i: abs(river[i][0] - x))
+    return 1 if y > river[i][1] else -1
+
+
+def road_m(river, crossings, a, b):
+    """Driving distance estimate: straight, or via the best crossing when a and b are on opposite banks
+    (straight-line costs sent r2 across the river after one mushroom and it never came back - bench q4r2)."""
+    if not crossings or bank(river, *a) == bank(river, *b):
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+    return CROSS_COST_M + min(math.hypot(a[0] - c[0], a[1] - c[1]) + math.hypot(b[0] - c[0], b[1] - c[1])
+                              for c in crossings)
+
+
+def on_way(dist, here, m, cur):
+    """m is nearer than cur and getting it first adds less than DETOUR_M to the trip to cur."""
+    d = dist(here, m)
+    return d < dist(here, cur) and d + dist(m, cur) - dist(here, cur) < DETOUR_M
 
 
 class FleetCoordinator(Node):
@@ -69,7 +94,7 @@ class FleetCoordinator(Node):
         self.claims = {}
         self.maps = {}
         self.landed = set()
-        self.moved = {}  # rover -> (x, y, sim time) of its last STUCK_M move
+        self.moved = {}  # rover -> (closest distance to each open mushroom, sim time of its last STUCK_M progress)
         self.cancel_pubs = {r: self.create_publisher(PointStamped, f'{r}/cage/cancel', 10) for r in self.rovers}
         self.wp_pubs = {r: self.create_publisher(PointStamped, f'{r}/cage/waypoints', 10) for r in self.rovers}
         self.done_pub = self.create_publisher(PointStamped, 'fleet/done', 10)
@@ -98,7 +123,9 @@ class FleetCoordinator(Node):
         self.get_logger().info(f'Fleet: rovers {self.rovers}, quads {self.quads}.')
 
     def _open(self, rover):
-        return [m for m in self.mushrooms if m['rover'] == rover and m['state'] == 'assigned']
+        """In the order the rover will do them: by when each was given to it (an on-the-way one goes first)."""
+        return sorted((m for m in self.mushrooms if m['rover'] == rover and m['state'] == 'assigned'),
+                      key=lambda m: m.get('since', 0.0))
 
     def _report(self, msg):
         x, y = msg.point.x, msg.point.y
@@ -150,6 +177,23 @@ class FleetCoordinator(Node):
                 self.get_logger().info(f"M{m['id']} -> {r} (was pending; plan {ahead or 'none'}).")
                 self._send(m)
 
+    def _pass_by(self):
+        """A pending mushroom on a busy rover's way to its current one goes to it now, over the cap; the rover node
+        gets it first (RoverCapture._pass_by)."""
+        for r in self.rovers:
+            p, q = self.pos.get(r), self._open(r)
+            if p is None or not q:
+                continue
+            cur = q[0]
+            for m in self.mushrooms:
+                if (m['state'] != 'pending' or m.get('hold_until', 0.0) > self._now() or m.get('from') == r
+                        or not on_way(self._dist, p, (m['x'], m['y']), (cur['x'], cur['y']))):
+                    continue
+                m['rover'], m['state'] = r, 'assigned'
+                self._send(m)
+                m['since'] = cur['since'] - 1.0
+                self.get_logger().info(f"M{m['id']} -> {r} (on its way to M{cur['id']}).")
+
     def _plan(self, pend):
         """Look-ahead over every rover: each rover starts where and when it will be free (after its open mushrooms);
         repeatedly the (rover, mushroom) pair with the earliest arrival is fixed and that rover moves on from there.
@@ -175,8 +219,8 @@ class FleetCoordinator(Node):
         return plan
 
     def _unstick(self):
-        """A rover that has got no closer to its mushroom in NO_PROGRESS_S drops it: to an idle rover if there is one,
-        otherwise back into the joint plan (r2 stalled in Nav2 for the last 5 min of bench q6r2_lite_v2)."""
+        """A rover that has got no closer to any of its mushrooms in NO_PROGRESS_S drops them: to an idle rover if there
+        is one, otherwise back into the joint plan (r2 stalled in Nav2 for the last 5 min of bench q6r2_lite_v2)."""
         now = self._now()
         for r in self.rovers:
             p = self.pos.get(r)
@@ -186,22 +230,23 @@ class FleetCoordinator(Node):
             if not q:
                 self.moved.pop(r, None)
                 continue
-            # progress = the crossing-aware distance to its mushroom shrinking: a fixed hold time (120 s) cancelled
-            # long crossings halfway (v19/v20); standing still and circling (v11) both stop it shrinking
-            d = self._dist(p, (q[0]['x'], q[0]['y']))
-            best = self.moved.get(r)
-            if best is None or best[0] != q[0]['id'] or d < best[1] - STUCK_M:
-                self.moved[r] = (q[0]['id'], d, now)
+            # progress = the crossing-aware distance to one of its open mushrooms shrinking (any one: it may take an
+            # on-the-way one first): a fixed hold time (120 s) cancelled long crossings halfway (v19/v20); standing
+            # still and circling (v11) both stop it shrinking
+            ds = {m['id']: self._dist(p, (m['x'], m['y'])) for m in q}
+            best, since = self.moved.get(r, ({}, now))
+            if any(k not in best or d < best[k] - STUCK_M for k, d in ds.items()):
+                self.moved[r] = ({k: min(d, best.get(k, d)) for k, d in ds.items()}, now)
                 continue
-            if now - best[2] < NO_PROGRESS_S:
+            if now - since < NO_PROGRESS_S:
                 continue
             idle = [o for o in self.rovers if o != r and not self._open(o)]
             if not idle:
                 if self.cap:  # nobody idle: back into the joint plan, not left with r (r2 held M1 all of v16)
                     for m in q:
                         self._cancel(r, m)
-                        m['rover'], m['from'], m['state'] = None, r, 'pending'
-                        self.get_logger().warn(f"{r} got no closer to M{m['id']} in {now - best[2]:.0f} s - "
+                        m['rover'], m['from'], m['state'], m['since_rover'] = None, r, 'pending', None
+                        self.get_logger().warn(f"{r} got no closer to M{m['id']} in {now - since:.0f} s - "
                                                'back to the plan.')
                     self._dispatch()
                 self.moved.pop(r, None)
@@ -236,20 +281,8 @@ class FleetCoordinator(Node):
             here = (m['x'], m['y'])
         return total
 
-    def _bank(self, x, y):
-        """+1 north of the river, -1 south (the river runs along x), 0 with no river."""
-        if not self.river:
-            return 0
-        i = min(range(len(self.river)), key=lambda i: abs(self.river[i][0] - x))
-        return 1 if y > self.river[i][1] else -1
-
     def _dist(self, a, b):
-        """Driving distance estimate: straight, or via the best crossing when a and b are on opposite banks
-        (straight-line costs sent r2 across the river after one mushroom and it never came back - bench q4r2)."""
-        if not self.crossings or self._bank(*a) == self._bank(*b):
-            return math.hypot(a[0] - b[0], a[1] - b[1])
-        return CROSS_COST_M + min(math.hypot(a[0] - c[0], a[1] - c[1]) + math.hypot(b[0] - c[0], b[1] - c[1])
-                                  for c in self.crossings)
+        return road_m(self.river, self.crossings, a, b)
 
     def _pick_rover(self, x, y, rovers):
         """Nearest rover, counting what it already has to do: the rover takes its queue nearest first, so a new
@@ -280,7 +313,7 @@ class FleetCoordinator(Node):
         if not near:
             return
         m = min(near, key=lambda m: math.hypot(m['x'] - x, m['y'] - y))
-        m['state'], m['from'] = 'pending', rover
+        m['state'], m['from'], m['since_rover'] = 'pending', rover, None
         m.setdefault('gave_up', []).append(rover)
         if set(m['gave_up']) >= set(self.rovers):  # every rover failed: wait for the quads' map to fill in first
             m['gave_up'], m['hold_until'] = [], self._now() + GAVE_UP_HOLD_S
@@ -339,6 +372,7 @@ class FleetCoordinator(Node):
         self._end_check()
         if self.cap and self.complete_at is None:
             self._dispatch()
+            self._pass_by()
             self._unstick()
         merged = self._merged_map()
         if merged is not None:
