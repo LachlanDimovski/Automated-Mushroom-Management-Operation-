@@ -1,0 +1,221 @@
+"""Build both windows offscreen, feed them a realistic mission, render them.
+
+No ROS: the link is a bare QObject carrying the same signals the real one
+does, which is all either window ever touches.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths  # noqa: F401,E402  (sets sys.path and the headless Qt platform)
+
+from PySide6.QtCore import QObject, QSize, Signal                 # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter                # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
+
+from ammo_gui_node import contract as C                           # noqa: E402
+from ammo_gui_node import theme                                   # noqa: E402
+
+app = QApplication.instance() or QApplication(sys.argv)
+app.setStyleSheet(theme.STYLESHEET)
+
+
+class FakeLink(QObject):
+    status_updated = Signal(dict)
+    event_received = Signal(dict)
+    pause_changed = Signal(bool)
+    rover_pose = Signal(float, float, float)
+    quad_pose = Signal(float, float, float, float)
+    rover_frame = Signal(object)
+    quad_frame = Signal(object)
+    rover_yolo_frame = Signal(object)
+    quad_yolo_frame = Signal(object)
+    rover_detections = Signal(list)
+    quad_detections = Signal(list)
+    nav_goal_finished = Signal(bool)
+
+    def __init__(self):
+        super().__init__()
+        self.commands = []
+        self.pauses = []
+        self.drives = []
+        self.quad_drives = []
+        self.holding = False
+        self.goals = []
+
+    def publish_command(self, payload):
+        self.commands.append(payload)
+
+    def publish_pause(self, paused):
+        self.pauses.append(paused)
+
+    def publish_drive(self, vx, wz):
+        self.drives.append((vx, wz))
+
+    def publish_quad_drive(self, vx, vy, vz, wz):
+        self.quad_drives.append((vx, vy, vz, wz))
+
+    def set_holding(self, holding):
+        self.holding = bool(holding)
+
+    def cancel_all_nav(self):
+        return True
+
+    def send_nav_goal(self, x, y, yaw=0.0):
+        self.goals.append((x, y, yaw))
+        return True
+
+    def publish_waypoint(self, x, y):
+        pass
+
+    def publish_stop(self):
+        self.drives.append((0.0, 0.0))
+
+    def shutdown(self):
+        pass
+
+
+def fake_camera(w=640, h=400, tint=(40, 70, 48), boxes=True):
+    """Something that looks enough like a forest frame to judge a layout by."""
+    img = QImage(w, h, QImage.Format_RGB32)
+    img.fill(QColor(*tint))
+    p = QPainter(img)
+    for i in range(70):
+        x = (i * 137) % w
+        y = (i * 61) % h
+        r = 6 + (i * 13) % 40
+        p.setPen(QColor(tint[0] + 18, tint[1] + 22, tint[2] + 14))
+        p.setBrush(QColor(tint[0] + 8, tint[1] + 14, tint[2] + 6))
+        p.drawEllipse(x, y, r, r)
+    if boxes:
+        p.setBrush(QColor(0, 0, 0, 0))
+        p.setPen(QColor('#3ED160'))
+        p.drawRect(190, 150, 120, 110)
+        p.setPen(QColor('#F4E7D0'))
+        p.drawText(194, 146, 'amanita 0.88')
+        p.setPen(QColor('#4FC3F7'))
+        p.drawRect(420, 210, 90, 80)
+        p.setPen(QColor('#F4E7D0'))
+        p.drawText(424, 206, 'native 0.71')
+    p.end()
+    return img
+
+
+# Boxes as the detector reports them: source pixels, class name, score.
+DETECTIONS = [
+    {'cx': 250.0, 'cy': 205.0, 'w': 120.0, 'h': 110.0,
+     'label': 'mushroom_amanita', 'score': 0.88},
+    {'cx': 465.0, 'cy': 250.0, 'w': 90.0, 'h': 80.0,
+     'label': 'native_mushroom', 'score': 0.71},
+]
+
+
+def mission_status(elapsed=472.0, **over):
+    status = {
+        'running': True, 'paused': False, 'mode': 'autonomous',
+        'world': 'forest_random', 'layout': "World's own 5 mushrooms",
+        'elapsed': elapsed, 'state': C.TRANSIT, 'state_since': elapsed - 38,
+        'found': 5, 'collected': 3, 'abandoned': 1, 'missed': 1, 'total': 6,
+        'queue': 2, 'retrying': 0, 'coverage': 0.62,
+        'natives': [[3.0, 11.0], [-6.0, -9.0]],
+        'river': None,
+        'route': {'sx': 5.1, 'sy': -2.4, 'gx': 6.0, 'gy': -3.0, 'vias': 2},
+        'markers': [{'kind': C.MK_GAVE_UP, 'x': 9.0, 'y': -4.0},
+                    {'kind': C.MK_EMPTY, 'x': -3.0, 'y': 6.0},
+                    {'kind': C.MK_WEDGE, 'x': 12.0, 'y': 2.0}],
+        'operator_goal': None,
+        'rover': {'fresh': True, 'x': 2.4, 'y': 1.1, 'yaw': 0.8, 'speed': 0.92,
+                  'vx': 0.92, 'vy': 0.0, 'wz': -0.11, 'state': 'NAV',
+                  'detail': 'driving to the standoff point', 'published': True},
+        'quad': {'fresh': True, 'x': -4.2, 'y': 7.8, 'yaw': 2.1, 'speed': 1.31,
+                 'vx': 1.3, 'vy': 0.1, 'wz': 0.02, 'alt': 1.04, 'climb': 0.01,
+                 'state': C.QUAD_SEARCHING, 'detail': C.QUAD_PHASE_DETAIL[C.QUAD_SEARCHING],
+                 'published': True, 'leg': 14, 'legs': 48, 'dispatched': 5,
+                 'path_left_m': 9.4, 'planner': True},
+        'mushrooms': [
+            {'n': 1, 'x': 6.1, 'y': -4.9, 'conf': 0.91, 'status': 'collected'},
+            {'n': 2, 'x': -5.2, 'y': -5.4, 'conf': 0.77, 'status': 'collected'},
+            {'n': 3, 'x': -2.1, 'y': 6.6, 'conf': 0.64, 'status': 'collected'},
+            {'n': 4, 'x': 9.0, 'y': -4.0, 'conf': 0.58, 'status': 'abandoned'},
+            {'n': 5, 'x': -3.0, 'y': 6.0, 'conf': 0.52, 'status': 'missed'},
+        ],
+    }
+    status.update(over)
+    return status
+
+
+def mission_events():
+    out = [{'t': 0.0, 'kind': C.EV_MISSION_START,
+            'text': "Mission started - World's own 5 mushrooms in forest_random, autonomous mode"},
+           {'t': 0.0, 'kind': C.EV_STATE, 'state': C.SEARCH}]
+    script = [
+        (34, C.EV_FOUND, 'Mushroom 01 found at (6.1, -4.9) - 0.91 confidence', {'n': 1}),
+        (36, C.EV_STATE, '', {'state': C.TRANSIT}),
+        (92, C.EV_STATE, '', {'state': C.ALIGN}),
+        (104, C.EV_STATE, '', {'state': C.CAPTURE}),
+        (118, C.EV_COLLECTED, 'Mushroom 01 collected', {'n': 1}),
+        (121, C.EV_STATE, '', {'state': C.SEARCH}),
+        (147, C.EV_NATIVE, 'Native mushroom 1 at (3.0, 11.0) - identified and left in place', {'n': 1}),
+        (168, C.EV_FOUND, 'Mushroom 02 found at (-5.2, -5.4) - 0.77 confidence', {'n': 2}),
+        (171, C.EV_STATE, '', {'state': C.TRANSIT}),
+        (212, C.EV_STALL, 'Nav2 leg abandoned - under 0.3 m of progress in 30 s', {}),
+        (238, C.EV_WEDGED, 'Boxed in at (12.0, 2.0) with 0.31 m clearance - reversing out', {}),
+        (240, C.EV_STATE, '', {'state': C.STUCK}),
+        (256, C.EV_STATE, '', {'state': C.TRANSIT}),
+        (281, C.EV_COLLECTED, 'Mushroom 02 collected', {'n': 2}),
+        (284, C.EV_STATE, '', {'state': C.SEARCH}),
+        (295, C.EV_NATIVE, 'Native mushroom 2 at (-6.0, -9.0) - identified and left in place', {'n': 2}),
+        (318, C.EV_FOUND, 'Mushroom 03 found at (-2.1, 6.6) - 0.64 confidence', {'n': 3}),
+        (322, C.EV_STATE, '', {'state': C.TRANSIT}),
+        (364, C.EV_COLLECTED, 'Mushroom 03 collected', {'n': 3}),
+        (372, C.EV_FOUND, 'Mushroom 04 found at (9.0, -4.0) - 0.58 confidence', {'n': 4}),
+        (390, C.EV_GAVE_UP_HERE,
+         'Nav2 gave up at (9.0, -4.0) - later routes avoid it (1 such spot(s) so far)', {}),
+        (404, C.EV_ABANDONED, 'Mushroom 04 given up on after repeated attempts', {'n': 4}),
+        (418, C.EV_FOUND, 'Mushroom 05 found at (-3.0, 6.0) - 0.52 confidence', {'n': 5}),
+        (440, C.EV_EMPTY,
+         'Nothing at (-3.0, 6.0) - that spot will be ignored from now on', {}),
+        (441, C.EV_MISSED, 'Mushroom 05 - the gripper closed on nothing', {'n': 5}),
+        (452, C.EV_RETRY_PHASE, 'Queue empty - going back for 1 mushroom(s) given up on earlier',
+         {'n': 1}),
+        (456, C.EV_STATE, '', {'state': C.TRANSIT}),
+    ]
+    for t, kind, text, extra in script:
+        ev = {'t': float(t), 'kind': kind, 'text': text or C.STATE_DETAIL.get(
+            extra.get('state', ''), '')}
+        ev.update(extra)
+        out.append(ev)
+    return out
+
+
+def render(widget, path, size=(1500, 980)):
+    widget.resize(QSize(*size))
+    widget.show()
+    app.processEvents()
+    image = QImage(size[0], size[1], QImage.Format_RGB32)
+    image.fill(0)
+    widget.render(image)
+    image.save(path)
+    print('wrote', path, f'({os.path.getsize(path)} bytes)')
+
+
+if __name__ == '__main__':
+    from ammo_gui_node.debug_window import DebugWindow
+
+    link = FakeLink()
+    win = DebugWindow(link)
+    for ev in mission_events():
+        link.event_received.emit(ev)
+    link.rover_frame.emit(fake_camera(tint=(34, 54, 40), boxes=False))
+    link.quad_frame.emit(fake_camera(tint=(40, 62, 46), boxes=False))
+    link.rover_detections.emit(DETECTIONS)
+    link.quad_detections.emit(DETECTIONS)
+    for i in range(70):
+        link.rover_pose.emit(2.4 - i * 0.06, 1.1 + i * 0.03, 0.8)
+        link.quad_pose.emit(-4.2 + i * 0.09, 7.8 - i * 0.05, 2.1, 1.04)
+    link.status_updated.emit(mission_status())
+    win._tick()
+    app.processEvents()
+    render(win, _paths.out_dir() + '/debug_ui.png')
+    print('feed rows:', win.feed.row_count())
+    print('timeline rows:', win.timeline.row_count())

@@ -70,6 +70,19 @@ class _LinkNode(Node):
         self.create_subscription(Image, C.PARROT_CAM_YOLO,
                                  lambda m: self._image(m, self.link.quad_yolo_frame), LIVE_QOS)
 
+        # The boxes themselves, so the windows can draw them over the raw feed
+        # at the camera's rate instead of showing the detector's 2 Hz image.
+        try:
+            from vision_msgs.msg import Detection2DArray
+            self.create_subscription(Detection2DArray, C.HUSKY_DETECTIONS,
+                                     lambda m: self._detections(m, self.link.rover_detections),
+                                     LIVE_QOS)
+            self.create_subscription(Detection2DArray, C.PARROT_DETECTIONS,
+                                     lambda m: self._detections(m, self.link.quad_detections),
+                                     LIVE_QOS)
+        except ImportError:
+            self.get_logger().warn('vision_msgs not available - no boxes on the camera feeds')
+
         self.pause_pub = self.command_pub = self.waypoint_pub = None
         self.hold_timer = None
         self.cmd_pubs = []
@@ -116,20 +129,27 @@ class _LinkNode(Node):
         except Exception:
             return False
 
-    def send_nav_goal(self, x, y):
+    def send_nav_goal(self, x, y, yaw=0.0):
+        """An operator goal, built exactly the way the rover's own node builds one.
+
+        Two details matter and both are copied from `rover_capture_node._nav_to`:
+        the frame is `husky1_map`, not `map` - with truth_localizer running
+        there is no bare `map` in the rover's TF tree - and the stamp is left
+        empty, which tells Nav2 to use the latest transform rather than asking
+        for one at an instant the buffer may not have. Getting either wrong
+        gets the goal rejected, which looks from the outside like the rover
+        turning on the spot and then giving up.
+        """
         if self.nav_client is None or not self.nav_client.wait_for_server(timeout_sec=2.0):
             return False
         try:
-            from geometry_msgs.msg import PoseStamped
             from nav2_msgs.action import NavigateToPose
             goal = NavigateToPose.Goal()
-            pose = PoseStamped()
-            pose.header.frame_id = 'map'
-            pose.header.stamp = self.get_clock().now().to_msg()
-            pose.pose.position.x = float(x)
-            pose.pose.position.y = float(y)
-            pose.pose.orientation.w = 1.0
-            goal.pose = pose
+            goal.pose.header.frame_id = C.ROVER_MAP_FRAME
+            goal.pose.pose.position.x = float(x)
+            goal.pose.pose.position.y = float(y)
+            goal.pose.pose.orientation.z = math.sin(float(yaw) / 2.0)
+            goal.pose.pose.orientation.w = math.cos(float(yaw) / 2.0)
             future = self.nav_client.send_goal_async(goal)
             future.add_done_callback(self._nav_accepted)
             return True
@@ -201,6 +221,34 @@ class _LinkNode(Node):
         p = msg.pose.pose.position
         self.link.quad_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
 
+    def _detections(self, msg, signal):
+        """Flatten a Detection2DArray into what a camera panel needs to draw.
+
+        The box is already in the source image's pixels, and the hypothesis
+        carries the class name and the score - the same three things the
+        annotated image shows, just as data.
+        """
+        boxes = []
+        for det in msg.detections:
+            best = None
+            for res in det.results:
+                score = float(getattr(res.hypothesis, 'score', 0.0))
+                if best is None or score > best[1]:
+                    best = (str(getattr(res.hypothesis, 'class_id', '')), score)
+            if best is None:
+                continue
+            bbox = getattr(det, 'bbox', None)
+            if bbox is None:
+                continue
+            try:
+                boxes.append({'cx': float(bbox.center.position.x),
+                              'cy': float(bbox.center.position.y),
+                              'w': float(bbox.size_x), 'h': float(bbox.size_y),
+                              'label': best[0], 'score': best[1]})
+            except AttributeError:
+                continue
+        signal.emit(boxes)
+
     def _image(self, msg, signal):
         now = time.monotonic()
         if now - self._last_image.get(id(signal), 0.0) < 1.0 / IMAGE_HZ:
@@ -240,6 +288,23 @@ class _LinkNode(Node):
         t.angular.z = float(wz)
         self.cmd_pubs[1].publish(t)   # husky1/cmd_vel_raw
 
+    def publish_quad_drive(self, vx, vy, vz, wz):
+        """Hand-flying the quadcopter.
+
+        There is no guard in front of the quad - nothing filters its velocity
+        the way collision_guard filters the rover's - so this goes straight to
+        `parrot1/cmd_vel`. Its mission node has to be suspended first or the
+        two fight over the same topic, which the GUI does before arming.
+        """
+        if not self.cmd_pubs or self._holding:
+            return
+        t = Twist()
+        t.linear.x = float(vx)
+        t.linear.y = float(vy)
+        t.linear.z = float(vz)
+        t.angular.z = float(wz)
+        self.cmd_pubs[2].publish(t)   # parrot1/cmd_vel
+
 
 class RosLink(QObject):
     """Qt-facing handle. Construct on the GUI thread, then call start()."""
@@ -253,6 +318,8 @@ class RosLink(QObject):
     quad_frame = Signal(object)
     rover_yolo_frame = Signal(object)
     quad_yolo_frame = Signal(object)
+    rover_detections = Signal(list)
+    quad_detections = Signal(list)
     nav_goal_finished = Signal(bool)
 
     def __init__(self, role='gui'):
@@ -295,8 +362,15 @@ class RosLink(QObject):
     def publish_drive(self, vx, wz):
         self._node.publish_drive(vx, wz)
 
+    def publish_quad_drive(self, vx, vy, vz, wz):
+        self._node.publish_quad_drive(vx, vy, vz, wz)
+
     def cancel_all_nav(self):
         return self._node.cancel_all_nav()
 
-    def send_nav_goal(self, x, y):
-        return self._node.send_nav_goal(x, y)
+    def send_nav_goal(self, x, y, yaw=0.0):
+        return self._node.send_nav_goal(x, y, yaw)
+
+    def publish_stop(self):
+        """One zero on cmd_vel_raw, so the guard stops replaying a stale command."""
+        self._node.publish_drive(0.0, 0.0)

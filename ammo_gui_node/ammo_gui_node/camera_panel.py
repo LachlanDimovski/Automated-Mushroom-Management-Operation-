@@ -1,41 +1,82 @@
-"""A live camera view with a title strip.
+"""A live camera view with a title strip, and the detector's boxes drawn on it.
 
-These show the raw camera, not the YOLO-annotated stream. The detector is
-capped at 2 Hz (`max_rate_hz` in `yolo_node.py`), so an annotated panel
-looks frozen; the raw feed runs at full rate and actually reads as live.
-The annotated frames are still used - the GUI grabs one at the moment a
-mushroom is reported, where the boxes and the score mean something.
+The picture is the raw camera at full rate. The boxes are drawn here from
+`husky1/detections` / `parrot1/detections` rather than by showing
+`yolo_node`'s annotated image, because that image is published at 2 Hz and
+looks like a slideshow next to the raw feed. Nothing is lost: every
+Detection2D carries the box in source pixels plus the class name and the
+score, which is everything the annotated image draws.
+
+Detections do still arrive at the detector's rate, so the boxes lag the
+picture slightly. They are held for a moment and faded rather than blinking
+out between detector ticks.
+
+Click the word in the top right to turn the boxes off. Double-click anywhere
+to fill the window with this camera, which is what you want while hand-flying.
 """
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QPainter,
+                           QPainterPath, QPen)
 from PySide6.QtWidgets import QWidget
 
+from ammo_gui_node import contract as C
 from ammo_gui_node import theme
 
 STALE_S = 2.0
+STRIP_H = 30
 
 
 class CameraPanel(QWidget):
 
-    def __init__(self, title, topic='', dot_colour=None, parent=None):
+    expand_requested = Signal(object)      # emits self
+    boxes_toggled = Signal(bool)
+
+    def __init__(self, title, topic='', dot_colour=None, parent=None,
+                 show_boxes=True, allow_expand=True):
         super().__init__(parent)
         self.setMinimumSize(200, 150)
         self.title = title
         self.topic = topic
         self.dot_colour = dot_colour or theme.ACCENT
+        self.allow_expand = allow_expand
+        self.show_boxes = show_boxes
         self.image = None
         self.last_at = 0.0
+        self.detections = []
+        self.det_at = 0.0
         self.frozen = False
         self.note = ''
+        self.expanded = False
+        if allow_expand:
+            self.setToolTip('Double-click to fill the window')
 
+    # -- input --------------------------------------------------------------
     def set_image(self, image):
         if self.frozen:
             return
         self.image = image
         self.last_at = time.monotonic()
         self.update()
+
+    def set_detections(self, boxes):
+        if self.frozen:
+            return
+        self.detections = list(boxes or [])
+        self.det_at = time.monotonic()
+        self.update()
+
+    def set_show_boxes(self, on):
+        on = bool(on)
+        if on == self.show_boxes:
+            return
+        self.show_boxes = on
+        self.boxes_toggled.emit(on)
+        self.update()
+
+    def toggle_boxes(self):
+        self.set_show_boxes(not self.show_boxes)
 
     def set_frozen(self, frozen):
         self.frozen = bool(frozen)
@@ -45,9 +86,37 @@ class CameraPanel(QWidget):
         self.note = note or ''
         self.update()
 
+    def set_expanded(self, expanded):
+        self.expanded = bool(expanded)
+        self.update()
+
     def fresh(self):
         return self.image is not None and time.monotonic() - self.last_at < STALE_S
 
+    # kept: both windows ask this when counting live feeds
+    def any_fresh(self):
+        return self.fresh()
+
+    def det_age(self):
+        return time.monotonic() - self.det_at if self.detections else None
+
+    # -- mouse --------------------------------------------------------------
+    def _tab_rect(self):
+        return QRectF(self.width() - 92, 0, 86, STRIP_H)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._tab_rect().contains(event.position()):
+            self.toggle_boxes()
+            return
+        return super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if self.allow_expand and event.button() == Qt.LeftButton:
+            self.expand_requested.emit(self)
+            return
+        return super().mouseDoubleClickEvent(event)
+
+    # -- painting -----------------------------------------------------------
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
@@ -58,9 +127,8 @@ class CameraPanel(QWidget):
         p.setBrush(QBrush(QColor(theme.PANEL)))
         p.drawRoundedRect(rect, 8, 8)
 
-        strip = QRectF(0, 0, rect.width(), 30)
         p.setPen(QPen(QColor(theme.LINE), 1))
-        p.drawLine(QPointF(0, strip.height()), QPointF(rect.width(), strip.height()))
+        p.drawLine(QPointF(0, STRIP_H), QPointF(rect.width(), STRIP_H))
 
         live = self.fresh()
         p.setPen(Qt.NoPen)
@@ -71,16 +139,9 @@ class CameraPanel(QWidget):
         p.setFont(QFont(theme.SANS_FAMILIES[0], 8, QFont.DemiBold))
         p.drawText(QPointF(26, 19), self.title)
 
-        p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
-        p.setPen(QColor(theme.TEXT_DIM))
-        right = self.topic if live else 'NO SIGNAL'
-        if self.frozen:
-            right = 'HELD'
-        p.drawText(QRectF(0, 0, rect.width() - 12, strip.height()),
-                   int(Qt.AlignRight | Qt.AlignVCenter), right)
+        self._tab(p, live)
 
-        view = QRectF(3, strip.height() + 3, rect.width() - 6,
-                      rect.height() - strip.height() - 6)
+        view = QRectF(3, STRIP_H + 3, rect.width() - 6, rect.height() - STRIP_H - 6)
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(QColor(theme.PANEL_DEEP)))
         p.drawRect(view)
@@ -88,13 +149,37 @@ class CameraPanel(QWidget):
         if self.image is None or self.image.isNull():
             self._no_signal(p, view)
         else:
-            self._frame(p, view, dim=not live and not self.frozen)
+            target = self._frame(p, view, dim=not live and not self.frozen)
+            if self.show_boxes:
+                self._boxes(p, target)
 
         if self.note:
             p.setPen(QColor(theme.AMBER))
             p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
             p.drawText(QPointF(view.x() + 8, view.bottom() - 8), self.note)
+        if self.expanded:
+            p.setPen(QColor(theme.TEXT_FAINT))
+            p.setFont(QFont(theme.SANS_FAMILIES[0], 8))
+            p.drawText(QRectF(view.x(), view.bottom() - 22, view.width() - 10, 18),
+                       int(Qt.AlignRight | Qt.AlignVCenter),
+                       'double-click or Esc to go back')
         p.end()
+
+    def _tab(self, p, live):
+        rect = self._tab_rect()
+        label = 'BOXES' if self.show_boxes else 'NO BOXES'
+        if self.frozen:
+            label = 'HELD'
+        elif not live:
+            label = 'NO SIGNAL'
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
+        p.setPen(QColor(theme.TEXT_DIM if live else theme.TEXT_FAINT))
+        p.drawText(rect.adjusted(0, 0, -6, 0), int(Qt.AlignRight | Qt.AlignVCenter), label)
+        if live and not self.frozen:
+            p.setPen(QPen(QColor(theme.LINE_SOFT), 1))
+            p.setBrush(Qt.NoBrush)
+            width = 44 if self.show_boxes else 62
+            p.drawRoundedRect(QRectF(rect.right() - width - 4, 7, width, 16), 3, 3)
 
     def _frame(self, p, view, dim):
         img = self.image
@@ -107,6 +192,52 @@ class CameraPanel(QWidget):
             p.setPen(Qt.NoPen)
             p.setBrush(QBrush(QColor(15, 20, 24, 170)))
             p.drawRect(target)
+        return target
+
+    def _boxes(self, p, target):
+        """Draw the detector's boxes, scaled from source pixels into the view."""
+        age = self.det_age()
+        if age is None or age > C.DET_HOLD_S or self.image is None:
+            return
+        sx = target.width() / max(1, self.image.width())
+        sy = target.height() / max(1, self.image.height())
+        # fade rather than blink: the detector runs slower than the camera
+        opacity = 1.0 if age < C.DET_FADE_S else max(
+            0.25, 1.0 - (age - C.DET_FADE_S) / (C.DET_HOLD_S - C.DET_FADE_S))
+        p.setOpacity(opacity)
+        font = QFont(theme.MONO_FAMILIES[0], 8, QFont.DemiBold)
+        p.setFont(font)
+        metrics = QFontMetrics(font)
+
+        for box in self.detections:
+            try:
+                w = float(box['w']) * sx
+                h = float(box['h']) * sy
+                x = target.x() + (float(box['cx']) - float(box['w']) / 2.0) * sx
+                y = target.y() + (float(box['cy']) - float(box['h']) / 2.0) * sy
+            except (KeyError, TypeError, ValueError):
+                continue
+            label = str(box.get('label', ''))
+            colour = QColor(C.DET_COLOURS.get(label, C.DET_DEFAULT_COLOUR))
+
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(colour, 2.0))
+            p.drawRect(QRectF(x, y, w, h))
+
+            score = box.get('score')
+            text = f'{label} {score:.2f}' if isinstance(score, float) else label
+            if not text.strip():
+                continue
+            tw = metrics.horizontalAdvance(text) + 8
+            th = metrics.height() + 2
+            ty = y - th if y - th > target.y() else y          # inside if no room above
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(colour))
+            p.drawRect(QRectF(x, ty, min(tw, target.right() - x), th))
+            p.setPen(QColor(theme.BG))
+            p.drawText(QRectF(x + 4, ty, tw, th),
+                       int(Qt.AlignLeft | Qt.AlignVCenter), text)
+        p.setOpacity(1.0)
 
     def _no_signal(self, p, view):
         cx, cy = view.center().x(), view.center().y()

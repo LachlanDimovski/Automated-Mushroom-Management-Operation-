@@ -8,7 +8,7 @@ package_name = 'ammo_gui_node'
 setup(
     name=package_name,
     version='0.2.0',
-    packages=find_packages(exclude=['test']),
+    packages=find_packages(exclude=['test', 'tests', 'tests.*']),
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         (os.path.join('share', package_name), ['package.xml']),

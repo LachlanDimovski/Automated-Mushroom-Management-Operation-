@@ -29,7 +29,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, LaserScan
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, String
 
 from ammo_mission_control.drive_utils import yaw_of
 
@@ -120,6 +120,14 @@ class CageCapture(Node):
         self.pitch_pub = self.create_publisher(Float64, 'husky1/gripper_pitch/cmd_pos', 10)
         self.done_pub = self.create_publisher(PointStamped, 'husky1/cage/done', 10)  # collected or given up
         self.missed_pub = self.create_publisher(PointStamped, 'husky1/cage/missed', 10)  # gripped, but nothing there
+        # The state already existed; it just never left the node. Latched so a
+        # GUI that opens mid-run gets the current state instead of waiting for
+        # the next transition.
+        self.state_pub = self.create_publisher(
+            String, 'husky1/rover/state',
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.state_pub.publish(String(data=self.state))
         self.create_subscription(Odometry, 'husky1/odometry', self._odom, LIVE_QOS)
         self.create_subscription(LaserScan, 'husky1/scan', self._scan, LIVE_QOS)
         self.create_subscription(JointState, 'husky1/joint_states', lambda m: self.joints.update(zip(m.name, m.position)), 10)
@@ -190,6 +198,7 @@ class CageCapture(Node):
     # -- state machine --------------------------------------------------------
     def _set_state(self, s):
         self.state, self.state_since = s, self._now()
+        self.state_pub.publish(String(data=s))
         self.get_logger().info(f'-> {s}')
 
     def _next_target(self, why, requeue=False):
