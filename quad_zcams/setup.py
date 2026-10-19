@@ -14,6 +14,8 @@ setup(
         ('share/' + package_name + '/launch', glob('launch/*.py')),
         ('share/' + package_name + '/urdf', glob('urdf/*.xacro')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
+        ('share/' + package_name + '/models/amanita_river_v4_yolo11n_openvino_model',
+         glob('models/amanita_river_v4_yolo11n_openvino_model/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -26,6 +28,11 @@ setup(
         'console_scripts': [
             'zcam_quad_node = quad_zcams.zcam_quad_node:main',
             'rover_capture_node = quad_zcams.rover_capture_node:main',
+            'ps4_teleop = quad_zcams.ps4_teleop:main',
+            'fleet_quad_node = quad_zcams.fleet_quad_node:main',
+            'fleet_coordinator = quad_zcams.fleet_coordinator:main',
+            'fleet_yolo_pool = quad_zcams.fleet_yolo_pool:main',
+            'quad_standdown = quad_zcams.quad_standdown:main',
         ],
     },
 )

@@ -57,6 +57,30 @@ Launch arguments:
 | `hazard` | `false` | COCO person detector + `hazard_brake` on the rover |
 | `tool` | `gripper` | `cage` selects the older boom cage (also needs `cage:=true` in `husky.urdf.xacro`) |
 
+## Running the fleet (2 quads + 1 rover) with the Fleet Debug UI
+
+The operator GUI's Launch button only starts `cage_mission.launch.py` (one quad).
+For the fleet, start the sim headless in one terminal:
+
+    F=~/41068_ws/src/RS1_Team5_/forest_worlds
+    export IGN_GAZEBO_RESOURCE_PATH="$(ls -d $F/models/* $F/world_assets | tr '\n' ':')$IGN_GAZEBO_RESOURCE_PATH"
+    ros2 launch quad_zcams fleet_mission.launch.py world:=$F/worlds/river_moderate_aus \
+        meta_goals:=false quads:=2 rovers:=1 headless:=true rviz:=false \
+        model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_river_v4_yolo11n.pt
+
+and the Fleet Debug UI in a second:
+
+    ros2 launch ammo_gui_node fleet_debug.launch.py
+
+- The `export` is required for the `forest_worlds` worlds. Without it Gazebo cannot find the
+  tree, rock and terrain models (`Unable to find uri[model://gum_05]`), the robots never spawn
+  and the sim appears frozen.
+- `fleet_debug.launch.py` also starts `mission_bridge`, which publishes the
+  `ammo/mission/status` and `ammo/mission/events` topics the timeline and state cards read.
+  Running `ros2 run ammo_gui_node fleet_debug` on its own shows the cameras and map, but the
+  timeline stays empty. Do not run it alongside the operator GUI, which starts its own bridge.
+- Drop `headless:=true` to also open the Gazebo window.
+
 ## Mission flow
 
 1. **Search.** The quad cruises under the canopy at 1 m and flies a lawnmower
@@ -84,11 +108,23 @@ Never run two publishers of the same velocity topic.
   final creep onto the mushroom, which `cage_capture_node` writes directly
   because the guard's 1 m stop would veto it.
 - `husky1/cmd_vel_raw` -> guard: `cage_capture_node` (transit), teleop
-  (`ipad_teleop.html`, keyboard).
+  (`ps4_teleop`, `ipad_teleop.html`, keyboard).
 - `husky1/cmd_vel_nav_guarded` -> guard: Nav2 (its `cmd_vel_smoothed`,
   remapped in `cage_mission.launch.py`).
-- `parrot1/cmd_vel`: `quad_search_node` (autonomous), `quad_mission`, or
-  `ps4_drone_test.py` (manual). Only one at a time.
+- `parrot1/cmd_vel`: `quad_search_node` / `zcam_quad_node` (autonomous), `quad_mission`,
+  `ps4_teleop` or `ps4_drone_test.py` (manual). Only one at a time.
+- `husky1/teleop_active`, `parrot1/teleop_active` (`ps4_teleop`): heartbeats while a
+  deadman is held; `rover_capture_node` and `zcam_quad_node` stand down until they stop.
+
+## PS4 teleop
+
+`zcam_mission.launch.py` starts `joy_node` and `ps4_teleop` (`ps4:=false` to leave them out).
+With the mission running, hold **R1** to drive the rover (left stick forward/back, right stick
+turn; still through `collision_guard`) or **L1** to fly the quad (left stick move, right stick
+yaw/climb). The robot being driven pauses its own mission; let go and it re-plans from where
+it was left. Nothing is published while no button is held. Wrong stick or button: with no
+mission running, `ros2 run quad_zcams ps4_teleop --ros-args -p inspect:=true` prints the axis and
+button numbers; pass them as parameters (`rover_button`, `quad_button`, `axis_forward`, `axis_turn`, ...).
 
 `hazard_brake` does not publish velocities; it cancels the current Nav2 goal
 when a person fills more than 120 px of the rover camera (about 3 m).

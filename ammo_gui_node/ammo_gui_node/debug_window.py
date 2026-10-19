@@ -37,14 +37,20 @@ class DebugWindow(QWidget):
         link.event_received.connect(self.apply_event)
         link.rover_pose.connect(lambda x, y, yaw: self.map.set_rover(x, y, yaw))
         link.quad_pose.connect(lambda x, y, yaw, alt: self.map.set_quad(x, y, yaw, alt))
-        link.rover_frame.connect(self.rover_cam.set_image)
-        link.quad_frame.connect(self.quad_cam.set_image)
+        link.rover_yolo_frame.connect(self.rover_cam.set_image)
+        link.quad_yolo_frame.connect(self.quad_cam.set_image)
+        link.teleop_status.connect(self._teleop_status)
 
         # The timeline animates its own "still going" dots, so it needs a
         # tick even when no status has arrived.
         self.tick = QTimer(self)
         self.tick.timeout.connect(self._tick)
         self.tick.start(500)
+
+    def _teleop_status(self, text):
+        colour = theme.GREEN if text.startswith('AUTONOMOUS') else theme.AMBER
+        self.control.setText(text)
+        self.control.setStyleSheet(f'color: {colour}; font-weight: bold; font-size: 16px;')
 
     # -- layout -------------------------------------------------------------
     def _build(self):
@@ -55,6 +61,9 @@ class DebugWindow(QWidget):
         head, head_lay = cards.header('AMMO FIELD DEBUG', dark=True)
         self.feeds = cards.label('no feeds yet', 'Dim')
         head_lay.addWidget(self.feeds)
+        self.control = cards.label('')
+        head_lay.addWidget(self.control)
+        self._teleop_status('AUTONOMOUS')
         self.clock = cards.label('t + 00:00', 'Mono')
         head_lay.addWidget(self.clock)
         outer.addWidget(head)
@@ -66,8 +75,8 @@ class DebugWindow(QWidget):
 
         top = QHBoxLayout()
         top.setSpacing(14)
-        self.rover_cam = CameraPanel('SKIDSTEER CAMERA', C.HUSKY_CAM, theme.ACCENT)
-        self.quad_cam = CameraPanel('QUADCOPTER CAMERA', C.PARROT_CAM, theme.TEXT)
+        self.rover_cam = CameraPanel('SKIDSTEER CAMERA', C.HUSKY_CAM_YOLO, theme.ACCENT)
+        self.quad_cam = CameraPanel('QUADCOPTER CAMERA', C.PARROT_CAM_YOLO, theme.TEXT)
         top.addWidget(self.rover_cam, 3)
         top.addWidget(self.quad_cam, 3)
 

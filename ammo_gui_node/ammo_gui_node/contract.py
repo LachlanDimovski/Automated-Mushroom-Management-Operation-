@@ -36,6 +36,7 @@ HUSKY_CAM = 'husky1/camera/image'
 HUSKY_CAM_YOLO = 'husky1/detections/image'
 PARROT_CAM = 'parrot1/camera/image'
 PARROT_CAM_YOLO = 'parrot1/detections/image'
+TELEOP_STATUS = 'ammo/teleop_status'  # ps4_teleop: who is driving which robot
 HUSKY_DETECTIONS = 'husky1/detections'
 PARROT_DETECTIONS = 'parrot1/detections'
 
@@ -46,6 +47,7 @@ CAGE_DONE = 'husky1/cage/done'
 HUSKY_CMD = 'husky1/cmd_vel'          # what the Gazebo bridge actually relays
 HUSKY_CMD_RAW = 'husky1/cmd_vel_raw'  # goes through collision_guard first
 PARROT_CMD = 'parrot1/cmd_vel'
+HUSKY_TELEOP = 'husky1/teleop_active'  # std_msgs/Bool heartbeat: the rover's mission stands down while it arrives
 
 # Cancelling every Nav2 goal on pause. Sending a CancelGoal with a zero
 # goal_id and zero stamp means "cancel everything you are running", which is
@@ -112,8 +114,9 @@ STATE_DETAIL = {
 ROVER_STATE_MAP = {
     'DRIVE': TRANSIT,
     'NAV': TRANSIT,
-    'FORD': TRANSIT,       # rover_capture_node: crossing the river
+    'CROSSING': TRANSIT,       # rover_capture_node: crossing the river
     'UNWEDGE': TRANSIT,    # rover_capture_node: backing out of a stall
+    'TELEOP': OPERATOR,    # rover_capture_node: driven by hand (PS4 R1 held)
     'ALIGN': ALIGN,
     'LOWER': CAPTURE,
     'COLLECT': CAPTURE,

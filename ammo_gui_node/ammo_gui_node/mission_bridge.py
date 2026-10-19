@@ -461,7 +461,7 @@ class MissionBridge(Node):
         return {
             'DRIVE': 'picking a route' if self.queue_len else 'nothing queued yet',
             'NAV': 'driving to the standoff point',
-            'FORD': 'crossing the river at a ford',
+            'CROSSING': 'crossing the river',
             'UNWEDGE': 'backing out of a stall',
             'ALIGN': 'lining up on the mushroom',
             'LOWER': 'gripper down',

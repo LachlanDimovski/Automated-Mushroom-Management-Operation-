@@ -132,7 +132,7 @@ def build(args):
     Z -= 0.75 * (1 - t ** 2.2) * (d < hw + 1.4)
     Z += 0.06 * noise2(rng, n, 2) * (d < hw)                  # uneven bed
 
-    # water level along the river (smoothed bed + 0.45 m), then rocky fords: the bed rises just above the water and
+    # water level along the river (smoothed bed + 0.45 m), then rocky crossings: the bed rises just above the water and
     # the banks are graded down to it, giving the rover a drivable crossing (the open channel is a 0.75 m drop)
     def grid(x, y):
         return (np.clip(np.round((np.asarray(y) + half) / res).astype(int), 0, n - 1),
@@ -140,13 +140,13 @@ def build(args):
     lv_line = np.convolve(np.pad(Z[grid(line[:, 0], line[:, 1])], 25, mode='edge'), np.ones(51) / 51, 'valid') + 0.45
     arc_line = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(line, axis=0), axis=1))])
     inside = np.where(np.abs(line[:, 0]) < half - 8)[0]
-    fords = [int(inside[int(len(inside) * f)]) for f in (0.3, 0.7)]
-    # third ford at the river's southern-most stretch, well away from the other two
-    far = [i for i in inside if all(abs(arc_line[i] - arc_line[f]) > 10 for f in fords)]
-    fords.append(int(min(far, key=lambda i: line[i, 1])))
-    along = np.min([np.abs(arc_line[near] - arc_line[f]) for f in fords], axis=0)
-    fi = np.argmin([np.abs(arc_line[near] - arc_line[f]) for f in fords], axis=0)
-    tf = lv_line[np.array(fords)][fi] + 0.04
+    crossings = [int(inside[int(len(inside) * f)]) for f in (0.3, 0.7)]
+    # third crossing at the river's southern-most stretch, well away from the other two
+    far = [i for i in inside if all(abs(arc_line[i] - arc_line[f]) > 10 for f in crossings)]
+    crossings.append(int(min(far, key=lambda i: line[i, 1])))
+    along = np.min([np.abs(arc_line[near] - arc_line[f]) for f in crossings], axis=0)
+    fi = np.argmin([np.abs(arc_line[near] - arc_line[f]) for f in crossings], axis=0)
+    tf = lv_line[np.array(crossings)][fi] + 0.04
     wa = 1 - np.clip((along - 1.8) / 1.6, 0, 1)                   # full across a 3.6 m lane, fades over 1.6 m
     wa = wa * wa * (3 - 2 * wa)
     rb = np.clip((d - hw - 0.3) / 3.2, 0, 1)
@@ -156,7 +156,7 @@ def build(args):
     # spawn clearing: ground at z = 0 within 4 m of the origin, blending back to the terrain over 3 m
     z0 = float(Z[grid(0.0, 0.0)])
     Z -= z0
-    lv_line = lv_line - z0          # the water and fords move down with the terrain
+    lv_line = lv_line - z0          # the water and crossings move down with the terrain
     rc = np.clip((np.hypot(X, Y) - 4.0) / 3.0, 0, 1)
     Z = Z * rc * rc * (3 - 2 * rc)
 
@@ -270,10 +270,10 @@ def build(args):
 
     seg_idx = np.where(in_map)[0]
 
-    def near_ford(x, y, r=5.0):
-        """Inside a ford's keep-clear zone: a disc of radius r, or the 4.4 m driving corridor that runs across the
+    def near_crossing(x, y, r=5.0):
+        """Inside a crossing's keep-clear zone: a disc of radius r, or the 4.4 m driving corridor that runs across the
         river and 7 m up both banks."""
-        for f in fords:
+        for f in crossings:
             dx, dy = x - line[f, 0], y - line[f, 1]
             t = np.gradient(line, axis=0)[f]
             t = t / np.linalg.norm(t)
@@ -319,41 +319,41 @@ def build(args):
             break
         x, y = rng.uniform(-half + 1, half - 1, 2)
         rd = river_d(x, y)
-        if rd < 3.0 or near_ford(x, y, 6.0) or math.hypot(x, y - 0) < 0 or any((x - a) ** 2 + (y - b) ** 2 < args.gap ** 2 for a, b in trees):
+        if rd < 3.0 or near_crossing(x, y, 6.0) or math.hypot(x, y - 0) < 0 or any((x - a) ** 2 + (y - b) ** 2 < args.gap ** 2 for a, b in trees):
             continue
         trees.append((x, y))
         put(rng.choice(saplings if rng.random() < args.saplings else big_trees), x, y, sink=0.05)
     # bank dressing: boulders half-buried at the waterline, ferns and shrubs on the banks, stones in the bed
-    for f in fords:   # stepping-stone boulders along the ford's upstream and downstream lips, lane left clear
+    for f in crossings:   # stepping-stone boulders along the crossing's upstream and downstream lips, lane left clear
         k = int(np.searchsorted(seg_idx, f))
         t = np.gradient(line, axis=0)[f]
         t = t / np.linalg.norm(t)
         for lip in (-1, 1):
-            # rock centres 2.9 m either side of the ford centreline, straight along its tangent: stepping along the
-            # river line put the SW ford's rocks 1.4 m in on its bend, and the rover wedged between them (river11)
+            # rock centres 2.9 m either side of the crossing centreline, straight along its tangent: stepping along the
+            # river line put the SW crossing's rocks 1.4 m in on its bend, and the rover wedged between them (river11)
             for a in np.linspace(-1, 1, 5):
                 p = line[f] + t * lip * 2.9 + np.array([-t[1], t[0]]) * a * w[min(k, len(w) - 1)]
                 put('boulder_01', p[0], p[1], sink=rng.uniform(0.15, 0.3))
     for k in rng.choice(len(seg), args.bank_rocks, replace=False):
         side = rng.choice([-1, 1])
         p = seg[k] + nrm[k] * side * (w[k] - 0.1 + rng.uniform(-0.3, 0.6))
-        if near_ford(p[0], p[1]):
+        if near_crossing(p[0], p[1]):
             continue
         put(rng.choice(['boulder_01', 'rock_moss_set_01', 'rock_moss_set_02']), p[0], p[1], sink=0.35)
     for k in rng.choice(len(seg), args.bank_plants, replace=True):
         side = rng.choice([-1, 1])
         p = seg[k] + nrm[k] * side * (w[k] + rng.uniform(0.3, 2.5))
-        if near_ford(p[0], p[1]):
+        if near_crossing(p[0], p[1]):
             continue
         put(rng.choice([b for b in cat['bush'] if b.startswith(('fern', 'shrub_02', 'shrub_04'))]), p[0], p[1])
     for k in rng.choice(len(seg), args.bed_stones, replace=True):
         p = seg[k] + nrm[k] * rng.uniform(-1, 1) * w[k] * 0.8
-        if near_ford(p[0], p[1]):
+        if near_crossing(p[0], p[1]):
             continue
         put(rng.choice(['stone_01', 'rock_07']), p[0], p[1], z=float(height(p[0], p[1])) + 0.02)
     for _ in range(args.ground_cover):
         x, y = rng.uniform(-half + 0.5, half - 0.5, 2)
-        if river_d(x, y) < 1.0 or near_ford(x, y, 3.5):
+        if river_d(x, y) < 1.0 or near_crossing(x, y, 3.5):
             continue
         r = rng.random()
         if r < 0.55:
@@ -366,13 +366,13 @@ def build(args):
     # boulder clusters through the forest: a big mossy rock with a couple of smaller ones round it
     for _ in range(args.boulders):
         x, y = rng.uniform(-half + 3, half - 3, 2)
-        if river_d(x, y) < 2.0 or near_ford(x, y, 6.0) or math.hypot(x, y) < 4:
+        if river_d(x, y) < 2.0 or near_crossing(x, y, 6.0) or math.hypot(x, y) < 4:
             continue
         put(rng.choice(['rock_moss_set_01', 'rock_moss_set_02', 'boulder_01']), x, y, sink=rng.uniform(0.15, 0.4))
         for _ in range(rng.integers(1, 4)):
             a, r = rng.uniform(0, 6.283), rng.uniform(1.0, 2.0)
             bx, by = x + r * math.cos(a), y + r * math.sin(a)
-            if not near_ford(bx, by, 6.0):
+            if not near_crossing(bx, by, 6.0):
                 put(rng.choice(['boulder_01', 'rock_07', 'stone_01']), bx, by, sink=0.2)
 
     # perimeter hedge: two staggered rows of 1 m shrubs and ferns just inside the map edge, so lidar/depth see a wall
@@ -397,7 +397,7 @@ def build(args):
 
     inc.append(f'<model name="hedge"><static>true</static><link name="link">{"".join(hedge_boxes)}</link></model>')
 
-    # mushrooms: on open ground, clear of water, fords, obstacles, the hedge and the spawn clearing; half each side
+    # mushrooms: on open ground, clear of water, crossings, obstacles, the hedge and the spawn clearing; half each side
     mushrooms = []
     side_of = lambda x, y: np.sign(y - np.interp(x, line[:, 0], line[:, 1]))
     natives = []  # non-invasive decoys the detector must tell apart; never collected
@@ -407,7 +407,7 @@ def build(args):
         x, y = rng.uniform(-hedge_r + 3.5, hedge_r - 3.5, 2)
         k = len(mushrooms) + len(natives)  # not n: height() closes over the grid size n
         want = 1 if k % 2 == 0 else -1
-        if (side_of(x, y) != want or river_d(x, y) < 2.5 or near_ford(x, y, 4.0) or math.hypot(x, y) < 6
+        if (side_of(x, y) != want or river_d(x, y) < 2.5 or near_crossing(x, y, 4.0) or math.hypot(x, y) < 6
                 or any(math.hypot(x - a, y - b) < 1.8 for a, b in obstacles + trees)
                 or any(math.hypot(x - m['x'], y - m['y']) < 4 for m in mushrooms + natives)):
             continue
@@ -458,20 +458,20 @@ def build(args):
     import json
     meta = {'world': {'name': tag, 'playable_size_m': round(2 * hedge_r - 2, 1), 'terrain_size_m': args.size},
             'hedge': {'half_size': hedge_r}, 'spawn_clearing': {'center': [0.0, 0.0], 'radius': 4.0, 'ground_z': 0.0},
-            'mushrooms': mushrooms, 'natives': natives, 'fords': [[round(float(line[f, 0]), 2), round(float(line[f, 1]), 2)] for f in fords],
+            'mushrooms': mushrooms, 'natives': natives, 'crossings': [[round(float(line[f, 0]), 2), round(float(line[f, 1]), 2)] for f in crossings],
             # for robots' route maps: the channel to bank top (water half-width + 1.4 m) along the centreline, and each
-            # ford's unit tangent along the river (its clear lane runs across, 3.2 m wide)
+            # crossing's unit tangent along the river (its clear lane runs across, 3.2 m wide)
             'river': {'line': [[round(float(x), 2), round(float(y), 2), round(2.6 + 0.7 * math.sin(x / 7.0 + 1.3) + 1.4, 2)]
                                for x, y in line[::4]],
-                      'ford_tangents': [[round(float(v), 3) for v in np.gradient(line, axis=0)[f]
-                                         / np.linalg.norm(np.gradient(line, axis=0)[f])] for f in fords]},
+                      'crossing_tangents': [[round(float(v), 3) for v in np.gradient(line, axis=0)[f]
+                                         / np.linalg.norm(np.gradient(line, axis=0)[f])] for f in crossings]},
             'objects': [{'type': 'tree', 'x': round(float(x), 3), 'y': round(float(y), 3), 'radius': 0.3} for x, y in trees]}
     with open(out[:-4] + '.meta.json', 'w') as fh:
         json.dump(meta, fh, indent=1)
     sl = np.degrees(np.arctan(np.hypot(*np.gradient(Z, res))))
     print(f'terrain relief {np.ptp(Z):.1f} m, slope p95 {np.percentile(sl, 95):.0f} deg, max {sl.max():.0f} deg')
-    fp = ', '.join(f'({line[f, 0]:.1f}, {line[f, 1]:.1f})' for f in fords)
-    print(f'wrote {out}: {len(trees)} trees, {len(placed)} baked items, fords at {fp}')
+    fp = ', '.join(f'({line[f, 0]:.1f}, {line[f, 1]:.1f})' for f in crossings)
+    print(f'wrote {out}: {len(trees)} trees, {len(placed)} baked items, crossings at {fp}')
 
 
 def hedge_core(tdir, r, height, rng, h=1.35, w=1.3):

@@ -25,6 +25,8 @@ setup(
         'console_scripts': [
             'gui = ammo_gui_node.main:main',
             'debug = ammo_gui_node.debug_main:main',
+            'fleet_viewer = ammo_gui_node.fleet_viewer:main',
+            'fleet_debug = ammo_gui_node.fleet_debug_window:main',
             'mission_bridge = ammo_gui_node.mission_bridge:main',
         ],
     },

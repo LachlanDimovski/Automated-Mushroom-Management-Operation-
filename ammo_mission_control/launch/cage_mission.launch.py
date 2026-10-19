@@ -81,7 +81,7 @@ def generate_launch_description():
                           ('count', '0'), ('parrot', 'true'), ('meta_goals', 'true'), ('yolo', 'true'),
                           ('tool', 'gripper'),
                           # quad flight plan as 'x0,y0,x1,y1,...'; empty = lawnmower over the world
-                          ('quad_waypoints', ''), ('mushrooms', ''), ('husky_yolo', 'false'),
+                          ('quad_waypoints', ''), ('mushrooms', ''), ('husky_yolo', 'true'),
                           ('hazard', 'false'), ('quad', 'zcam')):  # hazard: Henry's COCO person detector + hazard_brake on the rover
         ld.add_action(DeclareLaunchArgument(name, default_value=default))
     ld.add_action(OpaqueFunction(function=_mission))
