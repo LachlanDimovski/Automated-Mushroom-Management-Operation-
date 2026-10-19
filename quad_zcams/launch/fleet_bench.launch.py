@@ -6,8 +6,8 @@
 Arguments on top of fleet_mission's:
   queue_cap:=N    the coordinator gives a rover at most N open mushrooms; the rest go to whichever rover frees up first
                   (default 1; 0 = fleet_mission's static queues)
-  lite:=true      shorthand for husky_yolo:=false drop_points:=true cam_hz:=3 (and yolo_pool:=true, now the default)
-  husky_yolo:=    the rovers' detector only feeds the debug window; false saves a core when headless
+  lite:=true      shorthand for drop_points:=true cam_hz:=3 (and yolo_pool:=true, now the default)
+  husky_yolo:=    the rover's detector feeds the debug window (default true, 1 Hz in the pool); false frees those frames
   drop_points:=true  the quads' 720x480 camera point clouds (unused, ~10 MB a frame) are not bridged to ROS
   cam_hz:=N       the quads' RGB-D camera rate (stock 6 Hz; YOLO samples it at 2 Hz)
 
@@ -118,7 +118,7 @@ def generate_launch_description():
     fm.Node = node
     inner = fm.generate_launch_description()
 
-    lite = [SetLaunchConfiguration('yolo_pool', 'true'), SetLaunchConfiguration('husky_yolo', 'false')] if LITE else []
+    lite = [SetLaunchConfiguration('yolo_pool', 'true')] if LITE else []
     return LaunchDescription([
         DeclareLaunchArgument('lite', default_value='false'),
         DeclareLaunchArgument('queue_cap', default_value='1'),
