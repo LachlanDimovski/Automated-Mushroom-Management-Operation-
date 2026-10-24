@@ -31,6 +31,12 @@ from launch_ros.actions import Node, SetRemap
 from launch_ros.parameter_descriptions import ParameterValue
 
 BRINGUP = get_package_share_directory('41068_ignition_bringup')
+# The operator GUI freezes the mission nodes with SIGSTOP (Pause, operator goals). A node
+# frozen past Fast DDS's 20 s lease is dropped by the other processes and not always re-matched (it loses /clock and
+# Nav2). The GUI sets AMMO_FREEZABLE_PROFILE for them: a 1 h lease, loopback UDP only. ROS_LOCALHOST_ONLY=1 would put
+# shared memory back, so it is off here (the profile is loopback only).
+FREEZABLE_ENV = ({'FASTRTPS_DEFAULT_PROFILES_FILE': os.environ['AMMO_FREEZABLE_PROFILE'], 'ROS_LOCALHOST_ONLY': '0'}
+                 if os.environ.get('AMMO_FREEZABLE_PROFILE') else {})
 
 
 def _nodes(context):
@@ -56,7 +62,7 @@ def _nodes(context):
     sim = {'use_sim_time': True}
     parrot_on = LaunchConfiguration('parrot').perform(context).lower() == 'true'
     quad = [] if not parrot_on else [
-        Node(package='ammo_mission_control', executable='quad_search_node', output='screen',
+        Node(package='ammo_mission_control', executable='quad_search_node', output='screen', additional_env=FREEZABLE_ENV,
              parameters=[{**sim, 'trunks': trunks, 'waypoints': qwp or [0.0], 'ground_z': ground_z,
                           'search_area': [-half, half, -half, half, 3.0]}]),  # rows 3 m apart: YOLO range is ~3.5 m
     ]
@@ -67,8 +73,9 @@ def _nodes(context):
         # this guard can still stop it for low obstacles (fallen trees/logs)
         # that forest_random's terrain puts below Nav2's costmap.
         Node(package='skidsteer_controller', executable='collision_guard_node', output='screen', parameters=[sim],
+             additional_env=FREEZABLE_ENV,
              remappings=[('/tf', '/husky1/tf'), ('/tf_static', '/husky1/tf_static')]),  # camera pose for the depth check
-        Node(package='ammo_mission_control', executable='cage_capture_node', output='screen',
+        Node(package='ammo_mission_control', executable='cage_capture_node', output='screen', additional_env=FREEZABLE_ENV,
              parameters=[{**sim, 'world': os.path.basename(world), 'trunks': trunks, 'goals_x': goals_x, 'goals_y': goals_y,
                           'count': ParameterValue(LaunchConfiguration('count'), value_type=int),
                           'tool': LaunchConfiguration('tool')}]),
