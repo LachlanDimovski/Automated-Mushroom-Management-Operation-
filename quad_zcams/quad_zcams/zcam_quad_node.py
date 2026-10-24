@@ -94,6 +94,7 @@ MAP_MAX_Z_M = 2.0         # depth frames go into the rover's map only from cruis
 MAP_MAX_W = 0.3
 RECENTRE_M = 0.4          # a hold re-aims on a sighting at least this far from its target
 NATIVE_CLASS = 'native_mushroom'  # detector class for non-invasive mushrooms
+NATIVE_GUARD_M = 0.75  # an 'amanita' this close to a logged native is that native
 STRAFE_SPEED = 0.6        # strafe: along the path in the body frame while the yaw catches up...
 STRAFE_MAX_RAD = 2.0      # ...unless the next corner is this far round (then turn on the spot)
 
@@ -138,6 +139,10 @@ class ZCamQuad(qs.QuadSearchController):
         self.max_aspect = float(self.get_parameter('max_aspect').value)
         self.declare_parameter('native_min_conf', qs.MIN_CONF)  # natives need this score to be logged
         self.native_min_conf = float(self.get_parameter('native_min_conf').value)
+        # far-off specks near the horizon scored 0.55-0.8 as natives and projected short on the river banks
+        # (river_v6 run: 18 false); a native within ~2.5 m is 12 px or more, and the 3 m rows pass every one closer
+        self.declare_parameter('native_min_px', 12.0)
+        self.native_min_px = float(self.get_parameter('native_min_px').value)
         self.natives_seen = []
         self.declare_parameter('center_out', False)
         self.declare_parameter('fast_dispatch', False)
@@ -634,12 +639,16 @@ class ZCamQuad(qs.QuadSearchController):
             if self.det_range > 0.0 and math.hypot(g[0] - self.x, g[1] - self.y) > self.det_range:
                 continue
             if det.results[0].hypothesis.class_id == NATIVE_CLASS:  # monitored, never collected
-                if det.results[0].hypothesis.score < self.native_min_conf:
+                if det.results[0].hypothesis.score < self.native_min_conf or det.bbox.size_x < self.native_min_px:
                     continue
                 if all(math.hypot(g[0] - nx, g[1] - ny) > 1.5 for nx, ny in self.natives_seen):
                     self.natives_seen.append(g)
                     self.get_logger().info(f'native mushroom {len(self.natives_seen)} logged at '
                                            f'({g[0]:.1f}, {g[1]:.1f}) - left in place')
+                continue
+            # a native seen up close can also score as amanita (river_v5 sent the rover to collect three);
+            # never dispatch on a logged native
+            if any(math.hypot(g[0] - nx, g[1] - ny) < NATIVE_GUARD_M for nx, ny in self.natives_seen):
                 continue
             return g
         return None

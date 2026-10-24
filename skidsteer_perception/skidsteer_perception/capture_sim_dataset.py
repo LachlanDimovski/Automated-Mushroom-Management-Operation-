@@ -319,6 +319,11 @@ class Capturer(Node):
             self.ground = lambda x, y: float(terrain.z(x, y))
             meta = json.load(open(sdf[:-4] + '.meta.json'))
             self.spots = [(m['x'], m['y']) for m in meta['mushrooms'] + meta.get('natives', [])]
+        # JSON [[x, y], ...]: capture from these spots instead, e.g. the river banks the
+        # mushroom spots never show (river_v5 took bank grass for natives)
+        spots_file = self.declare_parameter('spots_file', '').value
+        if spots_file:
+            self.spots = [tuple(xy) for xy in json.load(open(spots_file))]
         self.rng = random.Random(seed)
         self.saved = 0
 

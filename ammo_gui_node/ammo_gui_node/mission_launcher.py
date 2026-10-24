@@ -411,7 +411,7 @@ class MissionLauncher:
             env['IGN_GAZEBO_RESOURCE_PATH'] = ':'.join(
                 extra + [env.get('IGN_GAZEBO_RESOURCE_PATH', '')]).strip(':')
             model = os.path.join(_share('perception') or '', 'models', 'variants',
-                                 'amanita_river_v4_yolo11n.pt')
+                                 'amanita_river_v6_yolo11n.pt')
             if os.path.exists(model):
                 cmd.append(f'model_path:={model}')
         # Mushrooms are NOT passed here any more. The GUI spawns them after the
