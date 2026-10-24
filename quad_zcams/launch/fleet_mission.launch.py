@@ -31,7 +31,6 @@ from launch_ros.parameter_descriptions import ParameterValue
 BRINGUP = get_package_share_directory('41068_ignition_bringup')
 HERE = get_package_share_directory('quad_zcams')
 MAX_QUADS = 4
-OPENVINO = os.path.join(HERE, 'models', 'amanita_river_v4_yolo11n_openvino_model')
 MAX_ROVERS = 5
 SPAWNS = [(2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0)]  # inside the 4 m spawn clearing, clear of the rover
 ROVER_SPAWNS = [(0.0, 0.0), (2.5, -2.5), (-2.5, -2.5), (2.5, 2.5), (-2.5, 2.5)]  # off the quads' axes
@@ -75,19 +74,25 @@ def _rover_names(n):
     return ['husky1'] + [f'r{k}/husky1' for k in range(2, n + 1)]
 
 
+def _openvino(model):
+    """The model's OpenVINO export shipped in quad_zcams/models, if there is one."""
+    d = os.path.join(HERE, 'models', os.path.splitext(os.path.basename(model))[0] + '_openvino_model')
+    return d if os.path.isdir(d) else ''
+
+
 def _pool(context):
     if LaunchConfiguration('yolo_pool').perform(context).lower() != 'true':
         return []
     n = _count(context, 'quads', MAX_QUADS)
     w = int(LaunchConfiguration('pool_workers').perform(context) or 0) or (n + 2) // 3
     model = LaunchConfiguration('model_path').perform(context) or os.path.join(
-        get_package_share_directory('perception'), 'models', 'variants', 'amanita_river_v4_yolo11n.pt')
+        get_package_share_directory('perception'), 'models', 'variants', 'amanita_river_v6_yolo11n.pt')
     robots = [f'parrot{k + 1}' for k in range(n)]
     if LaunchConfiguration('husky_yolo').perform(context).lower() == 'true':
         robots.append('husky1')
     return [Node(package='quad_zcams', executable='fleet_yolo_pool', output='screen',
                  parameters=[{'use_sim_time': True, 'robots': robots, 'model_path': model,
-                              'openvino_path': OPENVINO if 'amanita_river_v4' in model else '',  # river model's export
+                              'openvino_path': _openvino(model),
                               'imgsz': int(LaunchConfiguration('imgsz').perform(context)), 'workers': w}],
                  additional_env={'YOLO_CORES': ','.join(str(7 - i) for i in range(w))})]
 

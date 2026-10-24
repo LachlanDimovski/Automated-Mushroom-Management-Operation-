@@ -6,6 +6,7 @@
 #   ./run_capture.sh --target walking_person --frames 400
 #   ./run_capture.sh --platform parrot1 --hover 2.5
 #   ./run_capture.sh --world river_moderate_aus --target mushroom_native   # forest_worlds world, on its terrain
+#   ./run_capture.sh ... --spots banks.json          # camera spots [[x, y], ...] instead of the world's mushroom spots
 #
 # One sim at a time, deliberately. Running two in parallel halved the frame
 # rate and eventually stalled one of them.
@@ -18,6 +19,8 @@ REPOSITION=5          # frames per camera pose; low = more distinct scenes
 HOVER=""
 WORLD=simple_trees
 OUT=""
+SPOTS=""
+SEED=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -28,6 +31,8 @@ while [ $# -gt 0 ]; do
         --hover)      HOVER=$2; shift 2 ;;
         --world)      WORLD=$2; shift 2 ;;
         --out)        OUT=$2; shift 2 ;;
+        --spots)      SPOTS=$2; shift 2 ;;
+        --seed)       SEED=$2; shift 2 ;;
         *) echo "unknown option: $1"; exit 1 ;;
     esac
 done
@@ -76,6 +81,8 @@ rm -rf "$OUT"
 ARGS=(-p target:="$TARGET" -p platform:="$PLATFORM" -p num_frames:="$FRAMES"
       -p reposition_every:="$REPOSITION" -p out_dir:="$OUT")
 [ -n "$HOVER" ] && ARGS+=(-p hover_z:="$HOVER")
+[ -n "$SPOTS" ] && ARGS+=(-p spots_file:="$SPOTS")
+[ -n "$SEED" ] && ARGS+=(-p seed:="$SEED")
 [ -f "$FW" ] && ARGS+=(-p world_sdf:="$FW" -p world:="$(grep -o '<world name="[^"]*' "$FW" | cut -d'"' -f2)")
 
 echo "capturing $FRAMES frames of $TARGET -> $OUT"

@@ -144,7 +144,7 @@ class YoloNode(Node):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         result = self.model.predict(
             frame, conf=self.conf_threshold, imgsz=self.imgsz, classes=self.classes,
-            verbose=False)[0]
+            agnostic_nms=True, verbose=False)[0]  # one box per object: a native must not also read as amanita
 
         detections = Detection2DArray()
         detections.header = msg.header
