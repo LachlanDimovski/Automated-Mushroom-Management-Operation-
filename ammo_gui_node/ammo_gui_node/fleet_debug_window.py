@@ -26,11 +26,14 @@ from ammo_gui_node.camera_panel import STALE_S, CameraPanel
 from ammo_gui_node.debug_window import DebugWindow
 from ammo_gui_node.fleet_viewer import _FleetLink, _FleetNode, _order, _title
 from ammo_gui_node.map_view import TRAIL_LEN, MapView
+from ammo_gui_node.mission_bridge import EVENT_QOS
+from ammo_gui_node.native_tracker import NATIVES_TOPIC
 from ammo_gui_node.ros_bridge import LIVE_QOS, RosLink
 
 
 class _FleetStatusLink(_FleetLink):
     fleet_status = Signal(dict)
+    natives = Signal(list)
     pose = Signal(str, float, float, float, float)
 
 
@@ -39,6 +42,7 @@ class _FleetStatusNode(_FleetNode):
     def __init__(self, link):
         super().__init__(link)
         self.create_subscription(String, 'fleet/status', self._status, 10)
+        self.create_subscription(String, NATIVES_TOPIC, self._natives, EVENT_QOS)
         self.odom = {}
         self.create_timer(2.0, self._discover_odom)
 
@@ -65,6 +69,9 @@ class _FleetStatusNode(_FleetNode):
         except ValueError:
             pass
 
+    def _natives(self, msg):
+        self.link.natives.emit(json.loads(msg.data))
+
 
 class FleetMapView(MapView):
     """The minimap with every robot: a glyph, a trail and a short name each."""
@@ -73,6 +80,11 @@ class FleetMapView(MapView):
         super().__init__(**kw)
         self.robots = {}
         self.trails = {}
+        self.natives = []
+
+    def set_natives(self, natives):
+        self.natives = natives
+        self.update()
 
     def set_robot(self, robot, x, y, yaw, alt):
         if self.frozen:
@@ -92,6 +104,13 @@ class FleetMapView(MapView):
         super().paintEvent(event)
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
+        r = 5.0 if self.compact else 7.0
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
+        for n in self.natives:  # non-invasive: blue cap, never collected
+            pt = self.to_px(n['x'], n['y'])
+            self._mushroom_glyph(p, pt, r, QColor(theme.BLUE))
+            p.setPen(QColor(theme.BLUE))
+            p.drawText(QPointF(pt.x() + r + 4, pt.y() + 4), f"N{n['n']}")
         for robot, trail in self.trails.items():
             self._trail(p, trail, QColor(theme.ACCENT if 'husky' in robot else theme.TEXT))
         for robot, (x, y, yaw, alt) in sorted(self.robots.items()):
@@ -126,7 +145,9 @@ class FleetDebugWindow(DebugWindow):
         fleet.frame.connect(self._frame)
         fleet.fleet_status.connect(self._fleet_status)
         fleet.pose.connect(self.map.set_robot)
+        fleet.natives.connect(self._natives)
         self.fleet_mushrooms = None
+        self.native_count = 0
         for sig in (link.rover_pose, link.quad_pose):  # the base window's single rover/quad glyphs
             sig.disconnect()
 
@@ -190,7 +211,10 @@ class FleetDebugWindow(DebugWindow):
         self.quad_state = cards.StateCard('QUADCOPTER STATE', theme.TEXT)
         self.quad_vel = cards.ValueCard('QUADCOPTER VELOCITY')
         self.fleet_card = cards.StateCard('FLEET', theme.GREEN)
-        for w in (self.rover_state, self.rover_vel, self.quad_state, self.quad_vel, self.fleet_card):
+        self.native_card = cards.StateCard('NATIVE MUSHROOMS', theme.BLUE)
+        self.native_card.set('0', 'logged and left in place')
+        for w in (self.rover_state, self.rover_vel, self.quad_state, self.quad_vel, self.fleet_card,
+                  self.native_card):
             row.addWidget(w, 1)
         body.addLayout(row, 0)
 
@@ -225,6 +249,11 @@ class FleetDebugWindow(DebugWindow):
         rovers = '  ·  '.join(f'{r} {len(ids)} open' for r, ids in sorted(s.get('open', {}).items()))
         self.fleet_card.set(f"{s.get('collected', 0)} / {s.get('total', 0)}",
                             f"{rovers}  ·  {len(s.get('pending', []))} pending")
+
+    def _natives(self, natives):
+        self.native_count = len(natives)
+        self.map.set_natives(natives)
+        self.native_card.set(str(self.native_count), 'logged and left in place')
 
     def apply_status(self, status):
         super().apply_status(status)

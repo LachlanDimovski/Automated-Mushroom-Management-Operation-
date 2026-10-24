@@ -116,6 +116,8 @@ class ZCamQuad(qs.QuadSearchController):
         self.det_range = float(self.get_parameter('det_range').value)
         self.declare_parameter('max_aspect', 0.0)  # > 0: ignore boxes taller than this times their width
         self.max_aspect = float(self.get_parameter('max_aspect').value)
+        self.declare_parameter('native_min_conf', qs.MIN_CONF)  # natives need this score to be logged
+        self.native_min_conf = float(self.get_parameter('native_min_conf').value)
         self.natives_seen = []
         self.declare_parameter('center_out', False)
         self.declare_parameter('fast_dispatch', False)
@@ -527,15 +529,17 @@ class ZCamQuad(qs.QuadSearchController):
             g = self._project(det)
             if g is None:
                 continue
+            if self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < qs.ROVER_EXCLUDE_M:
+                continue
+            if self.det_range > 0.0 and math.hypot(g[0] - self.x, g[1] - self.y) > self.det_range:
+                continue
             if det.results[0].hypothesis.class_id == NATIVE_CLASS:  # monitored, never collected
+                if det.results[0].hypothesis.score < self.native_min_conf:
+                    continue
                 if all(math.hypot(g[0] - nx, g[1] - ny) > 1.5 for nx, ny in self.natives_seen):
                     self.natives_seen.append(g)
                     self.get_logger().info(f'native mushroom {len(self.natives_seen)} logged at '
                                            f'({g[0]:.1f}, {g[1]:.1f}) - left in place')
-                continue
-            if self.rover_xy is not None and math.hypot(g[0] - self.rover_xy[0], g[1] - self.rover_xy[1]) < qs.ROVER_EXCLUDE_M:
-                continue
-            if self.det_range > 0.0 and math.hypot(g[0] - self.x, g[1] - self.y) > self.det_range:
                 continue
             return g
         return None

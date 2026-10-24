@@ -18,6 +18,8 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         Node(package='ammo_gui_node', executable='mission_bridge', output='screen',
              parameters=[{'use_sim_time': use_sim_time}]),
+        Node(package='ammo_gui_node', executable='native_tracker', output='screen',
+             parameters=[{'use_sim_time': use_sim_time}]),
         Node(package='ammo_gui_node', executable='fleet_debug', output='screen',
              parameters=[{'use_sim_time': use_sim_time}]),
     ])

@@ -33,6 +33,7 @@ from vision_msgs.msg import Detection2D, Detection2DArray, ObjectHypothesisWithP
 cv2.setNumThreads(1)
 torch.set_num_threads(1)
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+NATIVE_BGR = (214, 156, 79)  # blue, as the GUI marks natives
 
 
 class YoloPool(Node):
@@ -128,9 +129,10 @@ class YoloPool(Node):
             d.results.append(h)
             out.detections.append(d)
             if draw:
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                colour = NATIVE_BGR if label == 'native_mushroom' else (0, 0, 255)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
                 cv2.putText(frame, f'{label} {score:.2f}', (x1, max(y1 - 8, 0)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                            (0, 0, 255), 2)
+                            colour, 2)
         det_pub.publish(out)
         if draw:
             img = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')

@@ -71,6 +71,8 @@ class Timeline(QWidget):
                 markers.append((t, 'collected', f"M{ev.get('n', '')}"))
             elif kind == C.EV_ABANDONED:
                 markers.append((t, 'abandoned', f"M{ev.get('n', '')}"))
+            elif kind == C.EV_NATIVE:
+                markers.append((t, 'native', f"N{ev.get('n', '')}"))
             elif kind == C.EV_OPERATOR_GOAL:
                 markers.append((t, 'goal', 'goal'))
             elif kind == C.EV_MISSION_START:
@@ -173,7 +175,7 @@ class Timeline(QWidget):
         x = self._x_at(row, t)
         y = bar.y() - 4
 
-        if kind == 'found':
+        if kind in ('found', 'native'):
             p.setPen(Qt.NoPen)
             p.setBrush(QBrush(QColor(theme.TEXT)))
             p.drawRoundedRect(QRectF(x - 1.6, y - 5, 3.2, 5), 1.0, 1.0)
@@ -181,7 +183,7 @@ class Timeline(QWidget):
             path.moveTo(x - 6, y - 5)
             path.arcTo(QRectF(x - 6, y - 9.5, 12, 9), 180, -180)
             path.closeSubpath()
-            p.setBrush(QBrush(QColor(theme.ACCENT)))
+            p.setBrush(QBrush(QColor(theme.BLUE if kind == 'native' else theme.ACCENT)))
             p.drawPath(path)
         elif kind in ('collected', 'abandoned'):
             col = theme.GREEN if kind == 'collected' else theme.GREY

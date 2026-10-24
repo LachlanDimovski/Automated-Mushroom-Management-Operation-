@@ -142,6 +142,7 @@ EV_STATE = 'state'
 EV_PAUSE = 'pause'
 EV_RESUME = 'resume'
 EV_NOTE = 'note'
+EV_NATIVE = 'native'        # a non-invasive mushroom, logged and left (native_tracker)
 
 # Two sightings closer than this are the same mushroom. Matches
 # cage_capture_node's own MERGE_M so our count agrees with its queue.
