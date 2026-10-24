@@ -61,6 +61,8 @@ ALIGN_TIMEOUT_S = 20.0    # could not line up on the point in this long -> defer
 TURN_W = 1.2              # in-place turn rate used for all corrections
 
 VIS_ALIGN_RAD = 0.10      # heading error that triggers a correction (the body coasts ~0.1 rad)
+VIS_LATERAL_TOL_M = 0.25  # lateral miss at the tool worth correcting; well inside CAGE_HALF_M
+                          # (0.60), leaving margin for the creep and for odometry drift
 SETTLE_S = 1.0
 MERGE_M = 1.0             # a new waypoint this close to a queued one replaces it (the bridge's points are +-5 cm)
 
@@ -214,6 +216,21 @@ class CageCapture(Node):
         self.nav_tries = 0
         self._set_state('DRIVE')
 
+    def _align_tol(self, rng):
+        """Heading error worth correcting at this range, radians.
+
+        A fixed angle is the wrong unit here. What decides a capture is the
+        lateral miss at the tool, and that is range * sin(error) - so the same
+        angle that is harmless at 3 m is the whole story at 0.85 m, and the
+        same lateral miss demands an ever larger angle as the rover closes in.
+        Held to a fixed VIS_ALIGN_RAD the rover swings past the mushroom over
+        and over on the last metre, correcting errors far smaller than the
+        CAGE_HALF_M footprint it is about to drop over.
+
+        Never tighter than VIS_ALIGN_RAD, so nothing further out changes.
+        """
+        return max(VIS_ALIGN_RAD, math.asin(min(1.0, VIS_LATERAL_TOL_M / max(rng, 0.2))))
+
     def _align_err(self, odom_err):
         """Heading error to steer on during ALIGN, radians, positive to the left.
 
@@ -278,7 +295,7 @@ class CageCapture(Node):
             # swings ~0.7 m on 10 px of bbox jitter and is not worth steering
             # distance on.
             err = self._align_err(odom_err)
-            if abs(err) > VIS_ALIGN_RAD and abs(reach) > CAGE_TOL_M:
+            if abs(err) > self._align_tol(math.hypot(dx, dy)) and abs(reach) > CAGE_TOL_M:
                 cmd.angular.z = math.copysign(TURN_W, err)
             elif abs(reach) > CAGE_TOL_M:
                 cmd.linear.x = max(-0.3, min(0.4, reach * 1.0 + math.copysign(0.03, reach)))
