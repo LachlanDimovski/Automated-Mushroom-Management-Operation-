@@ -383,7 +383,7 @@ class MissionBridge(Node):
         if m:
             self._note_detector(m.group(1), m.group(2))
             return
-        if name == C.NODE_QUAD:
+        if name == C.NODE_QUAD or name.startswith('fleet_quad_'):  # fleet_mission names its quads fleet_quad_<ns>
             self._on_quad_log(text)
             return
         if name != C.NODE_CAGE:

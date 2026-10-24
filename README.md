@@ -10,6 +10,7 @@ AMMO -> Automated Mushroom Management Operations
 A Parrot quadcopter searches a forest for invasive fly agaric mushrooms with
 YOLO, projects each sighting to a ground point, and hands it to a Husky
 skid-steer, which drives there with Nav2 and collects it with a front gripper.
+Native (non-invasive) mushrooms are detected too, logged and left in place.
 Everything runs in Gazebo (Ignition) on ROS 2 Humble.
 
 ## Packages
@@ -22,6 +23,9 @@ Everything runs in Gazebo (Ignition) on ROS 2 Humble.
 | `perception` | `yolo_node` (one copy per camera), `hazard_brake` (person stop), `combined_view`, trained weights in `models/` |
 | `skidsteer_perception` | Dataset capture and training scripts (`scripts/`, see `TRAINING_PC.md`) |
 | `ammo_dashboard` | OpenCV HUD: both YOLO feeds, speed, altitude, minimap |
+| `quad_zcams` | The z-camera quad (`zcam_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`) and PS4 teleop |
+| `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge` |
+| `forest_worlds` | Generated river worlds (`river_moderate_aus`, ...) and their models |
 | `quad_mission`, `quad_mission_interfaces` | Quad mission state machine (C++): take-off, search, return, land, abort services. Not part of `cage_mission.launch.py`, see below |
 
 Build from the workspace root:
@@ -57,6 +61,53 @@ Launch arguments:
 | `hazard` | `false` | COCO person detector + `hazard_brake` on the rover |
 | `tool` | `gripper` | `cage` selects the older boom cage (also needs `cage:=true` in `husky.urdf.xacro`) |
 
+## Running the fleet (2 quads + 1 rover) with the Fleet Debug UI
+
+The operator GUI's Launch button only starts `cage_mission.launch.py` (one quad).
+For the fleet, start the sim headless in one terminal:
+
+    F=~/41068_ws/src/RS1_Team5_/forest_worlds
+    export IGN_GAZEBO_RESOURCE_PATH="$(ls -d $F/models/* $F/world_assets | tr '\n' ':')$IGN_GAZEBO_RESOURCE_PATH"
+    ros2 launch quad_zcams fleet_mission.launch.py world:=$F/worlds/river_moderate_aus \
+        meta_goals:=false quads:=2 rovers:=1 headless:=true rviz:=false
+
+and the Fleet Debug UI in a second:
+
+    ros2 launch ammo_gui_node fleet_debug.launch.py
+
+- The `export` is required for the `forest_worlds` worlds. Without it Gazebo cannot find the
+  tree, rock and terrain models (`Unable to find uri[model://gum_05]`), the robots never spawn
+  and the sim appears frozen.
+- `fleet_debug.launch.py` also starts `mission_bridge`, which publishes the
+  `ammo/mission/status` and `ammo/mission/events` topics the timeline and state cards read.
+  Running `ros2 run ammo_gui_node fleet_debug` on its own shows the cameras and map, but the
+  timeline stays empty. Do not run it alongside the operator GUI, which starts its own bridge.
+- Drop `headless:=true` to also open the Gazebo window. It costs about 60% of a core; the
+  Fleet Debug UI already shows every camera and the map.
+- The fleet loads the two-class detector (`amanita_river_v4_yolo11n`, invasive + native) by
+  default. `model_path:=...` overrides it; a one-class model sees no natives.
+- Stop every process of a run before launching the next. Two sims at once starve the CPU and
+  the robots stall.
+
+## Native (non-invasive) mushrooms
+
+The two-class detector labels `amanita_muscaria_red` (invasive, collected) and
+`native_mushroom` (monitored, never collected).
+
+- **Camera feeds:** invasive boxes are red, native boxes are teal.
+- **Quads:** a native is logged when it is within 3 m of the quad (`det_range`, as for
+  invasive ones) and scores at least `native_min_conf` (default 0.5).
+  The log line is `native mushroom N logged at (x, y) - left in place`. No rover is sent.
+- **`mission_bridge`** reads every quad's native log lines (`quad_search_controller` and the
+  fleet's `fleet_quad_*`) and its `parrot1/quad_state`, merges sightings within 2 m
+  (`NATIVE_MERGE_M`), so one mushroom seen twice or by two quads counts once, and announces
+  each on `ammo/mission/events`. The status carries the list as `natives`.
+- **Debug UI and Fleet Debug UI:** natives show as teal markers on the minimap and timeline,
+  in the event feed, and (fleet) in a NATIVE MUSHROOMS count card.
+- **Single quad** (`cage_mission.launch.py`): pass the two-class model with
+  `model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_river_v4_yolo11n.pt`
+  (`forest_worlds/demo_river.sh` already does). The default one-class model sees no natives.
+
 ## Mission flow
 
 1. **Search.** The quad cruises under the canopy at 1 m and flies a lawnmower
@@ -84,11 +135,23 @@ Never run two publishers of the same velocity topic.
   final creep onto the mushroom, which `cage_capture_node` writes directly
   because the guard's 1 m stop would veto it.
 - `husky1/cmd_vel_raw` -> guard: `cage_capture_node` (transit), teleop
-  (`ipad_teleop.html`, keyboard).
+  (`ps4_teleop`, `ipad_teleop.html`, keyboard).
 - `husky1/cmd_vel_nav_guarded` -> guard: Nav2 (its `cmd_vel_smoothed`,
   remapped in `cage_mission.launch.py`).
-- `parrot1/cmd_vel`: `quad_search_node` (autonomous), `quad_mission`, or
-  `ps4_drone_test.py` (manual). Only one at a time.
+- `parrot1/cmd_vel`: `quad_search_node` / `zcam_quad_node` (autonomous), `quad_mission`,
+  `ps4_teleop` or `ps4_drone_test.py` (manual). Only one at a time.
+- `husky1/teleop_active`, `parrot1/teleop_active` (`ps4_teleop`): heartbeats while a
+  deadman is held; `rover_capture_node` and `zcam_quad_node` stand down until they stop.
+
+## PS4 teleop
+
+`zcam_mission.launch.py` starts `joy_node` and `ps4_teleop` (`ps4:=false` to leave them out).
+With the mission running, hold **R1** to drive the rover (left stick forward/back, right stick
+turn; still through `collision_guard`) or **L1** to fly the quad (left stick move, right stick
+yaw/climb). The robot being driven pauses its own mission; let go and it re-plans from where
+it was left. Nothing is published while no button is held. Wrong stick or button: with no
+mission running, `ros2 run quad_zcams ps4_teleop --ros-args -p inspect:=true` prints the axis and
+button numbers; pass them as parameters (`rover_button`, `quad_button`, `axis_forward`, `axis_turn`, ...).
 
 `hazard_brake` does not publish velocities; it cancels the current Nav2 goal
 when a person fills more than 120 px of the rover camera (about 3 m).
@@ -106,8 +169,8 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   `/parrot1/mission/*` services (liftoff, start search with a path shape,
   return home, land, abort). It publishes `parrot1/cmd_vel`, so run it with
   `parrot:=false` or not alongside `quad_search_node`.
-- **Operator GUI**: Danil's PySide6 GUI and Debug UI live on the `danil`
-  branch (`ammo_gui_node/`), not yet merged into `main`.
+- **Operator GUI**: `ros2 run ammo_gui_node gui` (PySide6 GUI and Debug UI, `ammo_gui_node/`).
+  Its Launch button starts `cage_mission.launch.py` (one quad).
 - **World generator**: `python3 41068_ignition_bringup/scripts/generate_forest_world.py --seed 7 --preset dense`
   writes a seeded forest `.sdf`, its terrain, and a `.meta.json` with the
   ground truth of every tree, mushroom and decoy. See `worlds/README_forest_random.md`.
@@ -122,6 +185,11 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   and otherwise assumes flat ground at the spawn clearing's height, so uneven
   terrain (`forest_random`) can add metres of error. Demo on `forest_flat`.
 - Detection is reliable to about 3.5 m, hence the 2 m cruise and 3 m rows.
+- Native detection is weak: on the validation set the detector finds about a quarter of the
+  natives at 0.5 confidence, and about 30% of its native boxes are background. Raising
+  `native_min_conf` does not improve that ratio, it only finds fewer. In a 5 min fleet run
+  on `river_moderate_aus` 1 of 18 logged natives was a real one; the rest were ground cover.
+  Native counts are not reliable yet.
 - The rover does not re-check a target with its own camera before gripping,
   so a look-alike that passes the quad's checks gets collected.
 - "Collected" is a sim stand-in: any mushroom within 0.6 m of the gripper

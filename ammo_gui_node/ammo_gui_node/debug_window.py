@@ -49,6 +49,7 @@ BANNER = {
 
 
 class DebugWindow(QWidget):
+    HEADER = 'AMMO FIELD DEBUG'
 
     def __init__(self, link):
         super().__init__()
@@ -69,6 +70,7 @@ class DebugWindow(QWidget):
         link.quad_frame.connect(lambda img: self._frame('quad', img))
         link.rover_detections.connect(lambda b: self._boxes('rover', b))
         link.quad_detections.connect(lambda b: self._boxes('quad', b))
+        link.teleop_status.connect(self._teleop_status)
 
         # The timeline animates its own "still going" dots, so it needs a
         # tick even when no status has arrived.
@@ -76,15 +78,23 @@ class DebugWindow(QWidget):
         self.tick.timeout.connect(self._tick)
         self.tick.start(500)
 
+    def _teleop_status(self, text):
+        colour = theme.GREEN if text.startswith('AUTONOMOUS') else theme.AMBER
+        self.control.setText(text)
+        self.control.setStyleSheet(f'color: {colour}; font-weight: bold; font-size: 16px;')
+
     # -- layout -------------------------------------------------------------
     def _build(self):
         shell = QVBoxLayout(self)
         shell.setContentsMargins(0, 0, 0, 0)
         shell.setSpacing(0)
 
-        head, head_lay = cards.header('AMMO FIELD DEBUG', dark=True)
+        head, head_lay = cards.header(self.HEADER, dark=True)
         self.feeds = cards.label('no feeds yet', 'Dim')
         head_lay.addWidget(self.feeds)
+        self.control = cards.label('')
+        head_lay.addWidget(self.control)
+        self._teleop_status('AUTONOMOUS')
         self.clock = cards.label('t + 00:00', 'Mono')
         head_lay.addWidget(self.clock)
         shell.addWidget(head)

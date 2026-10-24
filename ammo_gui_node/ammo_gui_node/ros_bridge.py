@@ -66,6 +66,8 @@ class _LinkNode(Node):
         self.create_subscription(Bool, C.PAUSE_TOPIC, self._on_pause, 10)
         self.create_subscription(Odometry, C.HUSKY_ODOM, self._on_rover_odom, LIVE_QOS)
         self.create_subscription(Odometry, C.PARROT_ODOM, self._on_quad_odom, LIVE_QOS)
+        self.create_subscription(String, C.TELEOP_STATUS, lambda m: link.teleop_status.emit(m.data), QoSProfile(
+            depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
         # Raw feeds drive the live panels; the annotated ones are only
         # subscribed so a frame is available the moment a sighting lands.
@@ -115,6 +117,7 @@ class _LinkNode(Node):
         self.pause_pub = self.command_pub = self.waypoint_pub = None
         self.hold_timer = None
         self.cmd_pubs = []
+        self.teleop_pub = None
         self.nav_client = None
         self.cancel_client = None
         self._nav_handle = None
@@ -126,6 +129,7 @@ class _LinkNode(Node):
             self.waypoint_pub = self.create_publisher(PointStamped, C.CAGE_WAYPOINTS, 10)
             self.cmd_pubs = [self.create_publisher(Twist, t, 10)
                              for t in (C.HUSKY_CMD, C.HUSKY_CMD_RAW, C.PARROT_CMD)]
+            self.teleop_pub = self.create_publisher(Bool, C.HUSKY_TELEOP, 10)
             self.hold_timer = self.create_timer(1.0 / HOLD_HZ, self._hold_tick)
             self._setup_nav()
 
@@ -358,12 +362,15 @@ class _LinkNode(Node):
         pt.point.y = float(y)
         self.waypoint_pub.publish(pt)
 
-    def publish_drive(self, vx, wz):
+    def publish_drive(self, vx, wz, active=True):
         """Manual driving. Goes through cmd_vel_raw so collision_guard still
         gets to veto it - the operator should not be able to drive the rover
-        into a trunk just because they are holding W."""
+        into a trunk just because they are holding W. The teleop_active
+        heartbeat makes the rover's mission node stand down meanwhile, the
+        same as for the PS4 controller; active=False hands it back."""
         if not self.cmd_pubs or self._holding:
             return
+        self.teleop_pub.publish(Bool(data=bool(active)))
         t = Twist()
         t.linear.x = float(vx)
         t.angular.z = float(wz)
@@ -401,6 +408,7 @@ class RosLink(QObject):
     quad_yolo_frame = Signal(object)
     rover_detections = Signal(list)
     quad_detections = Signal(list)
+    teleop_status = Signal(str)
     nav_goal_finished = Signal(bool)
     topdown_frame = Signal(object)
 
@@ -441,8 +449,8 @@ class RosLink(QObject):
     def publish_waypoint(self, x, y):
         self._node.publish_waypoint(x, y)
 
-    def publish_drive(self, vx, wz):
-        self._node.publish_drive(vx, wz)
+    def publish_drive(self, vx, wz, active=True):
+        self._node.publish_drive(vx, wz, active)
 
     def publish_quad_drive(self, vx, vy, vz, wz):
         self._node.publish_quad_drive(vx, vy, vz, wz)

@@ -32,6 +32,7 @@ class FakeLink(QObject):
     quad_yolo_frame = Signal(object)
     rover_detections = Signal(list)
     quad_detections = Signal(list)
+    teleop_status = Signal(str)
     nav_goal_finished = Signal(bool)
     topdown_frame = Signal(object)
 
@@ -60,7 +61,7 @@ class FakeLink(QObject):
     def publish_pause(self, paused):
         self.pauses.append(paused)
 
-    def publish_drive(self, vx, wz):
+    def publish_drive(self, vx, wz, active=True):
         self.drives.append((vx, wz))
 
     def publish_quad_drive(self, vx, vy, vz, wz):

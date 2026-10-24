@@ -13,6 +13,10 @@ window suspends the quad's mission node while this panel is armed, because
 two publishers on one velocity topic means the robot obeys whichever message
 arrived last.
 
+Arming the rover also sends the `husky1/teleop_active` heartbeat, so
+`rover_capture_node` stands down until the panel is disarmed, then re-plans
+from where it was left.
+
 The panel has to hold keyboard focus to work, and it drops every held key
 when it loses focus - otherwise clicking away mid-throttle would leave the
 robot driving with nobody holding the key.
@@ -155,7 +159,7 @@ class TeleopWidget(QWidget):
         else:
             self.held.clear()
             self._sync_caps()
-            self._send(0.0, 0.0, 0.0, 0.0)
+            self._send(0.0, 0.0, 0.0, 0.0, active=False)
         self.arm_changed.emit(self.robot, bool(on))
         self._update_hint()
 
@@ -200,9 +204,9 @@ class TeleopWidget(QWidget):
         return super().focusInEvent(event)
 
     # -- output -------------------------------------------------------------
-    def _send(self, vx, vy, vz, wz):
+    def _send(self, vx, vy, vz, wz, active=True):
         if self.robot == 'rover':
-            self.link.publish_drive(vx, wz)
+            self.link.publish_drive(vx, wz, active)
         else:
             self.link.publish_quad_drive(vx, vy, vz, wz)
 

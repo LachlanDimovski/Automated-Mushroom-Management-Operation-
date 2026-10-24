@@ -42,6 +42,7 @@ HUSKY_CAM = 'husky1/camera/image'
 HUSKY_CAM_YOLO = 'husky1/detections/image'
 PARROT_CAM = 'parrot1/camera/image'
 PARROT_CAM_YOLO = 'parrot1/detections/image'
+TELEOP_STATUS = 'ammo/teleop_status'  # ps4_teleop: who is driving which robot
 HUSKY_DETECTIONS = 'husky1/detections'
 PARROT_DETECTIONS = 'parrot1/detections'
 
@@ -57,6 +58,7 @@ QUAD_GROUND_MAP = 'parrot1/ground_obstacles'
 HUSKY_CMD = 'husky1/cmd_vel'          # what the Gazebo bridge actually relays
 HUSKY_CMD_RAW = 'husky1/cmd_vel_raw'  # goes through collision_guard first
 PARROT_CMD = 'parrot1/cmd_vel'
+HUSKY_TELEOP = 'husky1/teleop_active'  # std_msgs/Bool heartbeat: the rover's mission stands down while it arrives
 
 # Cancelling every Nav2 goal on pause. Sending a CancelGoal with a zero
 # goal_id and zero stamp means "cancel everything you are running", which is
@@ -174,7 +176,9 @@ ROVER_STATE_MAP = {
     'DRIVE': TRANSIT,
     'NAV': TRANSIT,
     'FORD': FORD,          # rover_capture_node: crossing the river
+    'CROSSING': FORD,      # rover_capture_node's name for it since the ford-lane drive
     'UNWEDGE': STUCK,      # rover_capture_node: backing out of a stall
+    'TELEOP': OPERATOR,    # rover_capture_node: driven by hand (PS4 R1 held)
     'ALIGN': ALIGN,
     'LOWER': CAPTURE,
     'COLLECT': CAPTURE,
@@ -186,6 +190,7 @@ ROVER_STATE_DETAIL = {
     'DRIVE': 'picking a route',
     'NAV': 'driving to the standoff point',
     'FORD': 'crossing the river at a ford',
+    'CROSSING': 'crossing the river at a ford',
     'UNWEDGE': 'backing out of a stall',
     'ALIGN': 'lining up on the mushroom',
     'LOWER': 'gripper down',
@@ -374,4 +379,4 @@ TIMELINE_ROW_S = 120.0
 MERGE_M = 1.0
 
 # A native mushroom reported twice within this is the same one.
-NATIVE_MERGE_M = 1.5
+NATIVE_MERGE_M = 2.0  # one cap seen from two sides projected 1.8 m apart (fleet run, 24 Oct)
