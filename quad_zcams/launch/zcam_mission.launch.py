@@ -17,6 +17,12 @@ from launch_ros.actions import Node
 
 BRINGUP = get_package_share_directory('41068_ignition_bringup')
 HERE = get_package_share_directory('quad_zcams')
+# The operator GUI freezes the mission nodes with SIGSTOP (Pause, operator goals). A node
+# frozen past Fast DDS's 20 s lease is dropped by the other processes and not always re-matched (it loses /clock and
+# Nav2). The GUI sets AMMO_FREEZABLE_PROFILE for them: a 1 h lease, loopback UDP only. ROS_LOCALHOST_ONLY=1 would put
+# shared memory back, so it is off here (the profile is loopback only).
+FREEZABLE_ENV = ({'FASTRTPS_DEFAULT_PROFILES_FILE': os.environ['AMMO_FREEZABLE_PROFILE'], 'ROS_LOCALHOST_ONLY': '0'}
+                 if os.environ.get('AMMO_FREEZABLE_PROFILE') else {})
 
 
 def _load(path, name):
@@ -48,6 +54,7 @@ def _cage_mission():
                 goals_x = [m['x'] for m in d['mushrooms']] or [0.0]
                 goals_y = [m['y'] for m in d['mushrooms']] or [0.0]
         return out + [Node(package='quad_zcams', executable='rover_capture_node', output='screen',
+                           additional_env=FREEZABLE_ENV,
                            parameters=[{'use_sim_time': True, 'world': os.path.basename(world), 'trunks': trunks,
                                         'goals_x': goals_x, 'goals_y': goals_y,
                                         'count': int(LaunchConfiguration('count').perform(context)),
@@ -77,7 +84,7 @@ def _quad(context):
     qwp = [float(v) for v in LaunchConfiguration('quad_waypoints').perform(context).split(',') if v.strip()]
     sdf = os.path.join(BRINGUP, 'worlds', f'{world}.sdf')  # an absolute world path replaces the prefix
     planner = LaunchConfiguration('planner').perform(context).lower() == 'true'
-    return [Node(package='quad_zcams', executable='zcam_quad_node', output='screen',
+    return [Node(package='quad_zcams', executable='zcam_quad_node', output='screen', additional_env=FREEZABLE_ENV,
                  parameters=[{'use_sim_time': True, 'trunks': trunks, 'waypoints': qwp or [0.0], 'ground_z': ground_z,
                               'search_area': [-half, half, -half, half,
                                               float(LaunchConfiguration('row_spacing').perform(context))],

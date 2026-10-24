@@ -128,6 +128,8 @@ class MissionLauncher:
             return None
 
         env = dict(os.environ)
+        # the nodes we freeze talk over UDP: over shared memory a long freeze cut them off from Nav2 for good
+        env['AMMO_FREEZABLE_PROFILE'] = os.path.join(_share('ammo_gui_node') or '', 'config', 'fastdds_udp_only.xml')
         cmd = ['ros2', 'launch', 'ammo_mission_control', 'cage_mission.launch.py',
                f'world:={path}', f'tool:={tool}', 'meta_goals:=false', 'rviz:=false',
                f'headless:={"false" if show_sim else "true"}']
