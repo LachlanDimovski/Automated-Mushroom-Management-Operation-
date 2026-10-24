@@ -28,6 +28,7 @@ setup(
             'fleet_viewer = ammo_gui_node.fleet_viewer:main',
             'fleet_debug = ammo_gui_node.fleet_debug_window:main',
             'mission_bridge = ammo_gui_node.mission_bridge:main',
+            'native_tracker = ammo_gui_node.native_tracker:main',
         ],
     },
 )

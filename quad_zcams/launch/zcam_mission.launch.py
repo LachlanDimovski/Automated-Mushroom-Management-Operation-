@@ -91,7 +91,8 @@ def _quad(context):
                               'cruise_speed': float(LaunchConfiguration('cruise_speed').perform(context)),
                               'cover_range': float(LaunchConfiguration('cover_range').perform(context)),
                               'det_range': float(LaunchConfiguration('det_range').perform(context)),
-                              'max_aspect': float(LaunchConfiguration('max_aspect').perform(context))}])]
+                              'max_aspect': float(LaunchConfiguration('max_aspect').perform(context)),
+                              'native_min_conf': float(LaunchConfiguration('native_min_conf').perform(context))}])]
 
 
 def generate_launch_description():
@@ -112,6 +113,7 @@ def generate_launch_description():
                           ('fast_dispatch', 'true'),   # shorter holds: 2 waypoints 1 s apart
                           ('det_range', '3.0'),        # ignore sightings projecting farther than this (m); 0 = off
                           ('max_aspect', '1.35'),      # ignore boxes taller than this times their width (cattails)
+                          ('native_min_conf', '0.5'),  # natives below this score are not logged (val precision ~0.7 at 0.4-0.7)
                           # rover
                           ('nearest_first', 'true'),   # take the nearest queued mushroom next
                           ('fast_pickup', 'true'),     # looser creep tolerance, shorter settle and claw moves

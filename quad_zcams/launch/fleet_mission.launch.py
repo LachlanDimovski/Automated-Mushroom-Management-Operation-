@@ -81,7 +81,7 @@ def _pool(context):
     n = _count(context, 'quads', MAX_QUADS)
     w = int(LaunchConfiguration('pool_workers').perform(context) or 0) or (n + 2) // 3
     model = LaunchConfiguration('model_path').perform(context) or os.path.join(
-        get_package_share_directory('perception'), 'models', 'amanita_muscaria_yolo11n.pt')
+        get_package_share_directory('perception'), 'models', 'variants', 'amanita_river_v4_yolo11n.pt')
     robots = [f'parrot{k + 1}' for k in range(n)]
     if LaunchConfiguration('husky_yolo').perform(context).lower() == 'true':
         robots.append('husky1')

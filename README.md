@@ -10,6 +10,7 @@ AMMO -> Automated Mushroom Management Operations
 A Parrot quadcopter searches a forest for invasive fly agaric mushrooms with
 YOLO, projects each sighting to a ground point, and hands it to a Husky
 skid-steer, which drives there with Nav2 and collects it with a front gripper.
+Native (non-invasive) mushrooms are detected too, logged and left in place.
 Everything runs in Gazebo (Ignition) on ROS 2 Humble.
 
 ## Packages
@@ -22,6 +23,9 @@ Everything runs in Gazebo (Ignition) on ROS 2 Humble.
 | `perception` | `yolo_node` (one copy per camera), `hazard_brake` (person stop), `combined_view`, trained weights in `models/` |
 | `skidsteer_perception` | Dataset capture and training scripts (`scripts/`, see `TRAINING_PC.md`) |
 | `ammo_dashboard` | OpenCV HUD: both YOLO feeds, speed, altitude, minimap |
+| `quad_zcams` | The z-camera quad (`zcam_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`) and PS4 teleop |
+| `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge`, `native_tracker` |
+| `forest_worlds` | Generated river worlds (`river_moderate_aus`, ...) and their models |
 | `quad_mission`, `quad_mission_interfaces` | Quad mission state machine (C++): take-off, search, return, land, abort services. Not part of `cage_mission.launch.py`, see below |
 
 Build from the workspace root:
@@ -65,8 +69,7 @@ For the fleet, start the sim headless in one terminal:
     F=~/41068_ws/src/RS1_Team5_/forest_worlds
     export IGN_GAZEBO_RESOURCE_PATH="$(ls -d $F/models/* $F/world_assets | tr '\n' ':')$IGN_GAZEBO_RESOURCE_PATH"
     ros2 launch quad_zcams fleet_mission.launch.py world:=$F/worlds/river_moderate_aus \
-        meta_goals:=false quads:=2 rovers:=1 headless:=true rviz:=false \
-        model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_river_v4_yolo11n.pt
+        meta_goals:=false quads:=2 rovers:=1 headless:=true rviz:=false
 
 and the Fleet Debug UI in a second:
 
@@ -79,7 +82,30 @@ and the Fleet Debug UI in a second:
   `ammo/mission/status` and `ammo/mission/events` topics the timeline and state cards read.
   Running `ros2 run ammo_gui_node fleet_debug` on its own shows the cameras and map, but the
   timeline stays empty. Do not run it alongside the operator GUI, which starts its own bridge.
-- Drop `headless:=true` to also open the Gazebo window.
+- Drop `headless:=true` to also open the Gazebo window. It costs about 60% of a core; the
+  Fleet Debug UI already shows every camera and the map.
+- The fleet loads the two-class detector (`amanita_river_v4_yolo11n`, invasive + native) by
+  default. `model_path:=...` overrides it; a one-class model sees no natives.
+- Stop every process of a run before launching the next. Two sims at once starve the CPU and
+  the robots stall.
+
+## Native (non-invasive) mushrooms
+
+The two-class detector labels `amanita_muscaria_red` (invasive, collected) and
+`native_mushroom` (monitored, never collected).
+
+- **Camera feeds:** invasive boxes are red, native boxes are blue.
+- **Quads:** a native is logged when it is within 3 m of the quad (`det_range`, as for
+  invasive ones) and scores at least `native_min_conf` (default 0.5).
+  The log line is `native mushroom N logged at (x, y) - left in place`. No rover is sent.
+- **`native_tracker`** (started by `fleet_debug.launch.py`) merges the quads' logs within 2 m,
+  so one mushroom seen twice or by two quads counts once. It publishes the list on
+  `fleet/natives` and a `native` event on `ammo/mission/events`.
+- **Fleet Debug UI:** natives show as blue N1, N2, ... on the minimap, blue markers on the
+  timeline, and a NATIVE MUSHROOMS count card.
+- **Single quad** (`cage_mission.launch.py`): pass the two-class model with
+  `model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_river_v4_yolo11n.pt`
+  (`forest_worlds/demo_river.sh` already does). The default one-class model sees no natives.
 
 ## Mission flow
 
@@ -142,8 +168,8 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   `/parrot1/mission/*` services (liftoff, start search with a path shape,
   return home, land, abort). It publishes `parrot1/cmd_vel`, so run it with
   `parrot:=false` or not alongside `quad_search_node`.
-- **Operator GUI**: Danil's PySide6 GUI and Debug UI live on the `danil`
-  branch (`ammo_gui_node/`), not yet merged into `main`.
+- **Operator GUI**: `ros2 run ammo_gui_node gui` (PySide6 GUI and Debug UI, `ammo_gui_node/`).
+  Its Launch button starts `cage_mission.launch.py` (one quad).
 - **World generator**: `python3 41068_ignition_bringup/scripts/generate_forest_world.py --seed 7 --preset dense`
   writes a seeded forest `.sdf`, its terrain, and a `.meta.json` with the
   ground truth of every tree, mushroom and decoy. See `worlds/README_forest_random.md`.
@@ -158,6 +184,11 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   and otherwise assumes flat ground at the spawn clearing's height, so uneven
   terrain (`forest_random`) can add metres of error. Demo on `forest_flat`.
 - Detection is reliable to about 3.5 m, hence the 2 m cruise and 3 m rows.
+- Native detection is weak: on the validation set the detector finds about a quarter of the
+  natives at 0.5 confidence, and about 30% of its native boxes are background. Raising
+  `native_min_conf` does not improve that ratio, it only finds fewer. In a 5 min fleet run
+  on `river_moderate_aus` 1 of 18 logged natives was a real one; the rest were ground cover.
+  Native counts are not reliable yet.
 - The rover does not re-check a target with its own camera before gripping,
   so a look-alike that passes the quad's checks gets collected.
 - "Collected" is a sim stand-in: any mushroom within 0.6 m of the gripper
