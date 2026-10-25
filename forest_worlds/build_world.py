@@ -669,7 +669,7 @@ if __name__ == '__main__':
     ap.add_argument('--relief', type=float, default=None, help='terrain height range (m), from the Forest3D DEM')
     ap.add_argument('--gap', type=float, default=None)
     ap.add_argument('--mushrooms', type=int, default=12)
-    ap.add_argument('--natives', type=int, default=6, help='brown non-invasive decoy mushrooms')
+    ap.add_argument('--natives', type=int, default=6, help='blue-capped native (non-invasive) mushrooms, logged and left in place')
     ap.add_argument('--ground', default='natural', choices=['natural', 'green'],
                     help='green = the grass_plane texture the team YOLO was trained on')
     ap.add_argument('--flora', default='conifer', choices=['conifer', 'australian'])
