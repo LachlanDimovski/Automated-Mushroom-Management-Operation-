@@ -21,13 +21,18 @@ With nothing held it publishes nothing, so it never fights the mission.
 RUN
   ros2 launch quad_zcams zcam_mission.launch.py ...      (ps4:=true is the default; starts joy_node too)
   ros2 run quad_zcams ps4_teleop                         (standalone; starts joy_node unless -p start_joy:=false)
+joy_node is started on the first game controller found (keyboards' media-key interfaces also show up as joysticks and
+are skipped); with none plugged in it is started when one appears. -p joy_device:=N forces a device id
+(`ros2 run joy joy_enumerate_devices` lists them).
 
 FIND YOUR MAPPING if a stick or button feels wrong (they differ USB vs Bluetooth vs driver)
   ros2 run quad_zcams ps4_teleop --ros-args -p inspect:=true
       Wiggle each stick / press each button, note the numbers, then e.g. -p rover_button:=5 -p axis_turn:=3
 Defaults are the kernel DualShock layout joy_node reports: L1 4, R1 5, left stick axes 0/1, right stick axes 3/4.
 """
+import re
 import subprocess
+import threading
 import time
 
 import rclpy
@@ -42,6 +47,7 @@ from vision_msgs.msg import Detection2DArray
 DEFAULTS = {
     'joy_topic': '/joy',
     'start_joy': True,        # launch joy_node as a child; false when a launch file runs it
+    'joy_device': -1,         # joy_node device id; -1 = the first game controller
     'inspect': False,         # print axes/buttons, publish nothing
     'rover_button': 5,        # R1
     'quad_button': 4,         # L1
@@ -68,6 +74,7 @@ DEFAULTS = {
 }
 ROBOTS = {'rover': 'husky1/cmd_vel_raw', 'quad': 'parrot1/cmd_vel'}
 ROVER_UNGUARDED = 'husky1/cmd_vel'
+GAMEPAD = re.compile(r'ps4|ps5|dualshock|dualsense|wireless controller|sony|gamepad|xbox', re.I)
 
 
 def deadzone(v, d):
@@ -103,13 +110,40 @@ class Ps4Teleop(Node):
         self.create_timer(1.0 / self.p['rate_hz'], self._tick)
         self.joy_proc = None
         if self.p['start_joy']:
-            self.joy_proc = subprocess.Popen(['ros2', 'run', 'joy', 'joy_node', '--ros-args',
-                                              '-p', 'autorepeat_rate:=30.0', '-p', 'deadzone:=0.02'])
-            self.get_logger().info(f'started joy_node (pid {self.joy_proc.pid})')
+            threading.Thread(target=self._start_joy, daemon=True).start()
         self.get_logger().info('INSPECT - publishing nothing' if self.p['inspect'] else
                                f"PS4 teleop ready: hold R1 (button {self.p['rover_button']}) for the rover, "
                                f"L1 (button {self.p['quad_button']}) for the quad; OPTIONS toggles teleop mode, TRIANGLE switches robot, "
                                f"CROSS grabs")
+
+    def _find_joy(self):
+        """joy_node opens device 0 by default, and a keyboard's media-key interface can be device 0 (an RD 75 was,
+        and its idle reports kept releasing the deadman). Returns (id, name) of the first game controller."""
+        try:
+            out = subprocess.run(['ros2', 'run', 'joy', 'joy_enumerate_devices'], capture_output=True, text=True,
+                                 timeout=15).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return None, None
+        for line in out.splitlines():
+            f = [c.strip() for c in line.split(':')]
+            if len(f) >= 5 and f[0].isdigit() and (f[2] == 'true' or GAMEPAD.search(':'.join(f[4:]))):
+                return int(f[0]), ':'.join(f[4:])
+        return None, None
+
+    def _start_joy(self):
+        warned = False
+        while rclpy.ok() and self.joy_proc is None:
+            dev, name = (self.p['joy_device'], f"device {self.p['joy_device']}") if self.p['joy_device'] >= 0 \
+                else self._find_joy()
+            if dev is not None:
+                self.joy_proc = subprocess.Popen(['ros2', 'run', 'joy', 'joy_node', '--ros-args', '-p', f'device_id:={dev}',
+                                                  '-p', 'autorepeat_rate:=30.0', '-p', 'deadzone:=0.02'])
+                self.get_logger().info(f'started joy_node on {name} (pid {self.joy_proc.pid})')
+                return
+            if not warned:
+                self.get_logger().warn('no game controller found - joy_node starts when one is plugged in')
+                warned = True
+            time.sleep(5.0)
 
     def _joy_cb(self, msg):
         self.joy, self.joy_stamp = msg, time.monotonic()

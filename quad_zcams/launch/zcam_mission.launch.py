@@ -151,8 +151,6 @@ def generate_launch_description():
                         robot_namespace='parrot1', start_delay=11.0, core='7')
     ld.add_action(OpaqueFunction(function=_quad))
     ps4 = IfCondition(LaunchConfiguration('ps4'))
-    ld.add_action(Node(package='joy', executable='joy_node', output='screen', condition=ps4,
-                       parameters=[{'autorepeat_rate': 30.0, 'deadzone': 0.02}]))
-    ld.add_action(Node(package='quad_zcams', executable='ps4_teleop', output='screen', condition=ps4,
-                       parameters=[{'start_joy': False}]))
+    # ps4_teleop starts joy_node itself, on the first game controller (device 0 can be a keyboard)
+    ld.add_action(Node(package='quad_zcams', executable='ps4_teleop', output='screen', condition=ps4))
     return ld
