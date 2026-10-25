@@ -21,8 +21,9 @@ throughout - they are the only way to see whether the detectors have come up
 while a run is being prepared, which is exactly when you want to know.
 """
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar, QPushButton,
-                               QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QProgressBar,
+                               QPushButton, QScrollArea, QStackedWidget,
+                               QVBoxLayout, QWidget)
 
 from ammo_gui_node import cards, contract as C, theme
 from ammo_gui_node.camera_panel import CameraPanel
@@ -32,7 +33,7 @@ from ammo_gui_node.mission_launcher import world_meta_full
 from ammo_gui_node.timeline import Timeline, format_clock
 
 LEGEND = [C.SEARCH, C.FOUND, C.TRANSIT, C.FORD, C.ALIGN, C.CAPTURE, C.STUCK,
-          C.OPERATOR, C.PAUSED]
+          C.OPERATOR, C.PAUSED, C.ABORT]
 
 # phase from the status message -> (chip, what to say about it)
 BANNER = {
@@ -70,6 +71,8 @@ class DebugWindow(QWidget):
         link.quad_frame.connect(lambda img: self._frame('quad', img))
         link.rover_detections.connect(lambda b: self._boxes('rover', b))
         link.quad_detections.connect(lambda b: self._boxes('quad', b))
+        link.fleet_frame.connect(self._fleet_frame)
+        link.topdown_frame.connect(lambda img: self._fleet_frame('topdown', img))
         link.teleop_status.connect(self._teleop_status)
 
         # The timeline animates its own "still going" dots, so it needs a
@@ -108,6 +111,25 @@ class DebugWindow(QWidget):
         self.stack.addWidget(self._expanded_page())
         shell.addWidget(self.stack, 1)
 
+    def _relayout_cams(self):
+        """Lay out the panels that have something to show."""
+        for key, cam in self.cams.items():
+            self.cam_grid.removeWidget(cam)
+            cam.setVisible(key in self.shown)
+        cols = cards.grid_columns(len(self.shown))
+        for n, key in enumerate(self.shown):
+            self.cam_grid.addWidget(self.cams[key], n // cols, n % cols)
+
+    def _ensure_cam(self, key):
+        """A robot that starts publishing earns a panel."""
+        if key in self.shown or key not in self.cams:
+            return
+        # keep a stable order: rovers, quads, then the overhead last
+        order = ([f'rover{i}' for i in range(1, C.MAX_ROVERS + 1)]
+                 + [f'quad{i}' for i in range(1, C.MAX_QUADS + 1)] + ['topdown'])
+        self.shown = [k for k in order if k in self.shown or k == key]
+        self._relayout_cams()
+
     def _banner(self):
         """Shown until a mission is launched; hidden the moment one is."""
         bar = QWidget()
@@ -142,13 +164,30 @@ class DebugWindow(QWidget):
         # cameras and map, given most of the window
         top = QHBoxLayout()
         top.setSpacing(12)
+        # A grid, because a run can now have up to four quadcopters, five
+        # skidsteers and the camera looking down at the whole world. Panels
+        # appear as their topics start publishing, so a single-robot run
+        # still shows exactly two cameras and the overhead.
+        self.cam_grid = QGridLayout()
+        self.cam_grid.setSpacing(12)
         self.rover_cam = CameraPanel('SKIDSTEER CAMERA', C.HUSKY_CAM, theme.ACCENT)
         self.quad_cam = CameraPanel('QUADCOPTER CAMERA', C.PARROT_CAM, theme.TEXT)
-        for cam in (self.rover_cam, self.quad_cam):
-            cam.setMinimumHeight(330)
+        self.topdown_cam = CameraPanel('OVERHEAD', C.TOPDOWN_TOPIC, theme.BLUE)
+        self.topdown_cam.set_show_boxes(False)
+        self.cams = {'rover1': self.rover_cam, 'quad1': self.quad_cam}
+        for i in range(2, C.MAX_QUADS + 1):
+            self.cams[f'quad{i}'] = CameraPanel(
+                f'QUADCOPTER {i}', C.quad_topic(i, 'camera/image'), theme.TEXT)
+        for i in range(2, C.MAX_ROVERS + 1):
+            self.cams[f'rover{i}'] = CameraPanel(
+                f'SKIDSTEER {i}', C.rover_topic(i, 'camera/image'), theme.ACCENT)
+        self.cams['topdown'] = self.topdown_cam
+        for cam in self.cams.values():
+            cam.setMinimumHeight(250)
             cam.expand_requested.connect(self._expand)
-        top.addWidget(self.rover_cam, 4)
-        top.addWidget(self.quad_cam, 4)
+        self.shown = ['rover1', 'quad1', 'topdown']
+        self._relayout_cams()
+        top.addLayout(self.cam_grid, 8)
         top.addWidget(self._map_panel(), 3)
         body.addLayout(top, 5)
 
@@ -287,7 +326,7 @@ class DebugWindow(QWidget):
 
     # -- full screen --------------------------------------------------------
     def _expand(self, panel):
-        self.big_which = 'rover' if panel is self.rover_cam else 'quad'
+        self.big_which = next((k for k, c in self.cams.items() if c is panel), 'rover1')
         self.big_cam.title = panel.title
         self.big_cam.topic = panel.topic
         self.big_cam.dot_colour = panel.dot_colour
@@ -305,16 +344,26 @@ class DebugWindow(QWidget):
         self.stack.setCurrentIndex(0)
 
     def _panel(self, which):
-        return self.rover_cam if which == 'rover' else self.quad_cam
+        # 'rover'/'quad' are what the single-robot signals carry; the fleet
+        # ones use the explicit keys.
+        return self.cams[{'rover': 'rover1', 'quad': 'quad1'}.get(which, which)]
 
     def _frame(self, which, image):
         self._panel(which).set_image(image)
-        if self.big_which == which:
+        if self.big_which in (which, {'rover': 'rover1', 'quad': 'quad1'}.get(which)):
+            self.big_cam.set_image(image)
+
+    def _fleet_frame(self, key, image):
+        self._ensure_cam(key)
+        panel = self.cams.get(key)
+        if panel is not None:
+            panel.set_image(image)
+        if self.big_which == key:
             self.big_cam.set_image(image)
 
     def _boxes(self, which, boxes):
         self._panel(which).set_detections(boxes)
-        if self.big_which == which:
+        if self.big_which in (which, {'rover': 'rover1', 'quad': 'quad1'}.get(which)):
             self.big_cam.set_detections(boxes)
 
     def keyPressEvent(self, event):

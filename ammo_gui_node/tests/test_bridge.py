@@ -361,6 +361,64 @@ send(b, {'cmd': 'prepare', 'stage': 'nonsense'})
 check('a stage it does not know is treated as preparing',
       status(b)['phase'] == 'preparing')
 
+# ----------------------------------------------------------- the abort ----
+section('the emergency stop on the timeline')
+
+b = MissionBridge()
+send(b, {'cmd': 'prepare', 'stage': 'ready'})
+send(b, {'cmd': 'start', 'mode': 'autonomous', 'world': 'forest_flat',
+         'layout': 'x', 'total': 3})
+check('a fresh mission is not aborted', status(b)['aborting'] is False)
+
+send(b, {'cmd': 'abort'})
+st = status(b)
+check('abort is reported', st['aborting'] is True and st['abort_done'] is False)
+check('and it is the mission state', st['state'] == C.ABORT, st['state'])
+check('with a marker where the rover was',
+      any(m['kind'] == C.MK_ABORT for m in st['markers']), st['markers'])
+check('and an event in the feed', len(events(b, C.EV_ABORT)) == 1)
+check('the clock is still running while things stop',
+      status(b)['elapsed'] >= 0.0 and b._paused_at is None)
+
+# abort outranks even a pause
+b.paused = True
+check('abort outranks pause on the timeline', status(b)['state'] == C.ABORT)
+b.paused = False
+
+send(b, {'cmd': 'abort_done', 'text': 'All robots stopped'})
+check('finishing is reported', status(b)['abort_done'] is True)
+check('and now the clock stops', b._paused_at is not None)
+check('with its own event', len(events(b, C.EV_ABORT_DONE)) == 1)
+check('still showing as aborted', status(b)['state'] == C.ABORT)
+frozen = status(b)['elapsed']
+check('the clock really is frozen', status(b)['elapsed'] == frozen)
+
+send(b, {'cmd': 'abort_clear'})
+check('resuming clears it',
+      status(b)['aborting'] is False and status(b)['abort_done'] is False)
+check('and the clock runs again', b._paused_at is None)
+check('with a resume in the feed', len(events(b, C.EV_RESUME)) >= 1)
+
+send(b, {'cmd': 'abort'})
+send(b, {'cmd': 'end'})
+check('ending a mission clears an abort too', status(b)['aborting'] is False)
+
+b2 = MissionBridge()
+send(b2, {'cmd': 'abort'})
+check('aborting with no mission running does nothing',
+      status(b2)['aborting'] is False)
+
+# ----------------------------------------------------- marking by hand ----
+section('a mushroom marked by the operator')
+
+b = fresh()
+send(b, {'cmd': 'marked', 'x': 3.0, 'y': -4.0,
+         'text': 'Operator queued (3.0, -4.0) for the rover'})
+marked = events(b, C.EV_MARKED)
+check('a mark reaches the event feed', len(marked) == 1, marked)
+check('with the point on it',
+      marked and marked[0].get('x') == 3.0 and marked[0].get('y') == -4.0, marked)
+
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('failing:')

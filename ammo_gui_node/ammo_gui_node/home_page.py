@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBo
 
 from ammo_gui_node import cards, theme
 from ammo_gui_node.map_view import MapView
+from ammo_gui_node.contract import MAX_QUADS, MAX_ROVERS
 from ammo_gui_node.mission_launcher import (PATTERNS, SEARCH_DEFAULTS, WORLDS,
                                             shuffle_mushrooms, world_available,
                                             world_meta_full, world_mushroom_names,
@@ -230,8 +231,8 @@ class HomePage(QWidget):
         col.addWidget(cards.section('ROBOTS'))
         counts = QHBoxLayout()
         counts.setSpacing(10)
-        self.quad_count = self._count_spin('Quadcopters')
-        self.rover_count = self._count_spin('Skidsteers')
+        self.quad_count = self._count_spin('Quadcopters', MAX_QUADS)
+        self.rover_count = self._count_spin('Skidsteers', MAX_ROVERS)
         for caption, spin in (('Quad', self.quad_count), ('Rover', self.rover_count)):
             box = QVBoxLayout()
             box.setSpacing(3)
@@ -239,9 +240,12 @@ class HomePage(QWidget):
             box.addWidget(spin)
             counts.addLayout(box)
         col.addLayout(counts)
-        hint = cards.label('Not wired up yet - one of each is spawned.', 'Faint')
-        hint.setWordWrap(True)
-        col.addWidget(hint)
+        self.robot_hint = cards.label('', 'Faint')
+        self.robot_hint.setWordWrap(True)
+        col.addWidget(self.robot_hint)
+        for spin in (self.quad_count, self.rover_count):
+            spin.valueChanged.connect(self._robot_hint)
+        self._robot_hint()
         row.addLayout(col, 1)
         lay.addLayout(row)
 
@@ -351,21 +355,33 @@ class HomePage(QWidget):
         lay.addWidget(self.launch_button)
         return card
 
-    @staticmethod
-    def _count_spin(tip):
-        """A robot count. Deliberately inert: the launch ignores it.
+    def _robot_hint(self):
+        """Say which launch file the chosen counts will actually run."""
+        quads = int(self.quad_count.value())
+        rovers = int(self.rover_count.value())
+        if quads == 1 and rovers == 1:
+            self.robot_hint.setText(
+                'One of each: the usual single-robot mission.')
+        else:
+            self.robot_hint.setText(
+                f'{quads} quadcopter(s) and {rovers} skidsteer(s): the fleet, '
+                'with the coordinator handing mushrooms out between rovers. '
+                'Slower to come up, and heavier on the CPU.')
 
-        It is here so the shape of multi-robot setup is visible and agreed
-        before the plumbing exists - spawning a second robot needs its own
-        namespace, bridge config and a split search area, none of which is in
-        the repo yet.
+    @staticmethod
+    def _count_spin(tip, top):
+        """A robot count, wired to fleet_mission.launch.py.
+
+        The ceilings are their launch file's own (MAX_QUADS and MAX_ROVERS);
+        asking for more would spawn robots with nowhere to stand in the 4 m
+        spawn clearing.
         """
         spin = QSpinBox()
-        spin.setRange(1, 4)
+        spin.setRange(1, top)
         spin.setValue(1)
         spin.setFixedWidth(78)
         spin.setMinimumHeight(38)
-        spin.setToolTip(f'{tip}: not wired up yet')
+        spin.setToolTip(f'{tip}: more than one runs the fleet launch')
         return spin
 
     def _mode_option(self, parent_layout, title, blurb, checked=False):
@@ -504,7 +520,7 @@ class HomePage(QWidget):
         lay.setSpacing(9)
 
         lay.addWidget(cards.section('WHAT PREPARE DOES'))
-        for line in ('1.  Starts Gazebo, Nav2 and both robots',
+        for line in ('1.  Starts Gazebo, Nav2 and every robot you asked for',
                      '2.  Waits until every camera, detector and Nav2 is really up',
                      '3.  Holds both mission nodes, then spawns the mushrooms',
                      '4.  Photographs the result from above, to launch or shuffle'):
@@ -633,6 +649,8 @@ class HomePage(QWidget):
             'show_sim': self.show_sim.isChecked(),
             'options': self.options(),
             'meta': world_meta_full(world),
+            'quads': int(self.quad_count.value()),
+            'rovers': int(self.rover_count.value()),
         })
 
     def _current_layout(self):

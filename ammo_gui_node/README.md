@@ -46,20 +46,22 @@ A run starts in two stages, and almost everything awkward about the old
 one-button Launch goes away as a result.
 
 **Prepare** runs `cage_mission.launch.py` - Gazebo, Nav2, the z-camera quad,
-`rover_capture_node`, `truth_localizer`, `collision_guard_node` and both
-YOLO instances. **The moment the two mission node processes appear they are
-frozen** and both robots are sent zero velocity, so neither one ever searches
-or drives during Prepare. The checklist keeps filling in behind that, and
-when the last piece arrives the mushrooms are spawned and one photo is taken
-of the world from directly above.
+`rover_capture_node`, `truth_localizer`, `collision_guard_node` and both YOLO
+instances - or `fleet_mission.launch.py` if you asked for more than one of
+either robot. **Every robot is held still from the instant Prepare is
+pressed**, before a single node exists, so there is no window in which the
+quadcopter can take off. The checklist fills in behind that, and when the
+last piece arrives the mushrooms are spawned and the world is photographed
+from directly above.
 
-Freezing early is the whole point: the quadcopter takes off a few seconds
-after its node starts, so holding only at the end of the checklist meant
-watching it fly a search pattern over an empty world while the page still
-said PREPARING. Nothing else on the checklist depends on those two nodes -
-cameras, odometry and TF come from Gazebo's bridges, the detectors are their
-own processes, and Nav2, `truth_localizer` and `collision_guard` are all
-separate - so there is nothing to lose by holding them at once.
+Holding uses the robots' own **`teleop_active` stand-down**, the same
+heartbeat the PS4 controller sends: while it keeps arriving,
+`rover_capture_node` and `zcam_quad_node` stop commanding their robot
+entirely and, when it stops, re-plan from where they were left. That is much
+better than stopping their processes - a standing-down node keeps its timers,
+its clock and its Nav2 connection, and the quad goes on reporting sightings
+the whole time. The GUI publishes zero velocity alongside the heartbeat,
+because Gazebo's VelocityControl keeps the last command it was given forever.
 
 **Launch** thaws those two processes and starts the clock.
 
@@ -80,14 +82,25 @@ still running so nothing coasts away while it sits idle. Preparing the same
 world again is instant; only changing world tears the simulation down.
 
 **Setup page.** Pick the world, pick or edit the mushroom layout, choose the
-search pattern, choose Autonomous or Manual drive, press Prepare. The capture
-tool is always the gripper now, so that choice is gone; the robot counts are
-visible but inert - see the note under them.
+search pattern, choose Autonomous or Manual drive, set how many of each robot
+you want, press Prepare. The capture tool is always the gripper now, so that
+choice is gone.
+
+**The robot counts are real.** One of each runs `cage_mission.launch.py` as
+before. More than one of either runs `quad_zcams/fleet_mission.launch.py`
+instead - up to four quadcopters and five skidsteers, with their
+`fleet_coordinator` handing mushrooms out between the rovers - and the
+mission page grows a camera panel per robot. The ceilings are their launch
+file's own.
 
 Layout presets are the world's own mushrooms (on a world that ships some),
 whatever is in `layouts/<world>.json`, and **Random placement**, which puts
-them clear of trunks and water and away from the spawn clearing and can be
-rolled again as often as you like. Every preset is editable: the coordinate
+them clear of every solid thing in the world file - trees, fallen trees,
+logs, stumps, rocks, debris and decoys, each by its own radius plus a margin
+- outside the pond shores and the river, apart from each other and away from
+the spawn clearing, and can be rolled again as often as you like. A crowded
+world may not have room for as many as you asked for, and says so rather
+than quietly giving you fewer. Every preset is editable: the coordinate
 rows are the real list, and Prepare spawns exactly what is in them.
 
 The preview beside the setup is drawn from the world's own `.meta.json` using
@@ -120,13 +133,36 @@ from the spawn or lawnmower rows, the spacing between them, cruise speed and
 height, whether to keep moving through corners, and whether to plan around
 the world file at all. The defaults are the ones the team's launch file uses.
 
+**Abort** is the emergency stop, beside Pause. The skidsteer halts, the
+quadcopter lands where it is, and the timeline grows a dark red band with a
+stop sign on it running from the moment you pressed it to the moment
+everything actually came to rest - after which the clock stops. Resume hands
+the robots back and starts the clock again; End Mission is beside it.
+
+Landing is the GUI flying the quad down on `parrot1/agl` while holding the
+stand-down, which is the state in which the quad's own node expects somebody
+else to be flying it. Their `ammo/mission_complete` also lands a quad, with
+full obstacle avoidance, but it flies home first - which an emergency stop
+should not do.
+
 **Mission page.** Everything here starts when you press Launch: the clock,
 mushrooms found and collected counted separately, natives identified and left alone, how much of the area the
 quadcopter has mapped, both robots' states, the map, both camera feeds, and
 the mushroom log with a camera still per mushroom.
 
-Controls are Pause/Resume, End Mission, clicking the map to send the rover
-somewhere, and hand-driving either robot. Double-click a camera to fill the
+The cameras are a grid: every quadcopter, every skidsteer, and an
+**overhead** feed from a camera the GUI spawns high above the world looking
+straight down. It is the same camera that takes the Prepare photo, left
+running. On software rendering it is a third rendered camera and costs
+frames, so it can be turned off.
+
+Controls are Pause/Resume, Abort, End Mission, clicking the map, and
+hand-driving either robot. **MARK** on the quad panel asks the quadcopter to
+send the mushroom in its view to the rover's queue - the quad answers with
+its own gated sighting, so the projection is its own and not a guess made
+here. The map click has two modes: **GO** sends the skidsteer there with a
+Nav2 goal, **COLLECT** queues that point on `husky1/cage/waypoints` as
+though the quadcopter had found it. Double-click a camera to fill the
 window with it; Esc or a second double-click goes back.
 
 Clicking the map suspends the rover's mission node, cancels whatever Nav2 was
@@ -221,6 +257,10 @@ driving.
   come back until Gazebo restarts.
 - **Snapshots** in the mushroom log are held in memory only. Closing the
   window loses them.
+- **Box colours come from the weights' own class names.** The v6 model emits
+  `amanita_muscaria_red` and `native_mushroom`; `DET_COLOURS` in
+  `contract.py` lists both. Retrain with different names and every box goes
+  back to the unknown-class blue until that dictionary is updated.
 - **Native mushrooms** are wired end to end, but whether any appear depends
   on the weights the detector loads. The event feed says which classes it
   came up with, so if `native_mushroom` is not in that line the counter will
@@ -236,7 +276,7 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-405 checks, a few seconds, no ROS, no simulation, no display and no built
+493 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and

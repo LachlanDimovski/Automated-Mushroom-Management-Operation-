@@ -29,6 +29,16 @@ def section(text):
     return label(text, 'SectionLabel')
 
 
+# How many columns a grid of n camera panels should use. Chosen so nothing
+# ends up as a lonely wide panel on its own row: four go two-by-two rather
+# than three-and-one, and three go side by side rather than two-and-one.
+GRID_COLUMNS = {1: 1, 2: 2, 3: 3, 4: 2, 5: 3, 6: 3}
+
+
+def grid_columns(n):
+    return GRID_COLUMNS.get(int(n), 4)
+
+
 def stretch(layout):
     layout.addStretch(1)
 

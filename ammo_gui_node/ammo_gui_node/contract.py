@@ -58,7 +58,62 @@ QUAD_GROUND_MAP = 'parrot1/ground_obstacles'
 HUSKY_CMD = 'husky1/cmd_vel'          # what the Gazebo bridge actually relays
 HUSKY_CMD_RAW = 'husky1/cmd_vel_raw'  # goes through collision_guard first
 PARROT_CMD = 'parrot1/cmd_vel'
-HUSKY_TELEOP = 'husky1/teleop_active'  # std_msgs/Bool heartbeat: the rover's mission stands down while it arrives
+# The stand-down heartbeats. Both mission nodes hold a 0.5 s timer off these
+# (TELEOP_HOLD_S in rover_capture_node and zcam_quad_node): while one keeps
+# arriving the node stops commanding its robot entirely and, on release,
+# re-plans from where it was left. That is a far better way to hold a robot
+# still than stopping its process - no frozen timers, no stale clock - so the
+# GUI uses it for the Prepare stage, for hand-driving and for Abort.
+#
+# It does NOT stop the robot by itself. Gazebo's VelocityControl keeps the
+# last command it was given, so whoever holds the heartbeat has to publish
+# the zeros as well. That is what the hold timer in ros_bridge is for.
+HUSKY_TELEOP = 'husky1/teleop_active'   # std_msgs/Bool heartbeat for the rover
+PARROT_TELEOP = 'parrot1/teleop_active'  # ...and for the quadcopter
+TELEOP_HZ = 5.0                          # their hold is 0.5 s; beat twice inside it
+
+# The operator, flying the quad by hand, sends the mushroom in view to the
+# rover. The quad answers with its own most recent gated sighting and its own
+# freshness check, which is why the GUI does not project anything itself -
+# this is the PS4 CROSS button, reached from a different button.
+PARROT_MARK = 'parrot1/teleop_mark'
+
+# -- more than one of each robot --------------------------------------------
+# `quad_zcams/fleet_mission.launch.py` spawns up to four quads and five
+# rovers. Quad k is the namespace `parrotk`; rover 1 keeps the plain `husky1`
+# names and rover k > 1 sits under `rk`, so its topics are `/rk/husky1/...`
+# with its own TF tree. Those are the launch file's own conventions - see its
+# QUAD_TOPICS list and `_configs()` - and everything the GUI subscribes to or
+# publishes for a fleet is built from them rather than guessed.
+MAX_QUADS = 4
+MAX_ROVERS = 5
+
+
+def quad_ns(i):
+    """Namespace of quad i, 1-based."""
+    return f'parrot{int(i)}'
+
+
+def rover_ns(i):
+    """Namespace of rover i, 1-based. The first keeps the unprefixed names."""
+    i = int(i)
+    return 'husky1' if i <= 1 else f'r{i}/husky1'
+
+
+def quad_topic(i, leaf):
+    return f'{quad_ns(i)}/{leaf}'
+
+
+def rover_topic(i, leaf):
+    return f'{rover_ns(i)}/{leaf}'
+
+
+# Height above ground, which is what a descent has to watch on uneven terrain.
+PARROT_AGL = 'parrot1/agl'
+# Their own end-of-mission signal: every quad flies home and lands, and says
+# so on `<ns>/landed`. Not used for Abort, which has to stop where it is.
+MISSION_COMPLETE = 'ammo/mission_complete'
+PARROT_LANDED = 'parrot1/landed'
 
 # Cancelling every Nav2 goal on pause. Sending a CancelGoal with a zero
 # goal_id and zero stamp means "cancel everything you are running", which is
@@ -123,9 +178,10 @@ CAPTURE = 'CAPTURE'
 STUCK = 'STUCK'
 OPERATOR = 'OPERATOR'
 PAUSED = 'PAUSED'
+ABORT = 'ABORT'
 
 STATE_ORDER = [IDLE, SEARCH, FOUND, TRANSIT, FORD, ALIGN, CAPTURE, STUCK,
-               OPERATOR, PAUSED]
+               OPERATOR, PAUSED, ABORT]
 
 STATE_COLOURS = {
     IDLE: '#2E3A44',
@@ -138,6 +194,7 @@ STATE_COLOURS = {
     STUCK: '#C56A3A',
     OPERATOR: '#7A86D6',
     PAUSED: '#6E6A63',
+    ABORT: '#C0392B',      # the one red on the timeline; nothing else uses it
 }
 
 # Short enough to fit the legend, plain enough to read at a glance.
@@ -152,6 +209,7 @@ STATE_LABELS = {
     STUCK: 'stuck / backing out',
     OPERATOR: 'operator goal',
     PAUSED: 'paused',
+    ABORT: 'aborted - stopping',
 }
 
 # The longer line shown under the timeline while a state is running.
@@ -166,6 +224,7 @@ STATE_DETAIL = {
     STUCK: 'rover boxed in - reversing out',
     OPERATOR: 'rover heading to the goal you set',
     PAUSED: 'robots held - display frozen',
+    ABORT: 'emergency stop - rover halted, quadcopter landing',
 }
 
 # The rover's own states -> ours. LOWER/COLLECT/RETRACT/RAISE are all "the
@@ -269,6 +328,9 @@ EV_RETRY_PHASE = 'retry_phase'
 EV_COVERAGE = 'coverage'
 EV_GOAL_FAILED = 'goal_failed'
 EV_DETECTOR = 'detector'        # which classes the detector was loaded with
+EV_ABORT = 'abort'             # the operator pressed the emergency stop
+EV_ABORT_DONE = 'abort_done'   # every robot has actually come to rest
+EV_MARKED = 'marked'           # the operator sent the mushroom in view to the rover
 
 # How the Debug UI colours a line in the event feed.
 SEV_GOOD = 'good'
@@ -300,6 +362,9 @@ EVENT_SEVERITY = {
     EV_COVERAGE: SEV_INFO,
     EV_GOAL_FAILED: SEV_BAD,
     EV_DETECTOR: SEV_INFO,
+    EV_ABORT: SEV_BAD,
+    EV_ABORT_DONE: SEV_WARN,
+    EV_MARKED: SEV_INFO,
 }
 
 # -- detections drawn over the camera feeds ---------------------------------
@@ -311,11 +376,23 @@ EVENT_SEVERITY = {
 #
 # A class name not listed here is drawn in the default colour, so a model
 # with new classes still shows its boxes.
+# The names here must match the weights' own class list exactly, or a box
+# falls through to the default colour. The trained models say so themselves -
+# `quad_zcams/models/amanita_river_v6_yolo11n_openvino_model/metadata.yaml`
+# is `0: amanita_muscaria_red`, `1: native_mushroom`. Getting the first one
+# wrong is not a crash, it is every invasive mushroom quietly drawn in the
+# unknown-class blue while the README says they are red.
+DET_INVASIVE = 'amanita_muscaria_red'
+DET_NATIVE = 'native_mushroom'
+
 DET_COLOURS = {
-    'mushroom_amanita': '#D63434',   # the invasive one, the thing to collect
+    DET_INVASIVE: '#D63434',         # the invasive one, the thing to collect
+    DET_NATIVE: '#46A08A',           # identified and deliberately left alone
+    # older and shorter spellings, so a different weights file still colours
+    'mushroom_amanita': '#D63434',
+    'amanita_muscaria': '#D63434',
     'amanita': '#D63434',
     'mushroom': '#D63434',
-    'native_mushroom': '#46A08A',    # identified and deliberately left alone
     'native': '#46A08A',
     'person': '#E8B33A',
 }
@@ -338,6 +415,7 @@ MK_WEDGE = 'wedged'
 MK_EMPTY = 'empty'
 MK_GAVE_UP = 'gave_up'
 MK_NATIVE = 'native'
+MK_ABORT = 'abort'
 
 MARKER_LABELS = {
     MK_FORD: 'ford crossing',
@@ -345,6 +423,7 @@ MARKER_LABELS = {
     MK_EMPTY: 'nothing there',
     MK_GAVE_UP: 'Nav2 gave up',
     MK_NATIVE: 'native - left alone',
+    MK_ABORT: 'emergency stop',
 }
 
 # -- world-file symbols -----------------------------------------------------
@@ -373,6 +452,17 @@ OBJ_ORDER = ['pond', 'tree', 'fallen_tree', 'log', 'stump', 'rock', 'clutter',
 # Two minutes a row rather than one: a full river run is fifteen minutes or
 # more, and thirty rows will not fit on a screen.
 TIMELINE_ROW_S = 120.0
+
+# -- abort ------------------------------------------------------------------
+# Landing in place: hold their teleop stand-down so the quad stops flying
+# itself, then fly it straight down. LANDED_AGL_M matches zcam_quad_node's own
+# LANDED_Z_M, and the descent reads `parrot1/agl` rather than odometry z
+# because on forest_random the ground rises three metres.
+ABORT_DESCENT_MS = 0.55        # m/s down; their own LAND_SPEED is in the same range
+LANDED_AGL_M = 0.15
+ABORT_STILL_MS = 0.08          # below this speed a robot counts as stopped
+ABORT_SETTLE_S = 1.5           # both robots stopped this long = the abort is complete
+ABORT_TIMEOUT_S = 40.0         # give up waiting and say so rather than hanging
 
 # Two sightings closer than this are the same mushroom. Matches
 # cage_capture_node's own MERGE_M so our count agrees with its queue.

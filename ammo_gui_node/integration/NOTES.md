@@ -60,6 +60,24 @@ None of this changes how either robot behaves. If you want it gone, deleting
 the publishers puts the GUI back on the log-reading path automatically - see
 section 3.
 
+### `quad_zcams/quad_zcams/zcam_quad_node.py` - a merge left two of one method
+
+`ZCamQuad` ended up defining `_control_step` **twice**: once near the top
+(the two-line version added for the GUI, which calls `_publish_state`) and
+once further down (the teleop and return-home version). Python keeps the
+later definition, so the first was dead and **`parrot1/quad_state` stopped
+updating entirely** - the GUI fell back to scraping `/rosout` and nobody
+noticed, because the fallback works.
+
+Fixed by renaming the flight code to `_flight_step` and making
+`_control_step` a three-line wrapper that calls it and then publishes the
+state in a `finally`. A wrapper rather than a line at the bottom because
+`_flight_step` returns early on three separate paths - returning home, the
+operator in control, normal flight - and the state has to go out on all of
+them.
+
+Behaviour is unchanged. Worth a look if you merge this area again.
+
 ## 2. Log lines the bridge still reads
 
 State now comes from the topics above. Events still come from the log, and
@@ -114,11 +132,13 @@ What is left:
    both go to `cmd_vel_raw`, which is not a clean arrangement. The same
    applies to the quadcopter, which the GUI can now hand-fly by suspending
    its node.
-4. **A way to start the mission nodes held.** Prepare freezes them with
-   `SIGSTOP` once they are up, which works but is blunt: a frozen node comes
-   back with stale timers, the same reason a long pause can make the rover
-   re-queue the waypoint it was on. A `start_held` parameter, or the pause
-   flag in item 2 honoured from start-up, would do the same job cleanly.
+4. **Say why a detection was not dispatched.** `_gated_projection` rejects a
+   sighting for seven different good reasons - confidence, aspect ratio, the
+   projection not reaching the ground, a native, too near the rover, beyond
+   `det_range`, already dispatched - and says nothing about which. One log
+   line naming the gate would appear in the GUI's event feed for free, and
+   would answer "YOLO boxed it, why was it not collected?" without anyone
+   having to read the source.
 5. **Publish the detection confidence alongside the waypoint.** The bridge
    pairs a waypoint with the most recent score off `parrot1/detections`,
    which is usually the right one but is a guess.
@@ -127,7 +147,57 @@ If the state publishers are ever removed, the bridge notices: it only trusts
 `husky1/rover/state` and `parrot1/quad_state` while they are fresh, and falls
 back to the `/rosout` path it used before. Nothing in either window changes.
 
-## 4. Settings the GUI overrides
+## 4. Your mechanisms the GUI now uses instead of its own
+
+These were all already in the repo. The GUI used to work around every one of
+them, and does not any more.
+
+- **`<robot>/teleop_active`** is how every robot is held still: Prepare,
+  Pause, Abort, hand-driving and an operator Nav2 goal all publish the
+  heartbeat at 5 Hz, inside your 0.5 s `TELEOP_HOLD_S`. It replaces
+  `SIGSTOP` on the mission node processes, which is strictly worse: a frozen
+  node comes back with stale timers, a stale `/clock` and sometimes defers
+  the waypoint it was on, which is the whole reason
+  `config/fastdds_udp_only.xml` had to exist. A standing-down node keeps all
+  of that, and the quad keeps reporting sightings while the operator flies
+  it. `hold_nodes()` is still in `mission_launcher.py` as a last resort.
+  The GUI publishes the zeros too, because VelocityControl latches.
+- **`parrot1/teleop_mark`** is the GUI's MARK button, on the quad teleop
+  panel. The quad answers with its own latest gated sighting and its own
+  freshness check, so nothing in the GUI projects anything - which matters,
+  because `_gated_projection` is the part of this system with the most
+  hard-won detail in it. Same as PS4 CROSS, different button.
+- **`parrot1/agl`** is what an abort's descent watches, not odometry z. On
+  `forest_random` the ground rises over three metres, so they are not the
+  same number.
+- **`quad_zcams/fleet_mission.launch.py`** is what the setup page's robot
+  counts run once either is above one, with `quads:=` and `rovers:=` and the
+  `forest_worlds` resource path exported first. The GUI does not spawn a
+  second robot itself.
+
+What the GUI could not use, and why:
+
+- **`quad_mission`'s `/parrot1/mission/abort`.** It is a real abort, but the
+  node is not in `cage_mission.launch.py` and it publishes `parrot1/cmd_vel`,
+  so running it alongside the search node breaks the topic-ownership rule in
+  the README. An abort therefore holds the quad down with `teleop_active` -
+  the state in which you already expect somebody else to be flying it - and
+  descends it on `parrot1/cmd_vel` until `parrot1/agl` says it is down.
+- **`ammo/mission_complete`.** It lands a quad properly, with avoidance, but
+  it flies home first, which an emergency stop must not do. It is on the
+  list below as the obvious thing to wire to a Return Home button.
+
+## 5. The detector's class names
+
+`DET_COLOURS` in `contract.py` must match the weights' own class list
+exactly. The v6 model's `metadata.yaml` says `0: amanita_muscaria_red`,
+`1: native_mushroom`; the GUI had `mushroom_amanita`, the same two words the
+other way round, so **every invasive box was drawn in the unknown-class blue
+while the README said invasive boxes are red**. Fixed, with the shorter
+spellings kept as fallbacks. If you retrain with different class names, that
+dictionary is the one place to change.
+
+## 6. Settings the GUI overrides
 
 - **`husky_yolo:=true`.** Both `cage_mission.launch.py` and
   `zcam_mission.launch.py` default it to false, which leaves the rover with
@@ -147,7 +217,7 @@ back to the `/rosout` path it used before. Nothing in either window changes.
   sent the instant the rover's node is frozen has the guard's replay and
   Nav2 taking turns driving.
 
-## 5. Things worth knowing either way
+## 7. Things worth knowing either way
 
 - **The GUI no longer passes `mushrooms:=`.** It spawns them itself, with
   the same `ros2 run ros_ign_gazebo create` call `cage_mission.launch.py`

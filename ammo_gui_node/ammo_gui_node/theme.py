@@ -31,6 +31,7 @@ BLUE = '#4F9CD6'
 VIOLET = '#7A86D6'
 PURPLE = '#B07BD0'
 GREY = '#6E6A63'
+ABORT = '#C0392B'      # the emergency stop, and its band on the timeline
 
 # Map-specific tones, kept apart from the UI palette so tuning the map does
 # not accidentally restyle a button.
@@ -175,6 +176,26 @@ QPushButton#Primary:hover {{
 }}
 QPushButton#Primary:disabled {{
     background: #4A2A2A;
+    color: {TEXT_FAINT};
+}}
+QPushButton#Abort {{
+    background: {ABORT};
+    color: {CREAM};
+    border: 1px solid {ABORT};
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-family: {MONO};
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}}
+QPushButton#Abort:hover {{
+    background: #D8513F;
+    border-color: #D8513F;
+}}
+QPushButton#Abort:disabled {{
+    background: {LINE};
+    border-color: {LINE};
     color: {TEXT_FAINT};
 }}
 QPushButton#Pause {{

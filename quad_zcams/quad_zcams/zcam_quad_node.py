@@ -291,10 +291,6 @@ class ZCamQuad(qs.QuadSearchController):
         except Exception:
             pass   # a GUI feed must never be able to interrupt the flight loop
 
-    def _control_step(self):
-        super()._control_step()
-        self._publish_state()
-
     def _depth_cb(self, msg):
         """Each level frame from cruise height also goes into the map shared with the rover."""
         super()._depth_cb(msg)
@@ -763,6 +759,21 @@ class ZCamQuad(qs.QuadSearchController):
         self.cmd_pub.publish(cmd)
 
     def _control_step(self):
+        """Fly one step, then tell the GUI which phase that left us in.
+
+        A wrapper, not the flight code. `_flight_step` returns early on three
+        different paths - returning home, the operator in control, normal
+        flight - and `parrot1/quad_state` has to be published on all of them.
+        This used to be a second `_control_step` defined higher up the class,
+        which Python silently discarded in favour of the one below, so the
+        state topic stopped updating and the GUI fell back to reading the log.
+        """
+        try:
+            self._flight_step()
+        finally:
+            self._publish_state()
+
+    def _flight_step(self):
         """The operator flies while the PS4 deadman is held (detections still go to the rover); on release the quad
         plans from where it was left, with the stuck clock restarted."""
         if self.home is None and self.have_odom:

@@ -9,8 +9,9 @@ rover somewhere, and hand-driving either robot. Each camera fills the window
 on a double-click, which is what you want while flying by hand.
 """
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QHBoxLayout, QProgressBar, QPushButton,
-                               QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QProgressBar,
+                               QPushButton, QScrollArea, QStackedWidget,
+                               QVBoxLayout, QWidget)
 
 from ammo_gui_node import cards, contract as C, theme
 from ammo_gui_node.camera_panel import CameraPanel
@@ -27,6 +28,10 @@ class OperatorPage(QWidget):
     pause_toggled = Signal(bool)
     goal_clicked = Signal(float, float)
     teleop_armed = Signal(str, bool)
+    abort_requested = Signal()
+    resume_requested = Signal()
+    mark_requested = Signal()
+    queue_clicked = Signal(float, float)
 
     def __init__(self, link):
         super().__init__()
@@ -36,6 +41,10 @@ class OperatorPage(QWidget):
         self.world = None
         self.latest_quad_yolo = None
         self.latest_rover_frame = None
+        self.aborting = False
+        self.quads, self.rovers = 1, 1
+        self.cams = {}            # key -> CameraPanel, for a fleet
+        self.topdown_on = True
         self._build()
 
     # -- layout -------------------------------------------------------------
@@ -76,7 +85,11 @@ class OperatorPage(QWidget):
         self.layout_chip = cards.Chip('-')
         self.phase_chip = cards.Chip('', theme.AMBER)
         self.phase_chip.hide()
-        for chip in (self.mode_chip, self.world_chip, self.layout_chip, self.phase_chip):
+        self.abort_chip = cards.Chip('', theme.ACCENT)
+        self.abort_chip.set_colour(C.STATE_COLOURS[C.ABORT], C.STATE_COLOURS[C.ABORT])
+        self.abort_chip.hide()
+        for chip in (self.mode_chip, self.world_chip, self.layout_chip,
+                     self.phase_chip, self.abort_chip):
             lay.addWidget(chip)
         lay.addStretch(1)
 
@@ -85,10 +98,26 @@ class OperatorPage(QWidget):
         self.pause_button.clicked.connect(self._toggle_pause)
         lay.addWidget(self.pause_button)
 
-        stop = QPushButton('END MISSION')
-        stop.clicked.connect(self.end_mission.emit)
-        lay.addWidget(stop)
+        # Deliberately the loudest thing on the bar.
+        self.abort_button = QPushButton('\u2298  ABORT')
+        self.abort_button.setObjectName('Abort')
+        self.abort_button.setToolTip(
+            'Emergency stop: the skidsteer halts and the quadcopter lands '
+            'where it is')
+        self.abort_button.clicked.connect(self._on_abort)
+        lay.addWidget(self.abort_button)
+
+        self.end_button = QPushButton('END MISSION')
+        self.end_button.clicked.connect(self.end_mission.emit)
+        lay.addWidget(self.end_button)
         return bar
+
+    def _on_abort(self):
+        """One button, two jobs: stop everything, then offer to carry on."""
+        if self.aborting:
+            self.resume_requested.emit()
+        else:
+            self.abort_requested.emit()
 
     def _main_page(self):
         page = QWidget()
@@ -124,6 +153,7 @@ class OperatorPage(QWidget):
         self.quad_teleop = TeleopWidget(self.link, robot='quad')
         for panel in (self.rover_teleop, self.quad_teleop):
             panel.arm_changed.connect(self.teleop_armed.emit)
+        self.quad_teleop.mark_requested.connect(self.mark_requested.emit)
         self.rover_teleop_box = self._wrap(self.rover_teleop)
         self.quad_teleop_box = self._wrap(self.quad_teleop)
         self.rover_teleop_box.hide()
@@ -187,18 +217,82 @@ class OperatorPage(QWidget):
     def _centre_column(self):
         col = QVBoxLayout()
         col.setSpacing(14)
-        col.addWidget(self._map_panel(), 3)
+        # The cameras are the thing being watched; the map is a reference.
+        col.addWidget(self._map_panel(), 2)
 
-        cams = QHBoxLayout()
-        cams.setSpacing(14)
+        # A grid rather than a row: one skidsteer, up to four quadcopters and
+        # the camera looking down at the whole world do not fit side by side.
+        # Panels for robots this run does not have are hidden, not destroyed,
+        # so changing the counts between runs costs nothing.
+        self.cam_grid = QGridLayout()
+        self.cam_grid.setSpacing(12)
         self.rover_cam = CameraPanel('SKIDSTEER', C.HUSKY_CAM, theme.ACCENT)
         self.quad_cam = CameraPanel('QUADCOPTER', C.PARROT_CAM, theme.TEXT)
-        for cam in (self.rover_cam, self.quad_cam):
-            cam.setMinimumHeight(170)
+        self.topdown_cam = CameraPanel('OVERHEAD', C.TOPDOWN_TOPIC, theme.BLUE)
+        self.topdown_cam.set_show_boxes(False)
+        self.cams = {'rover1': self.rover_cam, 'quad1': self.quad_cam,
+                     'topdown': self.topdown_cam}
+        for i in range(2, C.MAX_QUADS + 1):
+            self.cams[f'quad{i}'] = CameraPanel(f'QUADCOPTER {i}',
+                                                C.quad_topic(i, 'camera/image'),
+                                                theme.TEXT)
+        for i in range(2, C.MAX_ROVERS + 1):
+            self.cams[f'rover{i}'] = CameraPanel(f'SKIDSTEER {i}',
+                                                 C.rover_topic(i, 'camera/image'),
+                                                 theme.ACCENT)
+        for cam in self.cams.values():
+            cam.setMinimumHeight(132)
             cam.expand_requested.connect(self._expand)
-            cams.addWidget(cam, 1)
-        col.addLayout(cams, 1)
+        col.addLayout(self.cam_grid, 3)
+        self._relayout_cams()
         return col
+
+    def _relayout_cams(self):
+        """Fit this run's cameras into as square a grid as they make."""
+        keys = ([f'rover{i}' for i in range(1, self.rovers + 1)]
+                + [f'quad{i}' for i in range(1, self.quads + 1)])
+        if self.topdown_on:
+            keys.append('topdown')
+        for key, cam in self.cams.items():
+            self.cam_grid.removeWidget(cam)
+            cam.setVisible(key in keys)
+        cols = cards.grid_columns(len(keys))
+        for n, key in enumerate(keys):
+            self.cam_grid.addWidget(self.cams[key], n // cols, n % cols)
+
+    def set_topdown_visible(self, on):
+        self.topdown_on = bool(on)
+        self._relayout_cams()
+
+    def _on_map_click(self, x, y):
+        if self.click_mode.isChecked():
+            self.queue_clicked.emit(x, y)
+        else:
+            self.goal_clicked.emit(x, y)
+
+    def _click_hint(self, collect):
+        self.click_hint.setText(
+            'Click to queue that point for the skidsteer to collect'
+            if collect else
+            'Click to send the skidsteer there  \u00b7  a new click replaces the last goal')
+
+    def _click_mode_button(self):
+        """What a click on the map means. Two useful things, one gesture.
+
+        GO sends the skidsteer there with its own Nav2 goal, which is what
+        the map click has always done. COLLECT puts the point on
+        `husky1/cage/waypoints` instead, so the rover treats it exactly like
+        a mushroom the quadcopter found - useful when you are driving rather
+        than flying and can see something the quad has not been over yet.
+        """
+        button = QPushButton('CLICK: GO')
+        button.setObjectName('Ghost')
+        button.setCheckable(True)
+        button.setToolTip('Switch between sending the skidsteer to a point '
+                          'and queueing that point for collection')
+        button.toggled.connect(
+            lambda on: button.setText('CLICK: COLLECT' if on else 'CLICK: GO'))
+        return button
 
     def _map_panel(self):
         panel = cards.panel()
@@ -211,8 +305,12 @@ class OperatorPage(QWidget):
         head.setSpacing(10)
         head.addWidget(cards.section('WORLD MAP'))
         head.addStretch(1)
-        head.addWidget(cards.label(
-            'Click to send the skidsteer there  ·  a new click replaces the last goal', 'Faint'))
+        self.click_hint = cards.label(
+            'Click to send the skidsteer there  ·  a new click replaces the last goal', 'Faint')
+        head.addWidget(self.click_hint)
+        self.click_mode = self._click_mode_button()
+        self.click_mode.toggled.connect(self._click_hint)
+        head.addWidget(self.click_mode)
         self.key_button = QPushButton('Key')
         self.key_button.setObjectName('Ghost')
         self.key_button.setCheckable(True)
@@ -223,7 +321,7 @@ class OperatorPage(QWidget):
         lay.addWidget(cards.hline())
 
         self.map = MapView(interactive=True, show_key=True)
-        self.map.clicked.connect(self.goal_clicked.emit)
+        self.map.clicked.connect(self._on_map_click)
         lay.addWidget(self.map, 1)
         return panel
 
@@ -261,7 +359,7 @@ class OperatorPage(QWidget):
 
     # -- full screen --------------------------------------------------------
     def _expand(self, panel):
-        self.big_which = 'rover' if panel is self.rover_cam else 'quad'
+        self.big_which = next((k for k, c in self.cams.items() if c is panel), 'rover1')
         self.big_cam.title = panel.title
         self.big_cam.topic = panel.topic
         self.big_cam.dot_colour = panel.dot_colour
@@ -296,6 +394,11 @@ class OperatorPage(QWidget):
         self.world_chip.setText(world)
         total = config.get('total') or len(config.get('points', []))
         self.layout_chip.setText(f"{config.get('layout', '-')} · {total} mushroom(s)")
+        self.quads = max(1, min(int(config.get('quads', 1) or 1), C.MAX_QUADS))
+        self.rovers = max(1, min(int(config.get('rovers', 1) or 1), C.MAX_ROVERS))
+        self._relayout_cams()
+        self.aborting = False
+        self._style_abort()
         self.rover_teleop_box.setVisible(self.mode == 'manual')
         self.map.clear()
         self.world = world
@@ -311,10 +414,41 @@ class OperatorPage(QWidget):
 
     def stop_mission(self):
         self.paused = False
+        self.aborting = False
+        self._style_abort()
         for panel in (self.rover_teleop, self.quad_teleop):
             panel.armed.setChecked(False)
         self._collapse()
         self._style_pause()
+
+    def set_aborting(self, on):
+        """Everything is stopping, or has been handed back."""
+        self.aborting = bool(on)
+        if self.aborting:
+            self.paused = False
+            self._style_pause()
+            for panel in (self.rover_teleop, self.quad_teleop):
+                panel.armed.setChecked(False)
+        self._style_abort('Stopping - quadcopter landing' if self.aborting else '')
+
+    def set_abort_done(self, text=''):
+        """Everything has actually come to rest."""
+        self._style_abort(text or 'All robots stopped')
+
+    def _style_abort(self, note=''):
+        self.abort_button.setText('RESUME' if self.aborting else '\u2298  ABORT')
+        self.abort_button.setObjectName('Resume' if self.aborting else 'Abort')
+        self.abort_button.style().unpolish(self.abort_button)
+        self.abort_button.style().polish(self.abort_button)
+        # Hidden rather than greyed out: a disabled PAUSE sitting beside the
+        # abort's own RESUME is two buttons that look like the same choice.
+        self.pause_button.setVisible(not self.aborting)
+        self.abort_chip.setVisible(bool(self.aborting))
+        if note:
+            self.abort_chip.setText(note.upper()[:44])
+        self.map.set_frozen(self.paused or self.aborting)
+        for panel in (self.rover_teleop, self.quad_teleop):
+            panel.set_blocked(self.paused or self.aborting)
 
     def _toggle_pause(self):
         self.paused = not self.paused
@@ -404,12 +538,12 @@ class OperatorPage(QWidget):
         if not self.paused:
             self.latest_rover_frame = image
         self.rover_cam.set_image(image)
-        if self.big_which == 'rover':
+        if self.big_which == 'rover1':
             self.big_cam.set_image(image)
 
     def on_quad_frame(self, image):
         self.quad_cam.set_image(image)
-        if self.big_which == 'quad':
+        if self.big_which == 'quad1':
             self.big_cam.set_image(image)
 
     # The detector's own annotated frames are not shown any more - the boxes
@@ -424,13 +558,31 @@ class OperatorPage(QWidget):
 
     def on_rover_detections(self, boxes):
         self.rover_cam.set_detections(boxes)
-        if self.big_which == 'rover':
+        if self.big_which == 'rover1':
             self.big_cam.set_detections(boxes)
 
     def on_quad_detections(self, boxes):
         self.quad_cam.set_detections(boxes)
-        if self.big_which == 'quad':
+        if self.big_which == 'quad1':
             self.big_cam.set_detections(boxes)
+
+    def on_fleet_frame(self, key, image):
+        panel = self.cams.get(key)
+        if panel is not None:
+            panel.set_image(image)
+        if self.big_which == key:
+            self.big_cam.set_image(image)
+
+    def on_fleet_pose(self, key, x, y, yaw, alt):
+        if key.startswith('quad'):
+            self.map.set_quad(x, y, yaw, alt)
+        else:
+            self.map.set_rover(x, y, yaw)
+
+    def on_topdown_frame(self, image):
+        self.topdown_cam.set_image(image)
+        if self.big_which == 'topdown':
+            self.big_cam.set_image(image)
 
     def on_rover_pose(self, x, y, yaw):
         self.map.set_rover(x, y, yaw)

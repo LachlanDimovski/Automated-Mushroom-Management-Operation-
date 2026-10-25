@@ -4,6 +4,7 @@ Runs headless against the stub ROS messages, so none of it needs a
 simulation, a display or a built workspace.
 """
 import json
+import math
 import os
 import sys
 
@@ -17,7 +18,7 @@ from PySide6.QtGui import QFocusEvent, QImage, QMouseEvent          # noqa: E402
 from render_windows import (FakeLink, fake_camera, mission_events,   # noqa: E402
                             mission_status)
 
-from ammo_gui_node import contract as C                             # noqa: E402
+from ammo_gui_node import contract as C, theme                     # noqa: E402
 from ammo_gui_node import mission_launcher as ml                    # noqa: E402
 from ammo_gui_node.camera_panel import CameraPanel                  # noqa: E402
 from ammo_gui_node.debug_window import DebugWindow                  # noqa: E402
@@ -570,7 +571,7 @@ try:
     check('the collision guard is left awake',
           all(n not in signals[-1][0] for n in ml.GUARD_NODES), signals[-1][0])
     check('the state is ready', launcher.state == ml.READY)
-    check('launching thaws them', launcher.launch() is True
+    check('launching releases them', launcher.launch() is True
           and signals[-1][1] == ml.signal.SIGCONT)
     check('and it is no longer holding', launcher.held is False)
     check('the state is running', launcher.state == ml.RUNNING)
@@ -580,7 +581,6 @@ try:
     launcher._run = lambda args, timeout: removed.append(args) or ''
     launcher.spawned = [('demo_mushroom_1', 1.0, 2.0)]
     launcher.end_mission(keep_sim=True)
-    check('ending re-freezes the nodes', signals[-1][1] == ml.signal.SIGSTOP)
     check('ending removes our mushrooms',
           any('demo_mushroom_1' in ' '.join(a) for a in removed), removed)
     check('ending keeps the simulation', launcher.state == ml.READY)
@@ -654,11 +654,13 @@ check('a flat world gives roughly zero',
       abs(ml.ground_z_at('forest_flat', 3.0, 3.0)) < 0.2,
       ml.ground_z_at('forest_flat', 3.0, 3.0))
 
-sdf = ml.topdown_sdf(40.0)
+sdf = ml.topdown_sdf(far=120.0)
 check('the top-down camera is static', '<static>true</static>' in sdf)
-check('it is pitched to look down', '0 0 40.00 0 1.5707963 0' in sdf, sdf[:300])
 check('it publishes where the GUI listens', C.TOPDOWN_TOPIC in sdf)
 check('its far plane clears the ground', '<far>120.0</far>' in sdf, sdf)
+# The pose is NOT in the SDF on purpose - `create` ignores it. This is the
+# bug that put the camera on the ground looking sideways into the trees.
+check('the model carries no pose of its own', '<pose>' not in sdf, sdf[:400])
 
 placer = ml.MissionLauncher()
 placer.state, placer.world = ml.READY, 'forest_random'
@@ -864,11 +866,14 @@ class FakeLauncher:
     def __init__(self, logger=None):
         self.log = logger or (lambda _m: None)
         self.state, self.held, self.world = ml.IDLE, False, None
+        self.quads, self.rovers = 1, 1
         self.nodes_running = False
         self.calls, self.placed, self.cleared = [], [], False
         self.spawned = []
 
-    def prepare(self, world, show_sim=True, options=None, tool='gripper'):
+    def prepare(self, world, show_sim=True, options=None, tool='gripper',
+                quads=1, rovers=1):
+        self.quads, self.rovers = int(quads), int(rovers)
         if self.state in (ml.READY, ml.RUNNING) and self.world == world:
             self.calls.append('reuse')
             return 'reused'
@@ -921,6 +926,9 @@ class FakeLauncher:
     def stop_topdown(self):
         self.calls.append('photo off')
 
+    def topdown_running(self):
+        return 'photo' in self.calls and self.calls[-1] != 'photo off'
+
     def prepared(self):
         return self.state in (ml.READY, ml.RUNNING)
 
@@ -957,59 +965,58 @@ check('and shows the ready page',
 check('the bridge is told we are preparing',
       fake_link.commands[-1] == {'cmd': 'prepare', 'stage': 'preparing'})
 
-# Gazebo is up but the mission nodes have not started yet.
-fake_link.probe = {'sim': True}
-app_under_test._probe_tick()
-check('nothing is held before the nodes exist', fake_launcher.held is False)
-
-# The moment they appear they are frozen - this is the bug that let the
-# quadcopter take off and fly a search pattern while the page said PREPARING.
-fake_launcher.nodes_running = True
-app_under_test._probe_tick()
-check('the nodes are held the instant they appear', fake_launcher.held is True)
-check('and zero velocity is published so nothing coasts',
+# Both robots are held from the first instant, before any node exists. This
+# is the whole fix: there is no window in which the quadcopter can take off,
+# because the stand-down heartbeat is already going out when its node starts.
+check('both robots are stood down immediately',
+      fake_link.standdown == {'quad1', 'rover1'}, fake_link.standdown)
+check('and zero velocity goes with it, because VelocityControl latches',
       fake_link.holding is True)
 check('the page says so', 'will not move' in app_under_test.ready.note.text())
-check('but it is not ready yet - held is not ready',
+check('nothing was frozen to achieve it', 'hold' not in fake_launcher.calls,
+      fake_launcher.calls)
+check('it is not ready yet - held is not ready',
       app_under_test.phase == 'preparing')
 check('and the mushrooms are not in the world yet',
       'spawn' not in fake_launcher.calls, fake_launcher.calls)
 
-holds_before = len(fake_link.hold_log)
+fake_link.probe = {'sim': True}
+fake_launcher.nodes_running = True
 app_under_test._probe_tick()
-app_under_test._probe_tick()
-check('the hold is not re-announced every tick',
-      len(fake_link.hold_log) == holds_before, fake_link.hold_log)
+check('a partial checklist leaves it preparing', app_under_test.phase == 'preparing')
+check('and still held', fake_link.standdown == {'quad1', 'rover1'})
 
 # everything else arrives
 fake_link.probe = {k: True for k in CHECK_KEYS}
 app_under_test._probe_tick()
 check('a full checklist reaches ready', app_under_test.phase == 'ready')
 check("the world's own mushrooms were cleared first", fake_launcher.cleared is True)
-check('ours were spawned after the hold',
-      fake_launcher.calls.index('spawn') > fake_launcher.calls.index('hold'),
+check('ours were spawned while the robots were held',
+      'spawn' in fake_launcher.calls and fake_link.standdown == {'quad1', 'rover1'},
       fake_launcher.calls)
 check('and the photo is taken after that',
       fake_launcher.calls.index('photo') > fake_launcher.calls.index('spawn'))
-check('the robots are still held', fake_link.holding is True)
+check('the robots are still held', fake_link.holding is True
+      and fake_link.standdown == {'quad1', 'rover1'})
 check('the bridge is told we are held',
       {'cmd': 'prepare', 'stage': 'ready'} in fake_link.commands)
 check('no mission has started yet',
       not any(c.get('cmd') == 'start' for c in fake_link.commands))
 
 app_under_test.launch_mission()
-check('launching thaws the nodes', fake_launcher.calls[-1] == 'launch'
-      or 'launch' in fake_launcher.calls, fake_launcher.calls)
+check('launching releases the nodes', 'launch' in fake_launcher.calls,
+      fake_launcher.calls)
 check('and stops the zero hold first',
       fake_link.hold_log[-1] is False, fake_link.hold_log)
+check('and hands both robots back', fake_link.standdown == set(),
+      fake_link.standdown)
 start = [c for c in fake_link.commands if c.get('cmd') == 'start']
 check('the bridge is told to start the clock', len(start) == 1, start)
 check('with the mushrooms that actually landed', start[0]['total'] == 1, start)
 check('and the mission page is shown',
       app_under_test.stack.currentWidget() is app_under_test.operator)
-check('the top-down camera is taken out before the mission runs',
-      fake_launcher.calls.index('photo off') < fake_launcher.calls.index('launch'),
-      fake_launcher.calls)
+check('the overhead camera is left up as the fourth feed',
+      'photo off' not in fake_launcher.calls, fake_launcher.calls)
 
 app_under_test.finish_mission()
 check('ending zeros the robots rather than leaving them coasting',
@@ -1028,14 +1035,269 @@ second.nodes_running = True
 fake_link.probe = {'sim': True, 'nodes': True}
 app_under_test._probe_tick()
 check('still only preparing', app_under_test.phase == 'preparing')
+check('and still holding both robots', fake_link.standdown == {'quad1', 'rover1'})
 app_under_test.launch_mission()
-check('launching anyway still freezes the nodes first',
-      second.calls.index('hold') < second.calls.index('launch'), second.calls)
-check('and still spawns the mushrooms',
+check('launching anyway still spawns the mushrooms first',
       second.calls.index('spawn') < second.calls.index('launch'), second.calls)
 check('but does not stop to take a photo it has no time to show',
       'photo' not in second.calls, second.calls)
 check('the mission is running', app_under_test.phase == 'running')
+
+# ------------------------------------------------- the detector's classes --
+section("the detector's own class names")
+
+# The weights say what they emit; the GUI has to agree or every box falls
+# through to the unknown-class colour. This is the bug that drew every
+# invasive mushroom in blue while the README said they were red.
+check('the invasive class is the one the weights emit',
+      C.DET_INVASIVE == 'amanita_muscaria_red', C.DET_INVASIVE)
+check('and it is red', C.DET_COLOURS[C.DET_INVASIVE] == '#D63434')
+check('the native class is teal', C.DET_COLOURS[C.DET_NATIVE] == '#46A08A')
+check('neither falls through to the unknown colour',
+      C.DET_COLOURS[C.DET_INVASIVE] != C.DET_DEFAULT_COLOUR
+      and C.DET_COLOURS[C.DET_NATIVE] != C.DET_DEFAULT_COLOUR)
+check('the older spellings still colour, for a different weights file',
+      C.DET_COLOURS.get('mushroom_amanita') == '#D63434')
+
+cam = CameraPanel('X', 'x', theme.ACCENT)
+cam.set_detections([{'cx': 10.0, 'cy': 10.0, 'w': 8.0, 'h': 8.0,
+                     'label': C.DET_INVASIVE, 'score': 0.9}])
+check('a real invasive box reaches the panel',
+      cam.detections[0]['label'] == C.DET_INVASIVE)
+
+# ------------------------------------------------ holding robots still -----
+section('the stand-down, instead of stopping processes')
+
+check('both heartbeat topics are the robots\' own',
+      C.PARROT_TELEOP == 'parrot1/teleop_active'
+      and C.HUSKY_TELEOP == 'husky1/teleop_active')
+check('beaten faster than their 0.5 s hold', C.TELEOP_HZ >= 2.0)
+check('the mark topic is theirs too', C.PARROT_MARK == 'parrot1/teleop_mark')
+
+hold_link = FakeLink()
+hold_link.set_fleet(3, 2)
+check('a fleet names every robot',
+      hold_link.robot_keys() == ['quad1', 'quad2', 'quad3', 'rover1', 'rover2'],
+      hold_link.robot_keys())
+hold_link.set_standdown('all', True)
+check('holding everything holds every robot',
+      hold_link.standdown == set(hold_link.robot_keys()))
+hold_link.set_standdown('quads', False)
+check('releasing the quads leaves the rovers held',
+      hold_link.standdown == {'rover1', 'rover2'}, hold_link.standdown)
+hold_link.set_standdown('rover', False)
+check("'rover' means the first one only", hold_link.standdown == {'rover2'})
+
+tele = TeleopWidget(FakeLink(), robot='quad')
+check('the quad panel has a MARK button', tele.mark_button is not None)
+marked = []
+tele.mark_requested.connect(lambda: marked.append(1))
+tele.mark_button.click()
+check('and it asks for a mark', marked == [1])
+tele.armed.setChecked(True)
+tele.armed.setChecked(False)
+check('disarming the quad panel releases the heartbeat',
+      tele.link.quad_active and tele.link.quad_active[-1] is False,
+      tele.link.quad_active)
+
+# ----------------------------------------------------------------- abort ---
+section('the emergency stop')
+
+check('abort has its own state, colour and label',
+      C.ABORT in C.STATE_ORDER and C.ABORT in C.STATE_COLOURS
+      and C.ABORT in C.STATE_LABELS)
+check('and a colour nothing else uses',
+      list(C.STATE_COLOURS.values()).count(C.STATE_COLOURS[C.ABORT]) == 1)
+check('the timeline draws a mark for it', C.EV_ABORT in
+      __import__('ammo_gui_node.timeline', fromlist=['MARKED']).MARKED)
+
+abort_tl = Timeline()
+abort_tl.apply_events([
+    {'t': 0.0, 'kind': C.EV_MISSION_START},
+    {'t': 0.0, 'kind': C.EV_STATE, 'state': C.SEARCH},
+    {'t': 40.0, 'kind': C.EV_ABORT, 'x': 1.0, 'y': 2.0},
+    {'t': 40.0, 'kind': C.EV_STATE, 'state': C.ABORT},
+    {'t': 52.0, 'kind': C.EV_ABORT_DONE},
+])
+abort_tl.set_now(52.0, False, C.ABORT, '', 40.0)
+kinds = [k for _t, k, _l in abort_tl.markers]
+check('the stop sign is on the timeline', 'abort' in kinds, kinds)
+band = [(t0, t1, st) for t0, t1, st in abort_tl.segments if st == C.ABORT]
+check('and the band starts when the button was pressed',
+      band and abs(band[0][0] - 40.0) < 0.01, abort_tl.segments)
+
+# the window's own abort sequencing
+ab_link, ab_launch = FakeLink(), FakeLauncher()
+app_under_test.link, app_under_test.launcher = ab_link, ab_launch
+app_under_test.operator.link = ab_link
+app_under_test.mission_running = True
+app_under_test.aborting = False
+app_under_test.status = {'rover': {'speed': 0.9}, 'quad': {'alt': 2.4}}
+app_under_test.abort()
+check('abort holds every robot', ab_link.standdown == {'quad1', 'rover1'},
+      ab_link.standdown)
+check('and zeros them', ab_link.holding is True)
+check('and flies the quadcopter down', ab_link.descending is True)
+check('the bridge is told', any(c.get('cmd') == 'abort' for c in ab_link.commands))
+check('the page shows it', app_under_test.operator.aborting is True)
+check('pause is taken away while it stops - two resume-looking buttons '
+      'side by side is a choice nobody should have to make',
+      app_under_test.operator.pause_button.isHidden() is True)
+
+app_under_test._abort_tick()
+check('a moving rover is not finished', app_under_test.abort_done is False)
+ab_link.agl = 0.02
+app_under_test.status = {'rover': {'speed': 0.0}, 'quad': {'alt': 0.02}}
+app_under_test._abort_tick()
+check('nor is one that only just stopped', app_under_test.abort_done is False)
+app_under_test._still_since -= C.ABORT_SETTLE_S + 0.1
+app_under_test._abort_tick()
+check('but a settled one is', app_under_test.abort_done is True)
+check('the descent stops once it is down', ab_link.descending is False)
+check('and the bridge hears about it',
+      any(c.get('cmd') == 'abort_done' for c in ab_link.commands))
+
+app_under_test.resume_from_abort()
+check('resuming hands the robots back', ab_link.standdown == set())
+check('and lifts the zeros', ab_link.holding is False)
+check('and tells the bridge', any(c.get('cmd') == 'abort_clear' for c in ab_link.commands))
+check('and the button goes back to ABORT',
+      'ABORT' in app_under_test.operator.abort_button.text())
+
+# ------------------------------------------------------- manual capture ----
+section('marking a mushroom by hand')
+
+app_under_test.mark_for_capture()
+check('marking asks the quad, not the GUI\'s own maths',
+      ab_link.marks == ['quad1'], ab_link.marks)
+check('and it is announced', any(c.get('cmd') == 'marked' for c in ab_link.commands))
+app_under_test.queue_waypoint(4.0, -2.0)
+check('a map click queues a point for the rover',
+      ab_link.waypoints == [(4.0, -2.0)], ab_link.waypoints)
+
+page2 = OperatorPage(FakeLink())
+queued, drove = [], []
+page2.queue_clicked.connect(lambda x, y: queued.append((x, y)))
+page2.goal_clicked.connect(lambda x, y: drove.append((x, y)))
+page2._on_map_click(1.0, 2.0)
+check('by default a click drives the rover there', drove == [(1.0, 2.0)] and not queued)
+page2.click_mode.setChecked(True)
+page2._on_map_click(3.0, 4.0)
+check('in COLLECT mode it queues instead', queued == [(3.0, 4.0)] and len(drove) == 1)
+check('and the hint says which', 'collect' in page2.click_hint.text().lower(),
+      page2.click_hint.text())
+
+# ------------------------------------------------------------- the fleet --
+section('more than one of each robot')
+
+check('the namespaces are their launch file\'s own',
+      [C.quad_ns(i) for i in (1, 2)] == ['parrot1', 'parrot2']
+      and [C.rover_ns(i) for i in (1, 2)] == ['husky1', 'r2/husky1'])
+check('the ceilings match theirs too', (C.MAX_QUADS, C.MAX_ROVERS) == (4, 5))
+
+built.clear()
+ml.subprocess.Popen = fake_popen
+ml.sim_already_running = lambda: False
+try:
+    one = ml.MissionLauncher()
+    one.prepare('forest_random', quads=1, rovers=1)
+    check('one of each still runs the single-robot launch',
+          'cage_mission.launch.py' in built['cmd'], built['cmd'][:4])
+
+    fleet = ml.MissionLauncher()
+    fleet.prepare('forest_random', quads=3, rovers=2, show_sim=False)
+    cmd = built['cmd']
+    check('more than one runs their fleet launch',
+          'fleet_mission.launch.py' in cmd, cmd[:4])
+    check('with the counts passed', 'quads:=3' in cmd and 'rovers:=2' in cmd, cmd)
+    check('and still headless when asked', 'headless:=true' in cmd, cmd)
+    check('the launcher remembers the counts', (fleet.quads, fleet.rovers) == (3, 2))
+
+    over = ml.MissionLauncher()
+    over.prepare('forest_random', quads=9, rovers=9)
+    check('asking for more than their launch allows is clamped',
+          (over.quads, over.rovers) == (C.MAX_QUADS, C.MAX_ROVERS),
+          (over.quads, over.rovers))
+
+    # shutdown() reaches for ign service; with Popen faked that is not a
+    # thing this test can let happen.
+    fleet._run = lambda args, timeout: ''
+    fleet._signal = lambda names, sig: None
+    fleet.state = ml.READY
+    check('the same world and counts is a reusable simulation',
+          fleet.prepare('forest_random', quads=3, rovers=2) == 'reused')
+    check('but changing the counts is not',
+          fleet.prepare('forest_random', quads=2, rovers=2) != 'reused')
+finally:
+    ml.subprocess.Popen = real_popen
+    ml.sim_already_running = real_running
+
+fleet_page = OperatorPage(FakeLink())
+fleet_page.start_mission({'world': 'forest_random', 'layout': 'x', 'mode': 'autonomous',
+                          'points': [], 'total': 0, 'quads': 3, 'rovers': 2})
+shown = [k for k, c in fleet_page.cams.items() if not c.isHidden()]
+check('every robot of the fleet gets a camera panel',
+      set(shown) >= {'quad1', 'quad2', 'quad3', 'rover1', 'rover2'}, shown)
+check('and a fourth-robot panel is not shown', 'quad4' not in shown, shown)
+fleet_page.on_fleet_frame('quad2', fake_camera())
+check('frames reach the right panel', fleet_page.cams['quad2'].image is not None)
+fleet_page.start_mission({'world': 'forest_random', 'layout': 'x', 'mode': 'autonomous',
+                          'points': [], 'total': 0, 'quads': 1, 'rovers': 1})
+shown = [k for k, c in fleet_page.cams.items() if not c.isHidden()]
+check('going back to one of each hides the rest',
+      'quad2' not in shown and 'quad1' in shown, shown)
+
+# the setup page offers the counts and sends them on
+counts = HomePage()
+counts.quad_count.setValue(2)
+counts.rover_count.setValue(2)
+sent2 = []
+counts.prepare_requested.connect(sent2.append)
+counts._launch()
+check('the spinners are sent with the run',
+      sent2[-1]['quads'] == 2 and sent2[-1]['rovers'] == 2, sent2[-1])
+check('and the page says a fleet is what will start',
+      'fleet' in counts.robot_hint.text().lower(), counts.robot_hint.text())
+counts.quad_count.setValue(1)
+counts.rover_count.setValue(1)
+check('and says the plain thing for one of each',
+      'one of each' in counts.robot_hint.text().lower(), counts.robot_hint.text())
+check('the spinners do not offer more than their launch allows',
+      counts.quad_count.maximum() == C.MAX_QUADS
+      and counts.rover_count.maximum() == C.MAX_ROVERS)
+
+# ------------------------------------------- where a mushroom may land -----
+section('keeping mushrooms off the ponds, trees and clutter')
+
+import json as _json                                                  # noqa: E402
+_meta = _json.load(open(_paths.FOREST_META))
+_rolled = ml.shuffle_mushrooms('forest_random', 5, seed=11)
+check('it still places what it was asked for', len(_rolled) == 5, _rolled)
+
+_ponds = _meta['ponds']
+check('nothing lands on a pond or its shore',
+      all(math.hypot(x - p['x'], y - p['y']) >= p['shore_radius']
+          for x, y in _rolled for p in _ponds),
+      [(x, y, round(min(math.hypot(x - p['x'], y - p['y']) - p['shore_radius']
+                        for p in _ponds), 2)) for x, y in _rolled])
+
+_solid = [o for o in _meta['objects'] if o['type'] in ml.SOLID_TYPES]
+_worst = min(math.hypot(x - o['x'], y - o['y']) - float(o.get('radius') or 0.3)
+             for x, y in _rolled for o in _solid)
+check('and everything keeps clear of every solid object, not just trees',
+      _worst >= ml.SHUFFLE_CLEAR_M, f'closest edge {_worst:.2f} m')
+check('logs and fallen trees are among them',
+      'log' in ml.SOLID_TYPES and 'fallen_tree' in ml.SOLID_TYPES)
+check('a decoy counts too - a mushroom beside one confuses the detector',
+      'decoy' in ml.SOLID_TYPES)
+
+_keep = ml._keep_out('forest_random')
+check('the keep-out list covers the ponds as well as the objects',
+      len(_keep) >= len(_solid) + len(_ponds), (len(_keep), len(_solid), len(_ponds)))
+check('a crowded world returns fewer rather than looping forever',
+      len(ml.shuffle_mushrooms('forest_random', 60, seed=5)) < 60)
+check('a world with no meta at all still answers',
+      ml.shuffle_mushrooms('nope', 3, seed=1) is not None)
 
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:

@@ -186,6 +186,12 @@ class MissionBridge(Node):
         # instead of drawing an empty timeline.
         self.phase = 'idle'
         self.paused = False
+        # Abort has two moments, and the timeline needs both: the press, and
+        # the point where everything has actually come to rest. The clock
+        # keeps running between them - that stretch is the stopping, and it
+        # is the thing worth seeing - and stops when the robots do.
+        self.aborting = False
+        self.abort_done = False
         self.mode = 'autonomous'
         self.world = ''
         self.layout = ''
@@ -259,6 +265,7 @@ class MissionBridge(Node):
             self.running = False
             self.phase = 'ready'
             self.paused = False
+            self.aborting = self.abort_done = False
             self._paused_at = None
             self._set_state(C.IDLE)
 
@@ -284,6 +291,42 @@ class MissionBridge(Node):
                                text='Skidsteer reached the goal - back on the mushroom queue')
             self.operator_goal = None
 
+        elif kind == 'abort':
+            if self.running and not self.aborting:
+                self.aborting, self.abort_done = True, False
+                x, y = (self.rover_odom.pose.pose.position.x,
+                        self.rover_odom.pose.pose.position.y) if self.rover_odom else (0.0, 0.0)
+                self._add_marker(C.MK_ABORT, x, y)
+                self.operator_goal = None
+                self._emit(C.EV_ABORT, x=round(x, 2), y=round(y, 2),
+                           text='EMERGENCY STOP - rover halted, quadcopter landing')
+                self._set_state(C.ABORT)
+
+        elif kind == 'abort_done':
+            if self.aborting and not self.abort_done:
+                self.abort_done = True
+                # Now the clock stops. Everything between the press and here
+                # was the robots still moving, which belongs on the timeline.
+                if self._paused_at is None:
+                    self._paused_at = time.monotonic()
+                self._emit(C.EV_ABORT_DONE,
+                           text=str(cmd.get('text')
+                                    or 'All robots stopped - the quadcopter is on the ground'))
+
+        elif kind == 'abort_clear':
+            if self.aborting:
+                if self._paused_at is not None:
+                    self._paused_total += time.monotonic() - self._paused_at
+                self._paused_at = None
+                self.aborting = self.abort_done = False
+                self._emit(C.EV_RESUME, text='Resumed after the emergency stop')
+
+        elif kind == 'marked':
+            x, y = float(cmd.get('x', 0.0)), float(cmd.get('y', 0.0))
+            self._emit(C.EV_MARKED, x=round(x, 2), y=round(y, 2),
+                       text=str(cmd.get('text')
+                                or 'Operator sent the mushroom in view to the rover'))
+
         elif kind == 'note':
             self._emit(C.EV_NOTE, text=str(cmd.get('text', ''))[:200])
 
@@ -291,6 +334,7 @@ class MissionBridge(Node):
         self.running = True
         self.phase = 'running'
         self.paused = False
+        self.aborting = self.abort_done = False
         self.mode = cmd.get('mode', 'autonomous')
         self.world = cmd.get('world', '')
         self.layout = cmd.get('layout', '')
@@ -665,6 +709,10 @@ class MissionBridge(Node):
         return C.QUAD_WAITING
 
     def _mission_state(self):
+        # Abort outranks even pause: whatever else is true, the operator hit
+        # the stop and that is what the band should say.
+        if self.aborting:
+            return C.ABORT
         if self.paused:
             return C.PAUSED
         if not self.running:
@@ -740,6 +788,8 @@ class MissionBridge(Node):
             'running': self.running,
             'phase': self.phase,
             'paused': self.paused,
+            'aborting': self.aborting,
+            'abort_done': self.abort_done,
             'mode': self.mode,
             'world': self.world,
             'layout': self.layout,

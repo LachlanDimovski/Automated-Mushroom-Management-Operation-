@@ -16,6 +16,8 @@ visually even though it is one state underneath.
 Event markers sit above the bar at the moment they happened.
 """
 
+import math
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
@@ -38,6 +40,8 @@ MARKED = {
     C.EV_FORD: 'ford',
     C.EV_WEDGED: 'wedged',
     C.EV_OPERATOR_GOAL: 'goal',
+    C.EV_ABORT: 'abort',
+    C.EV_MARKED: 'marked',
 }
 
 
@@ -217,6 +221,30 @@ class Timeline(QWidget):
             p.drawRoundedRect(QRectF(x - 7, y - 8, 14, 5.5), 1.6, 1.6)
             p.drawEllipse(QPointF(x - 4, y - 1.6), 2.2, 2.2)
             p.drawEllipse(QPointF(x + 4, y - 1.6), 2.2, 2.2)
+        elif kind == 'abort':
+            self._stop_sign(p, x, y - 5.5, 6.2)
+        elif kind == 'marked':
+            # a cap with a ring round it: the operator pointed at this one
+            self._cap(p, x, y, QColor(theme.AMBER))
+            pen = QPen(QColor(theme.AMBER), 1.2)
+            pen.setDashPattern([1.5, 1.5])
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(QPointF(x, y - 5), 8.0, 8.0)
+
+    def _stop_sign(self, p, cx, cy, r):
+        """An octagon with a bar across it - the one symbol nobody misreads."""
+        path = QPainterPath()
+        for i in range(8):
+            a = math.pi / 8.0 + i * math.pi / 4.0
+            px, py = cx + r * math.cos(a), cy + r * math.sin(a)
+            path.moveTo(px, py) if i == 0 else path.lineTo(px, py)
+        path.closeSubpath()
+        p.setPen(QPen(QColor(theme.CREAM), 1.1))
+        p.setBrush(QBrush(QColor(C.STATE_COLOURS[C.ABORT])))
+        p.drawPath(path)
+        p.setPen(QPen(QColor(theme.CREAM), 1.8, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(cx - r * 0.5, cy), QPointF(cx + r * 0.5, cy))
 
     def _cap(self, p, x, y, colour):
         p.setPen(Qt.NoPen)

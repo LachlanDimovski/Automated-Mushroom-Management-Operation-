@@ -12,8 +12,21 @@ Only then does it freeze the two mission node processes, spawn the mushrooms
 and photograph the result from above. Nothing has searched, driven or been
 timed at that point.
 
-**Launch** thaws those two processes and starts the clock, so the first
-second of the mission is a second in which something actually happens.
+**Launch** releases them and starts the clock, so the first second of the
+mission is a second in which something actually happens.
+
+Holding a robot still is done with the robots' own `teleop_active`
+stand-down, the same heartbeat the PS4 controller uses: while it keeps
+arriving, `rover_capture_node` and `zcam_quad_node` stop commanding their
+robot and, when it stops, re-plan from where they were left. That is how
+Prepare, Pause, Abort and hand-driving all hold a robot, and it is much
+better than stopping the process: a standing-down node keeps its timers, its
+clock and its Nav2 connection, and the quad goes on reporting sightings to
+the rover the whole time.
+
+It does not stop a robot on its own, though. Gazebo's VelocityControl keeps
+the last command it was given forever, so whoever holds the heartbeat also
+publishes the zeros.
 
 Ending a mission freezes them again and takes the mushrooms out, but leaves
 the simulation up: preparing the same world a second time is instant.
@@ -33,8 +46,7 @@ from PySide6.QtWidgets import QApplication, QStackedWidget
 from ammo_gui_node import contract as C
 from ammo_gui_node import theme
 from ammo_gui_node.home_page import HomePage
-from ammo_gui_node.mission_launcher import (QUAD_NODES, ROVER_NODES,
-                                            MissionLauncher, world_meta,
+from ammo_gui_node.mission_launcher import (MissionLauncher, world_meta,
                                             world_mushrooms)
 # aliased: this module has a slot of the same name, and a bare call that
 # resolved to the module function by luck is not worth reading twice
@@ -44,6 +56,7 @@ from ammo_gui_node.ready_page import ReadyPage
 from ammo_gui_node.ros_bridge import RosLink
 
 HEALTH_MS = 2000
+ABORT_WATCH_MS = 250   # how often an abort checks whether everything stopped
 # Twice a second, not once: the gap between the mission nodes appearing and
 # the quadcopter leaving the ground is only a few seconds, and that gap is
 # what the prepare stage has to get inside.
@@ -78,6 +91,11 @@ class OperatorApp:
         self._prepare_t0 = 0.0
         self._photo_wait = False
         self._held_said = False       # the hold has been announced on the page
+        self.aborting = False
+        self.abort_done = False
+        self._abort_t0 = 0.0
+        self._still_since = None
+        self.status = {}
 
         self.home.prepare_requested.connect(self.begin_prepare)
         self.ready.launch_requested.connect(self.launch_mission)
@@ -88,6 +106,10 @@ class OperatorApp:
         self.operator.pause_toggled.connect(self.set_paused)
         self.operator.goal_clicked.connect(self.send_goal)
         self.operator.teleop_armed.connect(self.set_hand_flown)
+        self.operator.abort_requested.connect(self.abort)
+        self.operator.resume_requested.connect(self.resume_from_abort)
+        self.operator.mark_requested.connect(self.mark_for_capture)
+        self.operator.queue_clicked.connect(self.queue_waypoint)
 
         self.link.status_updated.connect(self.operator.apply_status)
         self.link.event_received.connect(self.operator.apply_event)
@@ -102,6 +124,9 @@ class OperatorApp:
         self.link.quad_detections.connect(self.operator.on_quad_detections)
         self.link.nav_goal_finished.connect(self.on_goal_finished)
         self.link.topdown_frame.connect(self.on_topdown)
+        self.link.fleet_frame.connect(self.operator.on_fleet_frame)
+        self.link.fleet_pose.connect(self.operator.on_fleet_pose)
+        self.link.status_updated.connect(self._note_status)
 
         # The launch runs detached with its output in a file, so the only way
         # to notice it died - Gazebo failing to open a window, most often - is
@@ -114,6 +139,10 @@ class OperatorApp:
         self.probe = QTimer(self.stack)
         self.probe.timeout.connect(self._probe_tick)
 
+        # Only runs between an abort and everything coming to rest.
+        self.abort_watch = QTimer(self.stack)
+        self.abort_watch.timeout.connect(self._abort_tick)
+
         self.link.start()
 
     def _log(self, message):
@@ -123,6 +152,9 @@ class OperatorApp:
 
     def _note_rover_pose(self, x, y, _yaw):
         self.rover_at = (x, y)
+
+    def _note_status(self, status):
+        self.status = status
 
     def _check_health(self):
         warning = self.launcher.health_warning()
@@ -143,17 +175,31 @@ class OperatorApp:
     def begin_prepare(self, config):
         self.config = config
         world = config.get('world', 'simple_trees')
+        quads = int(config.get('quads', 1) or 1)
+        rovers = int(config.get('rovers', 1) or 1)
+        self.link.set_fleet(quads, rovers)
+        # Hold every robot from this moment, before a single node exists. The
+        # heartbeat is harmless until something subscribes to it, and holding
+        # from the start is what stops the quadcopter taking off during the
+        # thirty seconds the checklist takes - there is no window to lose.
+        self.link.set_standdown('all', True)
+        self.link.set_holding(True)
         started = self.launcher.prepare(world,
                                         show_sim=config.get('show_sim', True),
                                         options=config.get('options'),
-                                        tool=config.get('tool', 'gripper'))
+                                        tool=config.get('tool', 'gripper'),
+                                        quads=quads, rovers=rovers)
         if started is None:
+            self.link.set_standdown('all', False)
+            self.link.set_holding(False)
             return
         self.phase = 'preparing'
         self.placed = []
         self._prepare_t0 = time.monotonic()
         self._held_said = False
         self.ready.begin(config)
+        self.ready.set_held()
+        self._held_said = True
         self.stack.setCurrentWidget(self.ready)
         self.link.publish_command({'cmd': 'prepare', 'stage': 'preparing'})
         self.probe.start(PROBE_MS)
@@ -166,30 +212,17 @@ class OperatorApp:
         probe = self.link.probe_readiness()
         # The one check the ROS graph cannot answer: our own child processes.
         probe['nodes'] = self.launcher.mission_nodes_up()
-        if probe['nodes']:
-            self._hold_robots()
         if self.ready.apply_probe(probe, time.monotonic() - self._prepare_t0):
             self.probe.stop()
             self._hold_and_place()
 
     def _hold_robots(self):
-        """Freeze both mission nodes the moment they exist, and hold zero.
-
-        Both halves matter. Freezing stops the nodes deciding anything;
-        the zero-velocity hold stops the robots coasting, because Gazebo's
-        VelocityControl plugin keeps its last command forever and a node
-        frozen one second into a take-off leaves a quadcopter climbing with
-        nobody flying it.
-        """
-        self.launcher.hold_nodes()
-        # Once per prepare, not once per tick: the page's note is also where
-        # "launch anyway" explains itself, and that must not be overwritten
-        # every half second.
-        if not self.launcher.held or self._held_said:
-            return
-        self._held_said = True
+        """Hold every robot of this run still, and keep it held."""
+        self.link.set_standdown('all', True)
         self.link.set_holding(True)
-        self.ready.set_held()
+        if not self._held_said:
+            self._held_said = True
+            self.ready.set_held()
 
     def _hold_and_place(self, photo=True):
         """Hold here: mission nodes frozen, mushrooms in, photo taken."""
@@ -256,19 +289,21 @@ class OperatorApp:
         QTimer.singleShot(int(PHOTO_WAIT_S * 1000), self._photo_timeout)
 
     def on_topdown(self, image):
+        # The camera stays up for the whole run now, so every frame goes to
+        # the mission page's overhead panel. The ready page only wants the
+        # first one, to show what the spawn looks like.
+        self.operator.on_topdown_frame(image)
         if not self._photo_wait:
             return
         self._photo_wait = False
         self.ready.set_photo(image)
-        # One frame is all we wanted; leaving the camera there costs frames
-        # the two real cameras need.
-        self.launcher.stop_topdown()
 
     def _photo_timeout(self):
         if not self._photo_wait:
             return
         self._photo_wait = False
-        self.launcher.stop_topdown()
+        # The camera itself is left running: if a frame turns up late it
+        # still has somewhere useful to go.
         self.ready.photo_failed(
             f'No frame from Gazebo in {PHOTO_WAIT_S:.0f} s - headless or software '
             'rendering usually means no camera at all. The drawing below is the '
@@ -285,6 +320,7 @@ class OperatorApp:
             # with it; while the simulation stays up the hold stays on, which
             # is what keeps the robots still on the setup page.
             self.link.set_holding(False)
+            self.link.set_standdown('all', False)
             self.launcher.shutdown()
         self.phase = 'setup' if not self.launcher.prepared() else 'ready'
         self.link.publish_command({'cmd': 'prepare', 'stage': 'idle'})
@@ -302,13 +338,13 @@ class OperatorApp:
         if self.phase == 'preparing':
             self.probe.stop()
             self._hold_and_place(photo=False)   # about to launch; no time to look
-        # A camera still hanging over the world costs frames the two real
-        # cameras need, and nobody is looking at the photo now.
+        # The photo is taken; the camera stays up as the fourth live feed.
         self._photo_wait = False
-        self.launcher.stop_topdown()
         # The hold has to stop before the nodes do anything, or our zeros and
-        # their commands take turns and the robots twitch.
+        # their commands take turns and the robots twitch. Zeros first, then
+        # the heartbeat, so nothing is driven in the gap between.
         self.link.set_holding(False)
+        self.link.set_standdown('all', False)
         if not self.launcher.launch():
             self._log('nothing to launch - the simulation is not held and ready')
             return
@@ -327,6 +363,9 @@ class OperatorApp:
         self.phase = 'running'
         self.mission_running = True
         self.flown_by_hand.clear()
+        config['quads'] = self.launcher.quads
+        config['rovers'] = self.launcher.rovers
+        self.operator.set_topdown_visible(self.launcher.topdown_running())
         self.operator.start_mission(config)
         self.stack.setCurrentWidget(self.operator)
 
@@ -342,11 +381,16 @@ class OperatorApp:
         # simulation that is meant to be sitting still waiting for the next
         # run. The hold stays on for exactly that reason.
         self.link.set_holding(True)
+        self.link.set_standdown('all', True)
+        self.launcher.stop_topdown()
         # Keeps Gazebo: the next run on the same world needs no warm-up.
         self.launcher.end_mission(keep_sim=True)
         if not self.launcher.prepared():
             self.link.set_holding(False)
+            self.link.set_standdown('all', False)
         self._held_said = False
+        self.aborting = self.abort_done = False
+        self.abort_watch.stop()
         self.mission_running = False
         self.placed = []
         self.phase = 'ready' if self.launcher.prepared() else 'setup'
@@ -356,33 +400,136 @@ class OperatorApp:
                            if self.launcher.prepared() else 'Mission ended.')
         self.stack.setCurrentWidget(self.home)
 
+    # -- abort --------------------------------------------------------------
+    def abort(self):
+        """Emergency stop: everything halts, the quadcopters land where they are.
+
+        Built out of the robots' own stand-down rather than around it. Holding
+        `teleop_active` is exactly the state in which a quad expects somebody
+        else to be flying it, so descending it on `parrot1/cmd_vel` while the
+        heartbeat is held is their sanctioned manual path, not a fight with
+        their controller.
+
+        Their `ammo/mission_complete` would also land a quad - properly, with
+        avoidance - but it flies home first, which is not what an emergency
+        stop should do. The Return Home button on the mission page is that
+        one, for when there is no emergency.
+        """
+        if not self.mission_running or self.aborting:
+            return
+        self.aborting, self.abort_done = True, False
+        self._abort_t0 = time.monotonic()
+        self._still_since = None
+        self.link.cancel_all_nav()
+        self.link.set_holding(True)        # zeros to everything
+        self.link.set_standdown('all', True)
+        self.link.set_descending(True)     # ...except the quad, which flies down
+        self.active_goal = None
+        self.link.publish_command({'cmd': 'abort'})
+        self.operator.set_aborting(True)
+        self.abort_watch.start(ABORT_WATCH_MS)
+
+    def _abort_tick(self):
+        """Watch until everything has actually come to rest, then say so."""
+        if not self.aborting or self.abort_done:
+            self.abort_watch.stop()
+            return
+        elapsed = time.monotonic() - self._abort_t0
+        rover = (self.status.get('rover') or {})
+        rover_still = float(rover.get('speed', 0.0) or 0.0) <= C.ABORT_STILL_MS
+        agl = self.link.quad_height()
+        # No agl at all means the quad never published one; the odometry
+        # altitude in the status is the fallback rather than waiting forever.
+        if agl is None:
+            agl = float((self.status.get('quad') or {}).get('alt', 0.0) or 0.0)
+        quad_down = agl <= C.LANDED_AGL_M
+        if rover_still and quad_down:
+            if self._still_since is None:
+                self._still_since = time.monotonic()
+            if time.monotonic() - self._still_since >= C.ABORT_SETTLE_S:
+                self._finish_abort('All robots stopped - quadcopter down')
+                return
+        else:
+            self._still_since = None
+        if elapsed >= C.ABORT_TIMEOUT_S:
+            left = []
+            if not rover_still:
+                left.append('the skidsteer is still rolling')
+            if not quad_down:
+                left.append(f'the quadcopter is {agl:.1f} m up')
+            self._finish_abort('Stopped waiting after %.0f s - %s'
+                               % (elapsed, ' and '.join(left) or 'unclear'))
+
+    def _finish_abort(self, text):
+        self.abort_done = True
+        self.abort_watch.stop()
+        self.link.set_descending(False)
+        self.link.publish_command({'cmd': 'abort_done', 'text': text})
+        self.operator.set_abort_done(text)
+
+    def resume_from_abort(self):
+        """Hand the robots back and start the clock again."""
+        if not self.aborting:
+            return
+        self.aborting = self.abort_done = False
+        self.abort_watch.stop()
+        self.link.set_descending(False)
+        self.link.set_holding(False)
+        self.link.set_standdown('all', False)
+        for robot in self.flown_by_hand:
+            self.link.set_standdown(robot, True)
+        self.link.publish_command({'cmd': 'abort_clear'})
+        self.operator.set_aborting(False)
+
+    # -- marking a mushroom for the rover -------------------------------------
+    def mark_for_capture(self):
+        """Ask the quadcopter to send what it can see to the rover's queue.
+
+        The quad answers with its own most recent gated sighting and its own
+        freshness check, so the projection is theirs. Nothing here guesses a
+        position - which matters, because their projection is the part of
+        this system with the most hard-won detail in it.
+        """
+        if not self.mission_running:
+            return
+        if not self.link.publish_mark():
+            self._log('could not reach the quadcopter to mark a mushroom')
+            return
+        self.link.publish_command(
+            {'cmd': 'marked',
+             'text': 'Operator marked the mushroom in the quadcopter\'s view'})
+
+    def queue_waypoint(self, x, y):
+        """Queue a point for the rover to collect, straight from the map."""
+        if not self.mission_running:
+            return
+        self.link.publish_waypoint(x, y)
+        self.link.publish_command(
+            {'cmd': 'marked', 'x': x, 'y': y,
+             'text': f'Operator queued ({x:.1f}, {y:.1f}) for the rover'})
+
     # -- pause --------------------------------------------------------------
     def set_paused(self, paused):
         if paused:
             # Order matters. Cancel first so Nav2 stops driving, start the
             # zero-velocity hold so nothing coasts on its last command, and
-            # only then freeze the mission nodes - a frozen node cannot be
-            # asked to stop itself.
+            # hold the nodes down last.
             self.link.cancel_all_nav()
             self.link.set_holding(True)
-            self.launcher.suspend()
+            self.link.set_standdown('all', True)
         else:
-            self.launcher.resume()
+            self.link.set_holding(False)
+            self.link.set_standdown('all', False)
             # a robot being hand-flown goes back to being hand-flown, not
             # back to its mission node
             for robot in self.flown_by_hand:
-                self.launcher.suspend(self._nodes_for(robot))
-            self.link.set_holding(False)
+                self.link.set_standdown(robot, True)
             if self.active_goal:
                 # Our own Nav2 goal was cancelled by the pause; put it back.
                 self.link.send_nav_goal(*self.active_goal)
         self.link.publish_pause(paused)
 
     # -- hand flying --------------------------------------------------------
-    @staticmethod
-    def _nodes_for(robot):
-        return ROVER_NODES if robot == 'rover' else QUAD_NODES
-
     def set_hand_flown(self, robot, armed):
         """Arming a teleop panel takes that robot off its mission node.
 
@@ -396,12 +543,12 @@ class OperatorApp:
             self.flown_by_hand.add(robot)
             if robot == 'rover':
                 self.link.cancel_all_nav()
-            self.launcher.suspend(self._nodes_for(robot))
+            self.link.set_standdown(robot, True)
             self.link.publish_command(
                 {'cmd': 'note', 'text': f'{robot} taken over by the operator'})
         else:
             self.flown_by_hand.discard(robot)
-            self.launcher.resume(self._nodes_for(robot))
+            self.link.set_standdown(robot, False)
             self.link.publish_command(
                 {'cmd': 'note', 'text': f'{robot} handed back to its mission node'})
 
@@ -416,7 +563,7 @@ class OperatorApp:
         # Freeze only the rover's own mission node. The quadcopter keeps
         # flying and keeps reporting mushrooms while the rover is away,
         # which is the whole point of not just pausing everything.
-        self.launcher.suspend(ROVER_NODES)
+        self.link.set_standdown('rover', True)
         self.link.cancel_all_nav()
         # The guard replays the mission node's last command for half a second
         # after we freeze it. Send a zero so what it replays is a stop, then
@@ -441,7 +588,7 @@ class OperatorApp:
         self.active_goal = None
         self._log(why)
         if 'rover' not in self.flown_by_hand:
-            self.launcher.resume(ROVER_NODES)
+            self.link.set_standdown('rover', False)
         self.link.publish_command({'cmd': 'operator_goal_done', 'ok': False, 'why': why})
 
     def on_goal_finished(self, ok):
@@ -449,7 +596,7 @@ class OperatorApp:
             return
         self.active_goal = None
         if 'rover' not in self.flown_by_hand:
-            self.launcher.resume(ROVER_NODES)
+            self.link.set_standdown('rover', False)
         # Distinguish the two: a rejected or aborted goal used to be reported
         # as "reached the goal", which is how a rover that never moved could
         # still claim to have arrived.
@@ -461,7 +608,7 @@ class OperatorApp:
         self.active_goal = None
         self.link.cancel_all_nav()
         if 'rover' not in self.flown_by_hand:
-            self.launcher.resume(ROVER_NODES)
+            self.link.set_standdown('rover', False)
         self.link.publish_command({'cmd': 'operator_goal_done', 'ok': None})
 
     # -- teardown -----------------------------------------------------------
@@ -469,6 +616,8 @@ class OperatorApp:
         try:
             if self.mission_running:
                 self.link.publish_command({'cmd': 'end'})
+            self.link.set_holding(False)
+            self.link.set_standdown('all', False)
             self.launcher.shutdown()
         finally:
             self.link.shutdown()
