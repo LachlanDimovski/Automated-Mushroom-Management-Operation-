@@ -288,7 +288,8 @@ check('autostart:=true still allows it', status(b2)['running'] is True)
 print('\na goal that failed is not reported as reached')
 
 for ok, kind, phrase in ((True, C.EV_NOTE, 'reached the goal'),
-                         (False, C.EV_GOAL_FAILED, 'could not get'),
+                         # names the point, so a rejection is diagnosable
+                         (False, C.EV_GOAL_FAILED, '(9.0, 9.0)'),
                          (None, C.EV_NOTE, 'cleared')):
     b = fresh()
     b.feed(C.COMMAND_TOPIC, String(data=json.dumps(

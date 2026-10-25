@@ -39,6 +39,7 @@ class FakeLink(QObject):
     quad_landed = Signal(bool)
     fleet_frame = Signal(str, object)
     fleet_pose = Signal(str, float, float, float, float)
+    robot_state = Signal(str, str, str)
 
     def __init__(self):
         super().__init__()

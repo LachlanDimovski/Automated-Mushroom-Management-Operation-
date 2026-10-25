@@ -17,6 +17,16 @@ wrapper that calls it and then publishes the state in a `finally`, because
 `_flight_step` returns early on three separate paths. No behaviour changed.
 Worth knowing if you merge that area again.
 
+## 0b. Fixed already: fleet quads all shared `parrot1/quad_state`
+
+`QUAD_TOPICS` in `quad_zcams/launch/fleet_mission.launch.py` remapped
+`cmd_vel`, `odometry`, `scan`, `detections`, the depth images,
+`teleop_active`, `teleop_mark`, `landed`, `agl` and `ground_obstacles` per
+namespace - but not `quad_state`. `FleetQuad` inherits `ZCamQuad`'s state
+publisher, so every quad in a fleet published to parrot1's topic and they
+fought. I added `'quad_state'` to that list. The GUI now reads
+`parrot<k>/quad_state` and gives each quad its own state card.
+
 ## 1. A `start_held` parameter on the quad
 
 The GUI holds both robots with your `teleop_active` heartbeat from the moment

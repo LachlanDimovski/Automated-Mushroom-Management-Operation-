@@ -34,7 +34,11 @@ from ammo_gui_node import contract as C
 # executables inside the launch, by role
 ROVER_NODES = ('rover_capture_node', 'cage_capture_node')
 GUARD_NODES = ('collision_guard_node',)
-QUAD_NODES = ('zcam_quad_node', 'quad_search_node')
+# `fleet_quad_node` is the fleet's own quad executable (a FleetQuad subclass
+# of ZCamQuad). Leaving it out meant `mission_nodes_up()` never saw a quad on
+# a fleet run, so the checklist sat on "Mission nodes" forever with
+# everything else green.
+QUAD_NODES = ('zcam_quad_node', 'quad_search_node', 'fleet_quad_node')
 MISSION_NODES = ROVER_NODES + QUAD_NODES          # the guard stays awake
 STOP_TIMEOUT_S = 20.0
 SIM_WARMUP_S = 45.0       # below this, an exit means it failed rather than finished
@@ -46,11 +50,25 @@ READY = 'ready'           # everything is up and the mission nodes are frozen
 RUNNING = 'running'       # the mission nodes are thawed and the clock is going
 
 # name -> folder holding <name>.sdf (None = 41068_ignition_bringup/worlds)
+#
+# The setup page only lists the ones that exist (`world_available`), so today
+# this is three: simple_trees, forest_flat and forest_random.
+#
+# `large_demo` is deliberately gone. It ships no `.meta.json`, so the map
+# draws nothing, the world has no boundary to show and Random placement has
+# no objects to avoid - three features that silently do nothing on it.
+#
+# The river worlds stay listed even though nobody has them. They are not in
+# git and never can be - `forest_worlds/.gitignore` ignores `worlds/`,
+# `models/`, `world_assets/`, `textures/` and `assets_src/` - so each machine
+# builds its own with `forest_worlds/setup.sh` (internet, Blender >= 4.2,
+# numpy, pillow). Leaving them here means the moment someone runs that
+# script they appear in the dropdown with no code change. They are the only
+# worlds with a river, and the only ones without ponds.
 WORLDS = {
     'simple_trees': None,
     'forest_flat': None,
     'forest_random': None,
-    'large_demo': None,
     'river_moderate_aus': 'forest_worlds',
     'river_moderate_aus_green': 'forest_worlds',
     'river_moderate_green': 'forest_worlds',
@@ -112,6 +130,22 @@ SOLID_TYPES = {
 # it is invisible and the run quietly has one fewer mushroom in it than the
 # counter says.
 GROUND_LIFT_M = 0.06
+
+# Where fleet_mission.launch.py puts each robot: inside the 4 m spawn
+# clearing, the quads clear of the rovers' axes. Copied from its SPAWNS and
+# ROVER_SPAWNS so the ready page can show you where everything starts.
+QUAD_SPAWNS = [(2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0)]
+ROVER_SPAWNS = [(0.0, 0.0), (2.5, -2.5), (-2.5, -2.5), (2.5, 2.5), (-2.5, 2.5)]
+
+
+def spawn_points(quads=1, rovers=1):
+    """[(x, y, label)] for the robots a run will start with."""
+    out = [(x, y, f'Q{i}') for i, (x, y) in
+           enumerate(QUAD_SPAWNS[:max(1, int(quads))], 1)]
+    out += [(x, y, f'S{i}') for i, (x, y) in
+            enumerate(ROVER_SPAWNS[:max(1, int(rovers))], 1)]
+    return out
+
 
 TOPDOWN_NAME = 'ammo_topdown_cam'
 TOPDOWN_TOPIC = C.TOPDOWN_TOPIC
@@ -417,7 +451,7 @@ def topdown_sdf(px=TOPDOWN_PX, hfov=TOPDOWN_HFOV, far=200.0):
     <link name="link">
       <sensor name="topdown" type="camera">
         <always_on>1</always_on>
-        <update_rate>1</update_rate>
+        <update_rate>2</update_rate>
         <topic>{TOPDOWN_TOPIC}</topic>
         <camera>
           <horizontal_fov>{hfov}</horizontal_fov>
@@ -474,8 +508,10 @@ class MissionLauncher:
         if self.state in (PREPARING, READY, RUNNING):
             self.shutdown()        # a different world needs a different Gazebo
         if sim_already_running():
-            self.log('Gazebo is already running - close it first, the GUI starts its own.')
-            return None
+            self.log('BLOCKED: a simulation is already running. The GUI starts its '
+                     'own, so it will not start a second. Use "Stop what is '
+                     'running" below, or close the other Gazebo.')
+            return 'blocked'
         path = world_path(world)
         if not world_available(world):
             self.log(f'world {world} not found - for river worlds run forest_worlds/setup.sh')
@@ -719,6 +755,29 @@ class MissionLauncher:
             self._remove_model(TOPDOWN_NAME)
             return False
         return True
+
+    def kill_strays(self):
+        """Kill a simulation this GUI does not own.
+
+        A launch that was interrupted leaves Gazebo, the bridges and the
+        mission nodes running, and they keep publishing: stale camera topics
+        feed panels for robots that are not there any more, and `prepare`
+        refuses to start a second simulation. Nothing in the GUI can reach
+        them - they are not in our process group - so this is the blunt
+        instrument, and it is why it asks first.
+
+        Returns the number of processes it signalled.
+        """
+        patterns = [r'ign gazebo', r'gz sim', r'ruby .*ign gazebo',
+                    'cage_mission.launch.py', 'fleet_mission.launch.py',
+                    'zcam_mission.launch.py', 'parameter_bridge', 'yolo_node',
+                    'fleet_yolo_pool', 'fleet_coordinator']
+        killed = 0
+        for pattern in patterns:
+            out = subprocess.run(['pkill', '-f', pattern], capture_output=True)
+            if out.returncode == 0:
+                killed += 1
+        return killed
 
     def topdown_running(self):
         return self._topdown_proc is not None and self._topdown_proc.poll() is None

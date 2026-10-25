@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QProgressBar,
                                QVBoxLayout, QWidget)
 
 from ammo_gui_node import cards, contract as C, theme
-from ammo_gui_node.camera_panel import CameraPanel
+from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel
 from ammo_gui_node.map_view import MapView
 from ammo_gui_node.mission_launcher import world_meta_full
 from ammo_gui_node.mushroom_log import MushroomLog
@@ -144,10 +144,24 @@ class OperatorPage(QWidget):
             lay.addWidget(w)
         lay.addWidget(self._coverage_card())
 
+        # One card per robot. The first of each is full size and is all you
+        # see on a single-robot run; the rest are compact and appear only
+        # when a fleet is running, so four quadcopters fit down the column.
         self.rover_card = cards.StateCard('SKIDSTEER', theme.ACCENT)
         self.quad_card = cards.StateCard('QUADCOPTER', theme.TEXT)
+        self.state_cards = {'rover1': self.rover_card, 'quad1': self.quad_card}
         lay.addWidget(self.rover_card)
         lay.addWidget(self.quad_card)
+        for i in range(2, C.MAX_ROVERS + 1):
+            card = cards.StateCard(f'SKIDSTEER {i}', theme.ACCENT, compact=True)
+            self.state_cards[f'rover{i}'] = card
+            card.hide()
+            lay.addWidget(card)
+        for i in range(2, C.MAX_QUADS + 1):
+            card = cards.StateCard(f'QUADCOPTER {i}', theme.TEXT, compact=True)
+            self.state_cards[f'quad{i}'] = card
+            card.hide()
+            lay.addWidget(card)
 
         self.rover_teleop = TeleopWidget(self.link, robot='rover')
         self.quad_teleop = TeleopWidget(self.link, robot='quad')
@@ -228,7 +242,8 @@ class OperatorPage(QWidget):
         self.cam_grid.setSpacing(12)
         self.rover_cam = CameraPanel('SKIDSTEER', C.HUSKY_CAM, theme.ACCENT)
         self.quad_cam = CameraPanel('QUADCOPTER', C.PARROT_CAM, theme.TEXT)
-        self.topdown_cam = CameraPanel('OVERHEAD', C.TOPDOWN_TOPIC, theme.BLUE)
+        self.topdown_cam = CameraPanel('OVERHEAD', C.TOPDOWN_TOPIC, theme.BLUE,
+                                        stale_s=SLOW_STALE_S)
         self.topdown_cam.set_show_boxes(False)
         self.cams = {'rover1': self.rover_cam, 'quad1': self.quad_cam,
                      'topdown': self.topdown_cam}
@@ -265,6 +280,14 @@ class OperatorPage(QWidget):
         self._relayout_cams()
 
     def _on_map_click(self, x, y):
+        # Refuse a point outside the world rather than sending a goal Nav2
+        # will reject - a rejection reads as the rover ignoring you.
+        if not self.map.in_bounds(x, y):
+            self.click_hint.setText(
+                f'({x:.0f}, {y:.0f}) is outside the world - click inside the '
+                'dashed edge')
+            return
+        self._click_hint(self.click_mode.isChecked())
         if self.click_mode.isChecked():
             self.queue_clicked.emit(x, y)
         else:
@@ -320,7 +343,9 @@ class OperatorPage(QWidget):
         lay.addLayout(head)
         lay.addWidget(cards.hline())
 
-        self.map = MapView(interactive=True, show_key=True)
+        # fit_world: the whole playable area is always on screen, so a click
+        # can never land somewhere Nav2 will refuse without you seeing it.
+        self.map = MapView(interactive=True, show_key=True, fit_world=True)
         self.map.clicked.connect(self._on_map_click)
         lay.addWidget(self.map, 1)
         return panel
@@ -397,6 +422,10 @@ class OperatorPage(QWidget):
         self.quads = max(1, min(int(config.get('quads', 1) or 1), C.MAX_QUADS))
         self.rovers = max(1, min(int(config.get('rovers', 1) or 1), C.MAX_ROVERS))
         self._relayout_cams()
+        for key, card in self.state_cards.items():
+            n = int(key[4:] if key.startswith('quad') else key[5:])
+            want = n <= (self.quads if key.startswith('quad') else self.rovers)
+            card.setVisible(want)
         self.aborting = False
         self._style_abort()
         self.rover_teleop_box.setVisible(self.mode == 'manual')
@@ -574,10 +603,12 @@ class OperatorPage(QWidget):
             self.big_cam.set_image(image)
 
     def on_fleet_pose(self, key, x, y, yaw, alt):
-        if key.startswith('quad'):
-            self.map.set_quad(x, y, yaw, alt)
-        else:
-            self.map.set_rover(x, y, yaw)
+        self.map.set_robot(key, x, y, yaw, alt)
+
+    def on_robot_state(self, key, state, detail):
+        card = self.state_cards.get(key)
+        if card is not None:
+            card.set(state or '--', detail or '')
 
     def on_topdown_frame(self, image):
         self.topdown_cam.set_image(image)

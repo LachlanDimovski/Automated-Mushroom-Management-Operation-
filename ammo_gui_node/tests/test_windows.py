@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _paths  # noqa: F401,E402  (sets sys.path and the headless Qt platform)
@@ -20,7 +21,7 @@ from render_windows import (FakeLink, fake_camera, mission_events,   # noqa: E40
 
 from ammo_gui_node import contract as C, theme                     # noqa: E402
 from ammo_gui_node import mission_launcher as ml                    # noqa: E402
-from ammo_gui_node.camera_panel import CameraPanel                  # noqa: E402
+from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel   # noqa: E402
 from ammo_gui_node.debug_window import DebugWindow                  # noqa: E402
 from ammo_gui_node.event_feed import EventFeed                      # noqa: E402
 from ammo_gui_node.home_page import HomePage, parse_pair            # noqa: E402
@@ -607,8 +608,10 @@ try:
     notes = []
     refused.log = notes.append
     check('it refuses to start a second Gazebo',
-          refused.prepare('forest_random') is None)
-    check('and says why', any('already running' in n for n in notes), notes)
+          refused.prepare('forest_random') == 'blocked')
+    check('and says so loudly enough to not look like a dead button',
+          any('BLOCKED' in n for n in notes), notes)
+    check('and names the cause', any('already running' in n for n in notes), notes)
 finally:
     ml.sim_already_running = real_running
 
@@ -1298,6 +1301,104 @@ check('a crowded world returns fewer rather than looping forever',
       len(ml.shuffle_mushrooms('forest_random', 60, seed=5)) < 60)
 check('a world with no meta at all still answers',
       ml.shuffle_mushrooms('nope', 3, seed=1) is not None)
+
+# -------------------------------------------------- the things that broke --
+section('what the first fleet run exposed')
+
+check('only three worlds are offered, and large_demo is not one',
+      [w for w in ml.WORLDS if ml.world_available(w)]
+      == ['simple_trees', 'forest_flat', 'forest_random'],
+      [w for w in ml.WORLDS if ml.world_available(w)])
+check('the river worlds stay listed, ready for whoever builds them',
+      'river_moderate_aus' in ml.WORLDS)
+check("the fleet's own quad executable is watched for",
+      'fleet_quad_node' in ml.QUAD_NODES, ml.QUAD_NODES)
+
+# a slow feed must not be called dead by the fast feed's rule
+slow_cam = CameraPanel('OVERHEAD', 'x', theme.BLUE, stale_s=SLOW_STALE_S)
+fast_cam = CameraPanel('ROVER', 'y', theme.ACCENT)
+slow_cam.set_image(fake_camera())
+fast_cam.set_image(fake_camera())
+slow_cam.last_at = fast_cam.last_at = time.monotonic() - 4.0
+check('a 4 s old frame is dead to a robot camera', fast_cam.fresh() is False)
+check('but still live on the overhead feed', slow_cam.fresh() is True,
+      slow_cam.stale_s)
+
+# the world edge, and clicks outside it
+edge = MapView(interactive=True, fit_world=True)
+edge.set_world(forest)
+check('the playable half-width is read from the world file',
+      abs(edge.playable_half - 30.0) < 0.01, edge.playable_half)
+check('and the view is grown to show all of it', edge.range_m >= 30.0, edge.range_m)
+check('a point inside is allowed', edge.in_bounds(10.0, -12.0) is True)
+check('a point outside is not', edge.in_bounds(45.0, 0.0) is False)
+plain = MapView(interactive=True)
+check('a world with no meta allows everything rather than nothing',
+      plain.in_bounds(500.0, 500.0) is True)
+
+click_page = OperatorPage(FakeLink())
+click_page.map.set_world(forest)
+sent = []
+click_page.goal_clicked.connect(lambda x, y: sent.append((x, y)))
+click_page._on_map_click(5.0, 5.0)
+check('a click inside the world is sent', sent == [(5.0, 5.0)])
+click_page._on_map_click(90.0, 90.0)
+check('a click outside is refused, not sent as a goal Nav2 will reject',
+      sent == [(5.0, 5.0)], sent)
+check('and the page says why', 'outside the world' in click_page.click_hint.text(),
+      click_page.click_hint.text())
+
+# every robot on the map, not one marker jumping about
+multi = MapView()
+multi.set_robot('quad1', 1.0, 1.0, 0.0, 2.0)
+multi.set_robot('quad2', -4.0, 3.0, 0.0, 2.0)
+multi.set_robot('rover2', 6.0, -2.0, 0.0)
+check('the first quad keeps its own slot', multi.quad is not None)
+check('the others get their own', set(multi.fleet) == {'quad2', 'rover2'},
+      sorted(multi.fleet))
+check('each with its own trail', set(multi.fleet_trails) == {'quad2', 'rover2'})
+multi.clear()
+check('and clearing forgets them all', not multi.fleet and not multi.fleet_trails)
+
+# per-robot state cards
+states = OperatorPage(FakeLink())
+states.start_mission({'world': 'forest_random', 'layout': 'x', 'mode': 'autonomous',
+                      'points': [], 'total': 0, 'quads': 3, 'rovers': 1})
+shown = [k for k, c in states.state_cards.items() if not c.isHidden()]
+check('a card per robot of the run', set(shown) == {'quad1', 'quad2', 'quad3', 'rover1'},
+      sorted(shown))
+check('the extra ones are compact, or they would not fit',
+      states.state_cards['quad3'].compact is True
+      and states.state_cards['quad1'].compact is False)
+states.on_robot_state('quad2', C.QUAD_SEARCHING, 'flying the search pattern')
+check('and each shows its own state',
+      states.state_cards['quad2'].value.text() == C.QUAD_SEARCHING)
+check("every quad has its own state topic now",
+      C.quad_state_topic(2) == 'parrot2/quad_state', C.quad_state_topic(2))
+
+# the spawn points
+ready_spawn = ReadyPage()
+ready_spawn.begin({'world': 'forest_random', 'points': [],
+                   'meta': ml.world_meta_full('forest_random'),
+                   'quads': 2, 'rovers': 2})
+check('the ready page shows where each robot starts',
+      len(ready_spawn.map.spawns) == 4, ready_spawn.map.spawns)
+check('labelled per robot',
+      {s[2] for s in ready_spawn.map.spawns} == {'Q1', 'Q2', 'S1', 'S2'},
+      ready_spawn.map.spawns)
+
+# the photo says what it is doing
+busy = ReadyPage()
+busy.begin({'world': 'forest_random', 'points': []})
+busy.photo_busy('Retaking the picture')
+check('a retake says so in the middle of the panel',
+      busy.photo.busy is True and 'Retaking' in busy.photo.note)
+check('and takes the button away while it works',
+      busy.photo_button.isEnabled() is False)
+busy.shuffling()
+check('so does a shuffle', 'Shuffling' in busy.photo.note and busy.photo.busy)
+busy.set_photo(fake_camera())
+check('a frame ends the busy state', busy.photo.busy is False)
 
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:

@@ -61,9 +61,12 @@ LAYOUTS = {
              [(Qt.Key_A, 'A'), (Qt.Key_S, 'S'), (Qt.Key_D, 'D'), (Qt.Key_F, 'F')]],
 }
 
+# Written to wrap onto two lines in a 286 px column rather than be cut off
+# at the right edge. The separator is a middle dot with spaces, so Qt has
+# somewhere to break.
 HINTS = {
-    'rover': 'W/S drive  ·  A/D turn  ·  release to stop',
-    'quad': 'W/S fly  ·  A/D turn  ·  Q/E slide  ·  R/F up and down',
+    'rover': 'W/S drive  ·  A/D turn\nrelease a key to stop',
+    'quad': 'W/S forward and back  ·  A/D turn\nQ/E slide sideways  ·  R/F up and down',
 }
 
 
@@ -149,6 +152,10 @@ class TeleopWidget(QWidget):
 
         self.hint = QLabel('Click here, then tick Armed to drive.')
         self.hint.setWordWrap(True)
+        # The quad's key list is long enough to be clipped on one line in a
+        # 286 px column, so give it room to run onto a second and third.
+        self.hint.setMinimumHeight(34)
+        self.hint.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.hint.setStyleSheet(f'color: {theme.TEXT_DIM}; font-size: 12px;')
         lay.addWidget(self.hint)
 

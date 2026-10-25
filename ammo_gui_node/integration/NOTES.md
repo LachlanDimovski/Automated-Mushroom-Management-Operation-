@@ -78,6 +78,14 @@ them.
 
 Behaviour is unchanged. Worth a look if you merge this area again.
 
+### `quad_zcams/launch/fleet_mission.launch.py` - one topic added to a remap list
+
+`QUAD_TOPICS` did not include `quad_state`, so every `FleetQuad` - which
+inherits `ZCamQuad`'s state publisher - published to `parrot1/quad_state`.
+With two quads the GUI showed one state card flickering between them. Adding
+`'quad_state'` to that list gives each quad `parrot<k>/quad_state`, which is
+what the per-robot state cards read.
+
 ## 2. Log lines the bridge still reads
 
 State now comes from the topics above. Events still come from the log, and

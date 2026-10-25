@@ -61,7 +61,8 @@ ABORT_WATCH_MS = 250   # how often an abort checks whether everything stopped
 # the quadcopter leaving the ground is only a few seconds, and that gap is
 # what the prepare stage has to get inside.
 PROBE_MS = 500
-PHOTO_WAIT_S = 20.0   # software rendering is slow; the drawing is the fallback
+PHOTO_WAIT_S = 15.0   # per attempt; software rendering is slow
+PHOTO_TRIES = 4       # ...so keep waiting a full minute before calling it
 
 
 class OperatorApp:
@@ -90,6 +91,7 @@ class OperatorApp:
         self.rover_at = None          # last rover pose, for aiming operator goals
         self._prepare_t0 = 0.0
         self._photo_wait = False
+        self._photo_tries = 0
         self._held_said = False       # the hold has been announced on the page
         self.aborting = False
         self.abort_done = False
@@ -98,9 +100,10 @@ class OperatorApp:
         self.status = {}
 
         self.home.prepare_requested.connect(self.begin_prepare)
+        self.home.kill_strays_requested.connect(self.kill_strays)
         self.ready.launch_requested.connect(self.launch_mission)
         self.ready.shuffle_requested.connect(self.shuffle_mushrooms)
-        self.ready.photo_requested.connect(self.take_photo)
+        self.ready.photo_requested.connect(lambda: self.take_photo(retake=True))
         self.ready.back_requested.connect(self.back_to_setup)
         self.operator.end_mission.connect(self.finish_mission)
         self.operator.pause_toggled.connect(self.set_paused)
@@ -126,6 +129,7 @@ class OperatorApp:
         self.link.topdown_frame.connect(self.on_topdown)
         self.link.fleet_frame.connect(self.operator.on_fleet_frame)
         self.link.fleet_pose.connect(self.operator.on_fleet_pose)
+        self.link.robot_state.connect(self.operator.on_robot_state)
         self.link.status_updated.connect(self._note_status)
 
         # The launch runs detached with its output in a file, so the only way
@@ -189,10 +193,15 @@ class OperatorApp:
                                         options=config.get('options'),
                                         tool=config.get('tool', 'gripper'),
                                         quads=quads, rovers=rovers)
-        if started is None:
+        if started is None or started == 'blocked':
             self.link.set_standdown('all', False)
             self.link.set_holding(False)
+            # 'blocked' means something else is already running. That used to
+            # be a quiet note at the bottom of the setup page, which reads
+            # exactly like the button not working.
+            self.home.set_blocked(started == 'blocked')
             return
+        self.home.set_blocked(False)
         self.phase = 'preparing'
         self.placed = []
         self._prepare_t0 = time.monotonic()
@@ -203,6 +212,14 @@ class OperatorApp:
         self.stack.setCurrentWidget(self.ready)
         self.link.publish_command({'cmd': 'prepare', 'stage': 'preparing'})
         self.probe.start(PROBE_MS)
+
+    def kill_strays(self):
+        """Stop a simulation the GUI does not own, after the operator asks."""
+        killed = self.launcher.kill_strays()
+        self.home.set_blocked(False)
+        self._log('stopped what was running - give it a few seconds, then '
+                  'press Prepare again' if killed else
+                  'nothing left to stop - press Prepare again')
 
     def _probe_tick(self):
         """One look at the simulation, folded into the checklist."""
@@ -258,8 +275,11 @@ class OperatorApp:
             return
         world = self.config.get('world', '')
         count = len(self.placed) or int(self.config.get('count', 4) or 4)
+        self.ready.shuffling()
         points = random_placement(world, count)
         if not points:
+            self.ready.photo_failed('Could not find anywhere clear to put them in '
+                                    'this world - try fewer mushrooms.')
             self._log('could not find anywhere clear to put them in this world')
             return
         if not self.config.get('spawn', True):
@@ -272,15 +292,30 @@ class OperatorApp:
         self.config['points'] = points
         self.placed = self.launcher.spawn_mushrooms(points)
         self.ready.set_points(self.placed)
-        self.take_photo()
+        if len(self.placed) < count:
+            self._log(f'only found room for {len(self.placed)} of {count} '
+                      f'- {world} is crowded')
+        self.take_photo(retake=True)
 
     # -- the top-down photo -------------------------------------------------
-    def take_photo(self):
+    def take_photo(self, retake=False):
+        """Spawn the overhead camera if it is not up, and wait for a frame.
+
+        The first frame is genuinely slow: the model has to spawn, the bridge
+        process has to start, and under software rendering the first render
+        of a 640 px shot from thirty metres up can take a long while. The
+        first version gave up after one timeout and said so, which is why
+        pressing Retake appeared to be the only thing that worked - by then
+        the camera was already there and only the waiting had to start again.
+        """
         if self.phase != 'ready':
             return
         self._photo_wait = True
-        self.ready.photo.set_note('adding a camera above the world...')
-        self.ready.photo.clear()
+        self._photo_tries = 0
+        fresh = not self.launcher.topdown_running()
+        self.ready.photo_busy('Retaking the picture' if retake else
+                              ('Adding a camera above the world' if fresh else
+                               'Waiting for the first frame'))
         if not self.launcher.start_topdown():
             self._photo_wait = False
             self.ready.photo_failed('Gazebo would not add the camera. The drawing '
@@ -301,13 +336,24 @@ class OperatorApp:
     def _photo_timeout(self):
         if not self._photo_wait:
             return
+        self._photo_tries += 1
+        if self._photo_tries < PHOTO_TRIES:
+            # Still waiting, not failed. Say how long it has been so a slow
+            # machine looks slow rather than broken.
+            waited = PHOTO_WAIT_S * self._photo_tries
+            self.ready.photo_busy(
+                f'Still waiting for the first frame ({waited:.0f} s) - software '
+                'rendering is slow')
+            QTimer.singleShot(int(PHOTO_WAIT_S * 1000), self._photo_timeout)
+            return
         self._photo_wait = False
         # The camera itself is left running: if a frame turns up late it
-        # still has somewhere useful to go.
+        # still has somewhere useful to go, and it is the mission page's
+        # overhead feed either way.
         self.ready.photo_failed(
-            f'No frame from Gazebo in {PHOTO_WAIT_S:.0f} s - headless or software '
-            'rendering usually means no camera at all. The drawing below is the '
-            'same information.')
+            f'No frame from Gazebo in {PHOTO_WAIT_S * PHOTO_TRIES:.0f} s. Headless '
+            'or software rendering often means no camera at all - the drawing '
+            'below is the same information. Retake tries again.')
 
     def back_to_setup(self):
         """Leave the simulation up and go back to the setup page."""
@@ -580,7 +626,8 @@ class OperatorApp:
         if self.rover_at is not None:
             yaw = math.atan2(y - self.rover_at[1], x - self.rover_at[0])
         if not self.link.send_nav_goal(x, y, yaw):
-            self._goal_failed('Nav2 would not take the goal - is it up yet?')
+            self._goal_failed(f'Nav2 would not take the goal at ({x:.1f}, {y:.1f}) '
+                              '- is it up yet?')
             return
         self.link.publish_command({'cmd': 'operator_goal', 'x': x, 'y': y})
 

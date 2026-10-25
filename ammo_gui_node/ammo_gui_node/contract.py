@@ -100,6 +100,17 @@ def rover_ns(i):
     return 'husky1' if i <= 1 else f'r{i}/husky1'
 
 
+def quad_state_topic(i):
+    """Each quad's own state topic.
+
+    Needs `quad_state` in fleet_mission.launch.py's QUAD_TOPICS remap list,
+    which it did not have - every FleetQuad inherits ZCamQuad's publisher, so
+    they all published to parrot1's topic and the GUI saw one state flicker
+    between them. Added there; this is the matching half.
+    """
+    return quad_topic(i, 'quad_state')
+
+
 def quad_topic(i, leaf):
     return f'{quad_ns(i)}/{leaf}'
 

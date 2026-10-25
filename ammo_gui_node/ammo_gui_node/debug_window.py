@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QProgressBar,
                                QVBoxLayout, QWidget)
 
 from ammo_gui_node import cards, contract as C, theme
-from ammo_gui_node.camera_panel import CameraPanel
+from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel
 from ammo_gui_node.event_feed import EventFeed
 from ammo_gui_node.map_view import MapView
 from ammo_gui_node.mission_launcher import world_meta_full
@@ -72,6 +72,8 @@ class DebugWindow(QWidget):
         link.rover_detections.connect(lambda b: self._boxes('rover', b))
         link.quad_detections.connect(lambda b: self._boxes('quad', b))
         link.fleet_frame.connect(self._fleet_frame)
+        link.fleet_pose.connect(
+            lambda k, x, y, yaw, alt: self.map.set_robot(k, x, y, yaw, alt))
         link.topdown_frame.connect(lambda img: self._fleet_frame('topdown', img))
         link.teleop_status.connect(self._teleop_status)
 
@@ -172,7 +174,8 @@ class DebugWindow(QWidget):
         self.cam_grid.setSpacing(12)
         self.rover_cam = CameraPanel('SKIDSTEER CAMERA', C.HUSKY_CAM, theme.ACCENT)
         self.quad_cam = CameraPanel('QUADCOPTER CAMERA', C.PARROT_CAM, theme.TEXT)
-        self.topdown_cam = CameraPanel('OVERHEAD', C.TOPDOWN_TOPIC, theme.BLUE)
+        self.topdown_cam = CameraPanel('OVERHEAD', C.TOPDOWN_TOPIC, theme.BLUE,
+                                        stale_s=SLOW_STALE_S)
         self.topdown_cam.set_show_boxes(False)
         self.cams = {'rover1': self.rover_cam, 'quad1': self.quad_cam}
         for i in range(2, C.MAX_QUADS + 1):

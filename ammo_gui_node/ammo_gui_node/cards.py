@@ -106,10 +106,16 @@ class StatCard(QFrame):
 
 
 class StateCard(QFrame):
-    """A robot's current state plus one line of detail, with a colour edge."""
+    """A robot's current state plus one line of detail, with a colour edge.
 
-    def __init__(self, title, accent):
+    `compact` is the fleet form: title and state on one line, a smaller
+    detail under it. Five of those fit down the side column where two of the
+    full-size ones do, which is what a run with four quadcopters needs.
+    """
+
+    def __init__(self, title, accent, compact=False):
         super().__init__()
+        self.compact = bool(compact)
         self.setObjectName('Panel')
         self.setStyleSheet(
             f'QFrame#Panel {{ background: {theme.PANEL};'
@@ -117,13 +123,24 @@ class StateCard(QFrame):
             f'border-top-left-radius: 0; border-bottom-left-radius: 0;'
             f'border-radius: 9px; }}')
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(15, 12, 15, 12)
-        lay.setSpacing(5)
-        lay.addWidget(section(title))
+        lay.setContentsMargins(15, 7, 15, 7) if compact else lay.setContentsMargins(15, 12, 15, 12)
+        lay.setSpacing(2 if compact else 5)
+        self.title = section(title)
         self.value = label('--', 'Mono')
         self.value.setStyleSheet(
-            f'color: {theme.TEXT}; font-family: {theme.MONO}; font-size: 19px;')
-        lay.addWidget(self.value)
+            f'color: {theme.TEXT}; font-family: {theme.MONO}; '
+            f'font-size: {14 if compact else 19}px;')
+        if compact:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(10)
+            row.addWidget(self.title)
+            row.addStretch(1)
+            row.addWidget(self.value)
+            lay.addLayout(row)
+        else:
+            lay.addWidget(self.title)
+            lay.addWidget(self.value)
         self.detail = label('', 'Faint')
         self.detail.setWordWrap(True)
         lay.addWidget(self.detail)

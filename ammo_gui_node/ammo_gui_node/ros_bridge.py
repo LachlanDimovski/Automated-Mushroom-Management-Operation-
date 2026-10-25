@@ -106,6 +106,8 @@ class _LinkNode(Node):
         # than created once the counts are known: a subscription to a topic
         # nobody publishes carries no traffic, and creating subscriptions
         # while the executor is already spinning is not worth the risk.
+        latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL)
         for i in range(2, C.MAX_QUADS + 1):
             key = f'quad{i}'
             self.create_subscription(
@@ -114,6 +116,9 @@ class _LinkNode(Node):
             self.create_subscription(
                 Odometry, C.quad_topic(i, 'odometry'),
                 lambda m, k=key: self._fleet_odom(m, k), LIVE_QOS)
+            self.create_subscription(
+                String, C.quad_state_topic(i),
+                lambda m, k=key: self._fleet_state(m, k), latched)
         for i in range(2, C.MAX_ROVERS + 1):
             key = f'rover{i}'
             self.create_subscription(
@@ -387,6 +392,16 @@ class _LinkNode(Node):
         if img is not None:
             self.link.fleet_frame.emit(key, img)
 
+    def _fleet_state(self, msg, key):
+        """A fleet quad's own phase, straight off its namespaced topic."""
+        try:
+            payload = json.loads(msg.data)
+        except (ValueError, TypeError):
+            return
+        if isinstance(payload, dict):
+            phase = str(payload.get('phase') or '--')
+            self.link.robot_state.emit(key, phase, C.QUAD_PHASE_DETAIL.get(phase, ''))
+
     def _fleet_odom(self, msg, key):
         p = msg.pose.pose.position
         self.link.fleet_pose.emit(key, p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
@@ -592,6 +607,7 @@ class RosLink(QObject):
     quad_landed = Signal(bool)
     fleet_frame = Signal(str, object)
     fleet_pose = Signal(str, float, float, float, float)
+    robot_state = Signal(str, str, str)
     nav_goal_finished = Signal(bool)
     topdown_frame = Signal(object)
 

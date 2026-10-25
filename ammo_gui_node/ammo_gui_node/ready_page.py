@@ -18,13 +18,14 @@ This page is what you look at while that happens and once it has:
 Nothing here is a mission yet. The clock reads zero because no time has
 passed, and the Debug UI says so rather than drawing an empty timeline.
 """
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from ammo_gui_node import cards, theme
 from ammo_gui_node.map_view import MapView
+from ammo_gui_node.mission_launcher import spawn_points
 from ammo_gui_node.readiness import Readiness
 
 TICK = '✓'
@@ -67,21 +68,51 @@ class CheckRow(QWidget):
 
 
 class PhotoPanel(QWidget):
-    """The top-down photo, or a line saying why there is not one yet."""
+    """The top-down photo, or a line saying what is being done about it.
+
+    The note is painted over the middle of the panel rather than tucked into
+    a corner, because the thing it is explaining - an empty black rectangle -
+    is also in the middle, and "it is working on it" and "it failed" need to
+    be told apart at a glance.
+    """
 
     def __init__(self):
         super().__init__()
         self.image = None
         self.note = 'waiting for the camera...'
+        self.busy = False
+        self._dots = 0
         self.setMinimumHeight(260)
         self.setStyleSheet(f'background: {theme.MAP_BG}; border-radius: 6px;')
+        self._tick = QTimer(self)
+        self._tick.timeout.connect(self._animate)
+
+    def _animate(self):
+        self._dots = (self._dots + 1) % 4
+        self.update()
 
     def set_image(self, image):
         self.image = image
+        self.set_busy(False)
         self.update()
 
-    def set_note(self, note):
+    def set_note(self, note, busy=False):
         self.note = note
+        self.set_busy(busy)
+        self.update()
+
+    def set_busy(self, busy):
+        """Busy dims whatever is showing and animates, so a retake reads as
+        'this picture is being replaced' rather than 'this picture is it'."""
+        busy = bool(busy)
+        if busy == self.busy:
+            return
+        self.busy = busy
+        if busy:
+            self._dots = 0
+            self._tick.start(400)
+        else:
+            self._tick.stop()
         self.update()
 
     def clear(self):
@@ -94,15 +125,19 @@ class PhotoPanel(QWidget):
         p.setRenderHint(QPainter.SmoothPixmapTransform)
         rect = self.rect().adjusted(1, 1, -1, -1)
         p.fillRect(rect, theme.MAP_BG)
-        if self.image is None or self.image.isNull():
-            p.setPen(QPen(theme.TEXT_FAINT))
-            p.drawText(rect, Qt.AlignCenter | Qt.TextWordWrap, self.note)
-            return
-        scaled = self.image.scaled(rect.size(), Qt.KeepAspectRatio,
-                                   Qt.SmoothTransformation)
-        x = rect.x() + (rect.width() - scaled.width()) // 2
-        y = rect.y() + (rect.height() - scaled.height()) // 2
-        p.drawImage(x, y, scaled)
+        if self.image is not None and not self.image.isNull():
+            scaled = self.image.scaled(rect.size(), Qt.KeepAspectRatio,
+                                       Qt.SmoothTransformation)
+            x = rect.x() + (rect.width() - scaled.width()) // 2
+            y = rect.y() + (rect.height() - scaled.height()) // 2
+            p.drawImage(x, y, scaled)
+            if not self.busy:
+                return
+            p.fillRect(rect, QColor(15, 20, 24, 170))
+        text = self.note + ('.' * self._dots if self.busy else '')
+        p.setPen(QPen(QColor(theme.TEXT if self.busy else theme.TEXT_FAINT)))
+        p.setFont(QFont(theme.SANS_FAMILIES[0], 11))
+        p.drawText(rect, Qt.AlignCenter | Qt.TextWordWrap, text)
 
 
 class ReadyPage(QWidget):
@@ -242,7 +277,8 @@ class ReadyPage(QWidget):
         inner = QHBoxLayout()
         inner.setContentsMargins(12, 10, 12, 12)
         inner.setSpacing(12)
-        self.map = MapView(interactive=False, compact=True, show_key=False)
+        self.map = MapView(interactive=False, compact=True, show_key=False,
+                           fit_world=True)
         self.map.setMinimumHeight(200)
         inner.addWidget(self.map, 3)
 
@@ -276,6 +312,8 @@ class ReadyPage(QWidget):
         self.map.clear()
         self.map.set_world(config.get('meta') or {})
         self.map.set_planned(config.get('points') or [])
+        self.map.set_spawns(spawn_points(config.get('quads', 1),
+                                         config.get('rovers', 1)))
         self.held = False
         self.note.setText('Starting the simulation. Both robots are held as soon as '
                           'their nodes appear, so nothing searches or drives.')
@@ -333,7 +371,24 @@ class ReadyPage(QWidget):
     def set_photo(self, image):
         self.photo.set_image(image)
         self.photo_note.setText('live')
+        self.shuffle_button.setEnabled(self.stage_chip.text() == 'READY')
+        self.photo_button.setEnabled(True)
+
+    def photo_busy(self, what='Retaking the picture'):
+        """Say what is being done, in the middle, where you are looking."""
+        self.photo.set_note(what, busy=True)
+        self.photo_note.setText('working')
+        self.photo_button.setEnabled(False)
+
+    def shuffling(self):
+        self.photo.set_note('Shuffling the mushrooms', busy=True)
+        self.photo_note.setText('working')
+        self.shuffle_button.setEnabled(False)
+        self.photo_button.setEnabled(False)
+        self.placement_note.setText('moving them')
 
     def photo_failed(self, why):
-        self.photo.set_note(why)
+        self.photo.set_note(why, busy=False)
         self.photo_note.setText('not available')
+        self.photo_button.setEnabled(True)
+        self.shuffle_button.setEnabled(self.stage_chip.text() == 'READY')

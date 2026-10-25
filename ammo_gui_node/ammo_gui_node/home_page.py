@@ -152,6 +152,7 @@ class CoordRow(QWidget):
 class HomePage(QWidget):
 
     prepare_requested = Signal(dict)
+    kill_strays_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -532,6 +533,28 @@ class HomePage(QWidget):
         self.status_note.setWordWrap(True)
         lay.addWidget(self.status_note)
 
+        # Only shown when Prepare was refused because something else is
+        # already running - the one failure that looks like a dead button.
+        self.blocked_box = cards.panel(deep=True)
+        self.blocked_box.setStyleSheet(
+            f'QFrame#PanelDeep {{ background: {theme.PANEL_DEEP};'
+            f'border: 1px solid {theme.ACCENT}; border-radius: 8px; }}')
+        blay = QVBoxLayout(self.blocked_box)
+        blay.setContentsMargins(14, 11, 14, 11)
+        blay.setSpacing(8)
+        warn = cards.label('A simulation is already running, so Prepare did '
+                           'nothing. It is usually a launch from an earlier run '
+                           'that did not shut down - its cameras and robots keep '
+                           'publishing, which is why you may see robots that are '
+                           'not there.', 'Dim')
+        warn.setWordWrap(True)
+        blay.addWidget(warn)
+        kill = QPushButton('STOP WHAT IS RUNNING')
+        kill.clicked.connect(self.kill_strays_requested.emit)
+        blay.addWidget(kill)
+        self.blocked_box.hide()
+        lay.addWidget(self.blocked_box)
+
         tail = cards.label(
             'The simulation takes about 30 s to come up (longer for river worlds). '
             'Ending a mission leaves it up, so the next run starts straight away.', 'Faint')
@@ -659,3 +682,6 @@ class HomePage(QWidget):
 
     def set_note(self, text):
         self.status_note.setText(text)
+
+    def set_blocked(self, blocked):
+        self.blocked_box.setVisible(bool(blocked))

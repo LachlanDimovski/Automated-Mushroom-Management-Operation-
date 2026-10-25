@@ -24,7 +24,17 @@ from PySide6.QtWidgets import QWidget
 from ammo_gui_node import contract as C
 from ammo_gui_node import theme
 
+# How long after the last frame a feed counts as dead. Two seconds suits a
+# robot camera at 5 Hz; it is far too short for the overhead camera, which
+# runs at 2 Hz and, under software rendering, often slower than that. A panel
+# that calls a working feed dead paints a dark wash over a perfectly good
+# picture, which is what made the overhead view look grey.
 STALE_S = 2.0
+SLOW_STALE_S = 8.0
+
+# The wash itself. It used to be two thirds opaque, which is a lot for
+# something whose only job is to say "this is not live".
+DIM_ALPHA = 110
 STRIP_H = 30
 
 
@@ -34,8 +44,9 @@ class CameraPanel(QWidget):
     boxes_toggled = Signal(bool)
 
     def __init__(self, title, topic='', dot_colour=None, parent=None,
-                 show_boxes=True, allow_expand=True):
+                 show_boxes=True, allow_expand=True, stale_s=STALE_S):
         super().__init__(parent)
+        self.stale_s = float(stale_s)
         self.setMinimumSize(200, 150)
         self.title = title
         self.topic = topic
@@ -91,7 +102,7 @@ class CameraPanel(QWidget):
         self.update()
 
     def fresh(self):
-        return self.image is not None and time.monotonic() - self.last_at < STALE_S
+        return self.image is not None and time.monotonic() - self.last_at < self.stale_s
 
     # kept: both windows ask this when counting live feeds
     def any_fresh(self):
@@ -190,7 +201,7 @@ class CameraPanel(QWidget):
         p.drawImage(target, img)
         if dim:
             p.setPen(Qt.NoPen)
-            p.setBrush(QBrush(QColor(15, 20, 24, 170)))
+            p.setBrush(QBrush(QColor(15, 20, 24, DIM_ALPHA)))
             p.drawRect(target)
         return target
 

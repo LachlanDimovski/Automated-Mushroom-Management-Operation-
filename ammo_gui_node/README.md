@@ -90,8 +90,18 @@ choice is gone.
 before. More than one of either runs `quad_zcams/fleet_mission.launch.py`
 instead - up to four quadcopters and five skidsteers, with their
 `fleet_coordinator` handing mushrooms out between the rovers - and the
-mission page grows a camera panel per robot. The ceilings are their launch
-file's own.
+mission page grows a camera panel, a map marker and a state card per robot.
+The ceilings are their launch file's own.
+
+**Three worlds are offered**, because those are the three that exist:
+`simple_trees`, `forest_flat` and `forest_random`. `large_demo` is gone - it
+ships no `.meta.json`, so the map, the world boundary and Random placement
+all silently did nothing on it. The river worlds are still listed in the
+code and appear by themselves the moment somebody runs
+`forest_worlds/setup.sh`; they are not in git and never can be, since
+`forest_worlds/.gitignore` excludes the generated worlds, models and
+textures. They are also the only worlds with a river and the only ones
+without ponds.
 
 Layout presets are the world's own mushrooms (on a world that ships some),
 whatever is in `layouts/<world>.json`, and **Random placement**, which puts
@@ -219,6 +229,16 @@ odometry and `parrot1/detections`, into `ammo/mission/status` and
 
 ## The map
 
+The **world edge** is drawn as a dashed box with its size on it, read from
+`world.playable_size_m`, and the mission map is always fitted to show all of
+it. That matters because a Nav2 goal outside the playable area is rejected,
+which from the operator's side looks exactly like the rover ignoring the
+click; a click outside the box is now refused with a reason instead of being
+sent. A world with no `.meta.json` has no box and allows everything.
+
+Every robot gets its own marker and trail, labelled Q1, Q2, S1 and so on
+once there is more than one of either.
+
 Everything static is drawn from the world's `.meta.json` - the same file the
 mission nodes read. Trees, fallen trees, logs, stumps, rocks, debris, ponds
 and cleared lanes on a forest world; the river at its real width and the ford
@@ -276,7 +296,7 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-493 checks, a few seconds, no ROS, no simulation, no display and no built
+521 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and
