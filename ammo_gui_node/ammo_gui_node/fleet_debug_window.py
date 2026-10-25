@@ -247,7 +247,7 @@ class FleetDebugWindow(DebugWindow):
                                  'status': STATUS.get(m.get('state'), 'found')} for m in s.get('mushrooms', [])]
         self.map.set_mushrooms(self.fleet_mushrooms)
         rovers = '  ·  '.join(f'{r} {len(ids)} open' for r, ids in sorted(s.get('open', {}).items()))
-        self.fleet_card.set(f"{s.get('collected', 0)} / {s.get('total', 0)}",
+        self.fleet_card.set(f"{sum(s.get('collected', {}).values())} / {s.get('total', 0)}",  # per-rover counts
                             f"{rovers}  ·  {len(s.get('pending', []))} pending")
 
     def _natives(self, natives):

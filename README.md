@@ -84,7 +84,7 @@ and the Fleet Debug UI in a second:
   timeline stays empty. Do not run it alongside the operator GUI, which starts its own bridge.
 - Drop `headless:=true` to also open the Gazebo window. It costs about 60% of a core; the
   Fleet Debug UI already shows every camera and the map.
-- The fleet loads the two-class detector (`amanita_river_v4_yolo11n`, invasive + native) by
+- The fleet loads the two-class detector (`amanita_river_v6_yolo11n`, invasive + native) by
   default. `model_path:=...` overrides it; a one-class model sees no natives.
 - Stop every process of a run before launching the next. Two sims at once starve the CPU and
   the robots stall.
@@ -92,19 +92,25 @@ and the Fleet Debug UI in a second:
 ## Native (non-invasive) mushrooms
 
 The two-class detector labels `amanita_muscaria_red` (invasive, collected) and
-`native_mushroom` (monitored, never collected).
+`native_mushroom` (monitored, never collected). Native caps are bright blue in the sim
+(`mushroom_native/meshes/native_cap.png`): the original brown caps matched the leaf litter, and the
+detector could not tell them apart.
 
 - **Camera feeds:** invasive boxes are red, native boxes are blue.
 - **Quads:** a native is logged when it is within 3 m of the quad (`det_range`, as for
-  invasive ones) and scores at least `native_min_conf` (default 0.5).
-  The log line is `native mushroom N logged at (x, y) - left in place`. No rover is sent.
+  invasive ones), scores at least `native_min_conf` (default 0.5) and its box is at least
+  `native_min_px` wide (default 12; far-off specks were the false ones). The log line is
+  `native mushroom N logged at (x, y) - left in place`. No rover is sent, and an invasive
+  sighting within 0.75 m of a logged native is ignored.
+- **Detector:** one box per object (class-agnostic NMS), so a native cannot also come out as
+  an invasive box underneath.
 - **`native_tracker`** (started by `fleet_debug.launch.py`) merges the quads' logs within 2 m,
   so one mushroom seen twice or by two quads counts once. It publishes the list on
   `fleet/natives` and a `native` event on `ammo/mission/events`.
 - **Fleet Debug UI:** natives show as blue N1, N2, ... on the minimap, blue markers on the
   timeline, and a NATIVE MUSHROOMS count card.
 - **Single quad** (`cage_mission.launch.py`): pass the two-class model with
-  `model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_river_v4_yolo11n.pt`
+  `model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_river_v6_yolo11n.pt`
   (`forest_worlds/demo_river.sh` already does). The default one-class model sees no natives.
 
 ## Mission flow
@@ -184,11 +190,11 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   and otherwise assumes flat ground at the spawn clearing's height, so uneven
   terrain (`forest_random`) can add metres of error. Demo on `forest_flat`.
 - Detection is reliable to about 3.5 m, hence the 2 m cruise and 3 m rows.
-- Native detection is weak: on the validation set the detector finds about a quarter of the
-  natives at 0.5 confidence, and about 30% of its native boxes are background. Raising
-  `native_min_conf` does not improve that ratio, it only finds fewer. In a 5 min fleet run
-  on `river_moderate_aus` 1 of 18 logged natives was a real one; the rest were ground cover.
-  Native counts are not reliable yet.
+- Native detection is trained on the sim's blue caps only (`river_v6`: blue caps at 1-5 m,
+  river banks included). In a 20 min fleet run on `river_moderate_aus` it logged 6/6 real
+  natives with 3 false ones, sent no native to the rover, and the rovers collected 12/12.
+  The training data and scripts are in `~/mushroom_river` (`train_v6.sh`) on the capture PC,
+  captured with `skidsteer_perception/scripts/run_capture.sh --hover 1.0 [--spots banks.json]`.
 - The rover does not re-check a target with its own camera before gripping,
   so a look-alike that passes the quad's checks gets collected.
 - "Collected" is a sim stand-in: any mushroom within 0.6 m of the gripper

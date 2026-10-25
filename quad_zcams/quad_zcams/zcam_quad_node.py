@@ -74,6 +74,8 @@ MAP_MAX_Z_M = 2.0         # depth frames go into the rover's map only from cruis
 MAP_MAX_W = 0.3
 RECENTRE_M = 0.4          # a hold re-aims on a sighting at least this far from its target
 NATIVE_CLASS = 'native_mushroom'  # detector class for non-invasive mushrooms
+NATIVE_GUARD_M = 0.75  # an 'amanita' this close to a logged native is that native
+NATIVE_CONFIRM_S = 0.4  # a native is logged on a second sighting at least this much later (another frame)
 STRAFE_SPEED = 0.6        # strafe: along the path in the body frame while the yaw catches up...
 STRAFE_MAX_RAD = 2.0      # ...unless the next corner is this far round (then turn on the spot)
 
@@ -118,7 +120,12 @@ class ZCamQuad(qs.QuadSearchController):
         self.max_aspect = float(self.get_parameter('max_aspect').value)
         self.declare_parameter('native_min_conf', qs.MIN_CONF)  # natives need this score to be logged
         self.native_min_conf = float(self.get_parameter('native_min_conf').value)
+        # far-off specks near the horizon scored 0.55-0.8 as natives and projected short on the river banks
+        # (river_v6 run: 18 false); a native within ~2.5 m is 12 px or more, and the 3 m rows pass every one closer
+        self.declare_parameter('native_min_px', 12.0)
+        self.native_min_px = float(self.get_parameter('native_min_px').value)
         self.natives_seen = []
+        self.native_candidates = []  # (x, y, first seen s): one-frame specks never come back
         self.declare_parameter('center_out', False)
         self.declare_parameter('fast_dispatch', False)
         self.declare_parameter('cruise_speed', qs.MAX_LINEAR_SPEED)
@@ -534,15 +541,30 @@ class ZCamQuad(qs.QuadSearchController):
             if self.det_range > 0.0 and math.hypot(g[0] - self.x, g[1] - self.y) > self.det_range:
                 continue
             if det.results[0].hypothesis.class_id == NATIVE_CLASS:  # monitored, never collected
-                if det.results[0].hypothesis.score < self.native_min_conf:
+                if det.results[0].hypothesis.score < self.native_min_conf or det.bbox.size_x < self.native_min_px:
                     continue
                 if all(math.hypot(g[0] - nx, g[1] - ny) > 1.5 for nx, ny in self.natives_seen):
-                    self.natives_seen.append(g)
-                    self.get_logger().info(f'native mushroom {len(self.natives_seen)} logged at '
-                                           f'({g[0]:.1f}, {g[1]:.1f}) - left in place')
+                    self._native_sighting(g)
+                continue
+            # a native seen up close can also score as amanita (river_v5 sent the rover to collect three);
+            # never dispatch on a logged native, or one seen once
+            if any(math.hypot(g[0] - nx, g[1] - ny) < NATIVE_GUARD_M
+                   for nx, ny, *_ in self.natives_seen + self.native_candidates):
                 continue
             return g
         return None
+
+    def _native_sighting(self, g):
+        now = self._now_s()
+        for c in self.native_candidates:
+            if math.hypot(g[0] - c[0], g[1] - c[1]) <= 1.5:
+                if now - c[2] >= NATIVE_CONFIRM_S:
+                    self.native_candidates.remove(c)
+                    self.natives_seen.append(g)
+                    self.get_logger().info(f'native mushroom {len(self.natives_seen)} logged at '
+                                           f'({g[0]:.1f}, {g[1]:.1f}) - left in place')
+                return
+        self.native_candidates.append((g[0], g[1], now))
 
     def _mark_msg(self, msg):
         """The operator flying the quad marks the mushroom in view: it goes to the rover's queue as a hold would send it."""

@@ -101,7 +101,9 @@ class YoloPool(Node):
                     continue
             t0 = time.monotonic()
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            res = model.predict(frame, conf=self.conf, imgsz=self.imgsz, verbose=False)[0]
+            # agnostic: one box per object, its best class - river_v5 put an amanita box on a native
+            # under its native box, and the quad dispatched the rover to collect it
+            res = model.predict(frame, conf=self.conf, imgsz=self.imgsz, agnostic_nms=True, verbose=False)[0]
             try:
                 self._publish(r, msg, frame, res)
             except Exception:
