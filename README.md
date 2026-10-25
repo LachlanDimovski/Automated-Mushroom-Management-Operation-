@@ -32,6 +32,10 @@ Build from the workspace root:
 
     cd ~/41068_ws && colcon build --symlink-install && source install/setup.bash
 
+Rebuild after every pull, not only after C++ changes: `--symlink-install` links the Python files,
+but new files (launch files, `ammo_gui_node/config/fastdds_udp_only.xml`, new nodes) are only
+installed by a build.
+
 ## Running the mission
 
 One launch runs everything - Gazebo, Nav2, the ground-truth localiser, the
@@ -57,7 +61,7 @@ Launch arguments:
 | `count` | `0` | Random test mushrooms queued straight to the rover |
 | `meta_goals` | `true` | Queue the world's own mushrooms (from `<world>.meta.json`) to the rover. `false` = the quad must find them |
 | `quad_waypoints` | empty | `x,y,x,y,...` legs for the quad instead of the lawnmower |
-| `yolo` / `husky_yolo` | `true` / `false` | Quad detector / rover mushroom detector (off to save CPU) |
+| `yolo` / `husky_yolo` | `true` / `true` | Quad detector / rover mushroom detector (the rover's camera steers the final alignment, `false` to save CPU) |
 | `hazard` | `false` | COCO person detector + `hazard_brake` on the rover |
 | `tool` | `gripper` | `cage` selects the older boom cage (also needs `cage:=true` in `husky.urdf.xacro`) |
 
@@ -99,9 +103,10 @@ detector could not tell them apart.
 - **Camera feeds:** invasive boxes are red, native boxes are teal.
 - **Quads:** a native is logged when it is within 3 m of the quad (`det_range`, as for
   invasive ones), scores at least `native_min_conf` (default 0.5) and its box is at least
-  `native_min_px` wide (default 12; far-off specks were the false ones). The log line is
+  `native_min_px` wide (default 12; far-off specks were the false ones), and is seen a second
+  time within 1.5 m at least 0.4 s later (one-frame false natives are dropped). The log line is
   `native mushroom N logged at (x, y) - left in place`. No rover is sent, and an invasive
-  sighting within 0.75 m of a logged native is ignored.
+  sighting within 0.75 m of a native, logged or seen once, is ignored.
 - **Detector:** one box per object (class-agnostic NMS), so a native cannot also come out as
   an invasive box underneath.
 - **`mission_bridge`** reads every quad's native log lines (`quad_search_controller` and the
@@ -128,10 +133,13 @@ detector could not tell them apart.
 3. **Hand over.** After three consistent waypoints on `husky1/cage/waypoints`
    the quad resumes searching; the rover works in parallel.
 4. **Collect.** The rover queues the point, drives with Nav2 to a standoff
-   1.7 m from it on the clearest side, creeps in on odometry, lowers and closes
+   1.7 m from it on the clearest side, turns to face it (ALIGN), creeps in, lowers and closes
    the gripper, and publishes `husky1/cage/done` (or `husky1/cage/missed` if
    nothing was there, so the quad can find and dispatch it again). A point Nav2 cannot reach is
    tried from up to five directions, then deferred to the back of the queue.
+   During ALIGN the rover steers on its own camera's sighting (projected with the pose at that
+   frame) when it is under 2.5 s old and within 15 deg of the odometry heading; otherwise on
+   odometry. Native boxes are never a target.
 
 ## Topic ownership
 
@@ -159,6 +167,19 @@ it was left. Nothing is published while no button is held. Wrong stick or button
 mission running, `ros2 run quad_zcams ps4_teleop --ros-args -p inspect:=true` prints the axis and
 button numbers; pass them as parameters (`rover_button`, `quad_button`, `axis_forward`, `axis_turn`, ...).
 
+| Control | Action |
+|---|---|
+| **R1** held | Drive the rover: left stick forward/back, right stick turn |
+| **L1** held | Fly the quad: left stick forward/back and strafe, right stick yaw and climb |
+| **OPTIONS** | Teleop mode on/off: the rover (first) stays the operator's without a button held |
+| **TRIANGLE** | In teleop mode: switch between the rover and the quad |
+| **CROSS** | Rover in hand: grab in front of the claw. Quad in hand: send the mushroom in view to the rover |
+| **L2** held | Rover creep at 0.2 m/s past `collision_guard`, to close in on a mushroom |
+
+The stick signs follow `ps4_drone_test.py`. Check them on the real controller before a demo:
+`inspect:=true`, push each stick up and right, and confirm the numbers match `axis_forward`
+(up = negative) and `axis_turn` (right = positive).
+
 `hazard_brake` does not publish velocities; it cancels the current Nav2 goal
 when a person fills more than 120 px of the rover camera (about 3 m).
 
@@ -176,7 +197,10 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   return home, land, abort). It publishes `parrot1/cmd_vel`, so run it with
   `parrot:=false` or not alongside `quad_search_node`.
 - **Operator GUI**: `ros2 run ammo_gui_node gui` (PySide6 GUI and Debug UI, `ammo_gui_node/`).
-  Its Launch button starts `cage_mission.launch.py` (one quad).
+  Its Launch button starts `cage_mission.launch.py` (one quad). Pause freezes the mission
+  nodes; they get `ammo_gui_node/config/fastdds_udp_only.xml` (1 h discovery lease, loopback
+  UDP) so the other processes keep them through a long pause. Without it, a pause over 20 s
+  could leave the rover without `/clock` or Nav2 after Resume.
 - **World generator**: `python3 41068_ignition_bringup/scripts/generate_forest_world.py --seed 7 --preset dense`
   writes a seeded forest `.sdf`, its terrain, and a `.meta.json` with the
   ground truth of every tree, mushroom and decoy. See `worlds/README_forest_random.md`.
@@ -192,8 +216,10 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   terrain (`forest_random`) can add metres of error. Demo on `forest_flat`.
 - Detection is reliable to about 3.5 m, hence the 2 m cruise and 3 m rows.
 - Native detection is trained on the sim's blue caps only (`river_v6`: blue caps at 1-5 m,
-  river banks included). In a 20 min fleet run on `river_moderate_aus` it logged 6/6 real
-  natives with 3 false ones, sent no native to the rover, and the rovers collected 12/12.
+  river banks included). With the second-sighting rule, fleet runs on `river_moderate_aus`
+  logged 6/6 real natives with 0-1 false ones, sent no native to the rover, and collected 12/12.
+  The false one that recurs is at the water's edge near (17.7, -12.2), likely the blue water
+  read as a cap; it is logged only, never collected.
   The training data and scripts are in `~/mushroom_river` (`train_v6.sh`) on the capture PC,
   captured with `skidsteer_perception/scripts/run_capture.sh --hover 1.0 [--spots banks.json]`.
 - The rover does not re-check a target with its own camera before gripping,
