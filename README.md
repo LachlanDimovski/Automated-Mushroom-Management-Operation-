@@ -67,7 +67,7 @@ Launch arguments:
 
 ## Running the fleet (2 quads + 1 rover) with the Fleet Debug UI
 
-The operator GUI's Launch button only starts `cage_mission.launch.py` (one quad).
+The operator GUI's Prepare button only starts `cage_mission.launch.py` (one quad).
 For the fleet, start the sim headless in one terminal:
 
     F=~/41068_ws/src/RS1_Team5_/forest_worlds
@@ -196,8 +196,11 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   `/parrot1/mission/*` services (liftoff, start search with a path shape,
   return home, land, abort). It publishes `parrot1/cmd_vel`, so run it with
   `parrot:=false` or not alongside `quad_search_node`.
-- **Operator GUI**: `ros2 run ammo_gui_node gui` (PySide6 GUI and Debug UI, `ammo_gui_node/`).
-  Its Launch button starts `cage_mission.launch.py` (one quad). Pause freezes the mission
+- **Operator GUI**: `ros2 launch ammo_gui_node gui.launch.py` (PySide6 GUI with `mission_bridge`,
+  `ammo_gui_node/`). A run starts in two stages: **Prepare** starts `cage_mission.launch.py`
+  (one quad, one rover, PS4 teleop) and freezes both mission nodes while a checklist fills in and
+  the mushrooms are spawned; **Launch** releases them and starts the clock. End Mission keeps
+  Gazebo up for the next run. See `ammo_gui_node/README.md`. Pause freezes the mission
   nodes; they get `ammo_gui_node/config/fastdds_udp_only.xml` (1 h discovery lease, loopback
   UDP) so the other processes keep them through a long pause. Without it, a pause over 20 s
   could leave the rover without `/clock` or Nav2 after Resume.
