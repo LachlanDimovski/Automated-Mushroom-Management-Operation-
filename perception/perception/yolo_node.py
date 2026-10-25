@@ -119,7 +119,7 @@ class YoloNode(Node):
     def _draw(self, frame, x1, y1, x2, y2, label, score):
         crop = frame[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)]
         if label == 'native_mushroom':
-            colour = (214, 156, 79)  # blue, as the GUI marks natives
+            colour = (138, 160, 70)  # teal, as the GUI marks natives
         else:
             colour = (0, 0, 255) if classify_red(crop) else (0, 255, 0)
         cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)

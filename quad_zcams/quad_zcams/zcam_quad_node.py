@@ -10,6 +10,7 @@
   (up camera); walled-in pockets are looked into from the open forest.
 Without a world file (world_sdf empty) it keeps the straight legs and the parent's stuck rule.
 """
+import json
 import math
 import os
 import time
@@ -21,13 +22,32 @@ from nav_msgs.msg import OccupancyGrid
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy import ndimage
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, String
 
 from ammo_mission_control import quad_search_node as qs
 from ammo_mission_control.drive_utils import steer_angular
 from ammo_mission_control import ground_projection as gp
 from ammo_mission_control.ground_projection import CAM_FWD_M, CAM_PITCH_RAD, CAM_UP_M, FOCAL_PX, IMG_H, IMG_W
 from quad_zcams import obstacle_map, shared_map
+
+
+class Phase:
+    """Phase names published on parrot1/quad_state.
+
+    Spelled out here rather than imported: this node must not depend on the
+    GUI package. ammo_gui_node/contract.py holds the matching copy.
+    """
+    NO_ODOM = 'NO TELEMETRY'
+    TAKEOFF = 'CLIMBING'
+    SEARCH = 'SEARCHING'
+    APPROACH = 'APPROACHING'
+    HOLDING = 'HOLDING'
+    DISPATCH = 'HANDING OVER'
+    RETRY_VIEW = 'NEW VIEWPOINT'
+    SLIDE = 'SLIDING PAST'
+    LOOK = 'PEERING IN'
+    ESCAPE = 'BACKTRACKING'
+    CLIMB = 'CLIMBING CLEAR'
 
 ZCAM_HFOV = 1.0472
 DOWN_CAM_Z = -0.12        # camera mounts below / above base_link (parrot_zcams.urdf.xacro)
@@ -194,6 +214,86 @@ class ZCamQuad(qs.QuadSearchController):
         self.shared_pub = self.create_publisher(OccupancyGrid, 'parrot1/ground_obstacles',
                                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_timer(1.0, lambda: self.shared_pub.publish(self.shared.message(self.get_clock().now().to_msg())))
+        # What the quad is doing, for the operator GUI. The phases below all
+        # already existed as behaviour; nothing here changes how it flies.
+        self.state_pub = self.create_publisher(
+            String, 'parrot1/quad_state',
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.recentred_at = -1e9
+        self._state_sent = ('', -1e9)
+
+    # -- state, for the GUI ---------------------------------------------------
+    def _phase(self):
+        """The phase the quad is in, resolved in the order they override.
+
+        Every test here reads a variable the flight code already maintains.
+        """
+        if not getattr(self, 'have_odom', False):
+            return Phase.NO_ODOM
+        if not getattr(self, 'taken_off', False):
+            return Phase.TAKEOFF
+        if getattr(self, 'mode', 'cruise') == 'slide':
+            return Phase.SLIDE
+        if getattr(self, 'looking', None) is not None:
+            return Phase.LOOK
+        if getattr(self, 'escaping', False):
+            return Phase.ESCAPE
+        if getattr(self, 'holding', False):
+            if getattr(self, 'wp_seen_at', None) is not None:
+                return Phase.DISPATCH
+            if getattr(self, 'hold_view', 0) > 0:
+                return Phase.RETRY_VIEW
+            # stationary_since is None while it is still travelling
+            if getattr(self, 'stationary_since', None) is None:
+                return Phase.APPROACH
+            return Phase.HOLDING
+        if getattr(self, 'recovery_until', None) is not None:
+            return Phase.CLIMB
+        return Phase.SEARCH
+
+    def _publish_state(self):
+        """On change, and once a second otherwise. Never allowed to throw."""
+        try:
+            phase = self._phase()
+            now = time.time()
+            last, at = self._state_sent
+            if phase == last and now - at < 1.0:
+                return
+            self._state_sent = (phase, now)
+            try:
+                remaining = round(float(self._remaining()), 1)
+            except Exception:
+                remaining = None
+            payload = {
+                'phase': phase,
+                'x': round(self.x, 2), 'y': round(self.y, 2),
+                'yaw': round(self.yaw, 3),
+                'alt': round(getattr(self, 'z_abs', self.z), 2),
+                'agl': round(self.z, 2),
+                'planner': getattr(self, 'grid', None) is not None,
+                'leg': getattr(self, 'wp_idx', 0),
+                'legs': len(getattr(self, 'waypoints', []) or []),
+                'pass_n': getattr(self, 'pass_n', 0),
+                'dispatched': len(getattr(self, 'dispatched', []) or []),
+                'natives': [[round(float(a), 2), round(float(b), 2)]
+                            for a, b in (getattr(self, 'natives_seen', []) or [])],
+                'hold_target': (None if getattr(self, 'hold_target', None) is None
+                                else [round(float(v), 2) for v in self.hold_target]),
+                'hold_view': getattr(self, 'hold_view', 0),
+                'path_left_m': remaining,
+                'rung': getattr(self, 'rung', 0),
+                'recentred': round(now - self.recentred_at, 1) < 2.0,
+                'counters': {k: getattr(self, 'n_' + k, 0) for k in
+                             ('plans', 'stuck', 'slides', 'skipped', 'looks',
+                              'unreached', 'escapes')},
+            }
+            self.state_pub.publish(String(data=json.dumps(payload)))
+        except Exception:
+            pass   # a GUI feed must never be able to interrupt the flight loop
+
+    def _control_step(self):
+        super()._control_step()
+        self._publish_state()
 
     def _depth_cb(self, msg):
         """Each level frame from cruise height also goes into the map shared with the rover."""
@@ -618,6 +718,7 @@ class ZCamQuad(qs.QuadSearchController):
             if RECENTRE_M < off < 2.0:
                 self.hold_target = (lg[1], lg[2])
                 self.hold_xy = self._hold_point(self.hold_target, self.hold_view)
+                self.recentred_at = time.time()   # so the GUI can say it re-aimed
 
     def _done_cb(self, msg):
         """The parent ended any hold on any rover 'done' - also one for a different mushroom, which dropped the one

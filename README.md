@@ -24,7 +24,7 @@ Everything runs in Gazebo (Ignition) on ROS 2 Humble.
 | `skidsteer_perception` | Dataset capture and training scripts (`scripts/`, see `TRAINING_PC.md`) |
 | `ammo_dashboard` | OpenCV HUD: both YOLO feeds, speed, altitude, minimap |
 | `quad_zcams` | The z-camera quad (`zcam_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`) and PS4 teleop |
-| `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge`, `native_tracker` |
+| `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge` |
 | `forest_worlds` | Generated river worlds (`river_moderate_aus`, ...) and their models |
 | `quad_mission`, `quad_mission_interfaces` | Quad mission state machine (C++): take-off, search, return, land, abort services. Not part of `cage_mission.launch.py`, see below |
 
@@ -100,7 +100,7 @@ The two-class detector labels `amanita_muscaria_red` (invasive, collected) and
 (`mushroom_native/meshes/native_cap.png`): the original brown caps matched the leaf litter, and the
 detector could not tell them apart.
 
-- **Camera feeds:** invasive boxes are red, native boxes are blue.
+- **Camera feeds:** invasive boxes are red, native boxes are teal.
 - **Quads:** a native is logged when it is within 3 m of the quad (`det_range`, as for
   invasive ones), scores at least `native_min_conf` (default 0.5) and its box is at least
   `native_min_px` wide (default 12; far-off specks were the false ones), and is seen a second
@@ -109,11 +109,12 @@ detector could not tell them apart.
   sighting within 0.75 m of a native, logged or seen once, is ignored.
 - **Detector:** one box per object (class-agnostic NMS), so a native cannot also come out as
   an invasive box underneath.
-- **`native_tracker`** (started by `fleet_debug.launch.py`) merges the quads' logs within 2 m,
-  so one mushroom seen twice or by two quads counts once. It publishes the list on
-  `fleet/natives` and a `native` event on `ammo/mission/events`.
-- **Fleet Debug UI:** natives show as blue N1, N2, ... on the minimap, blue markers on the
-  timeline, and a NATIVE MUSHROOMS count card.
+- **`mission_bridge`** reads every quad's native log lines (`quad_search_controller` and the
+  fleet's `fleet_quad_*`) and its `parrot1/quad_state`, merges sightings within 2 m
+  (`NATIVE_MERGE_M`), so one mushroom seen twice or by two quads counts once, and announces
+  each on `ammo/mission/events`. The status carries the list as `natives`.
+- **Debug UI and Fleet Debug UI:** natives show as teal markers on the minimap and timeline,
+  in the event feed, and (fleet) in a NATIVE MUSHROOMS count card.
 - **Single quad** (`cage_mission.launch.py`): pass the two-class model with
   `model_path:=$(ros2 pkg prefix perception)/share/perception/models/variants/amanita_river_v6_yolo11n.pt`
   (`forest_worlds/demo_river.sh` already does). The default one-class model sees no natives.

@@ -33,7 +33,7 @@ from vision_msgs.msg import Detection2D, Detection2DArray, ObjectHypothesisWithP
 cv2.setNumThreads(1)
 torch.set_num_threads(1)
 LIVE_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-NATIVE_BGR = (214, 156, 79)  # blue, as the GUI marks natives
+NATIVE_BGR = (138, 160, 70)  # teal, as the GUI marks natives
 
 
 class YoloPool(Node):

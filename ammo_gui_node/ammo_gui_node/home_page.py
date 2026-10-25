@@ -1,8 +1,19 @@
-"""Setup page: pick the world, the mushrooms and who drives the rover.
+"""Setup page: pick the world, the mushrooms, the search pattern and who drives.
 
 Everything variable about a run is decided here rather than typed as launch
-arguments. Listed mushrooms are spawned by cage_mission.launch.py; worlds that
-already contain mushrooms also offer them as a preset.
+arguments. Worlds that already contain mushrooms offer them as a preset;
+anything else is spawned by the GUI once the simulation is up and the mission
+nodes are held, which is what lets you look at the placement before the
+quadcopter ever gets to.
+
+This page ends at **Prepare**, not Launch. Prepare brings the simulation up
+and stops; `ready_page.py` is where you look at it and decide.
+
+The preview beside the setup is drawn from the world's own `.meta.json`
+using the same widget the live map uses, so what you see here is what the
+robots will actually be in - trees where the trees are, the river where the
+river is - and a mushroom that would spawn inside a pond is visible before
+you press Launch rather than after.
 
 The coordinate rows are editable on purpose: a saved layout is the starting
 point, not a cage. Edit a pair, add a row, delete one, and press Launch.
@@ -11,12 +22,17 @@ import json
 import os
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QRadioButton, QScrollArea,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                               QRadioButton, QScrollArea, QSpinBox, QVBoxLayout,
+                               QWidget)
 
 from ammo_gui_node import cards, theme
-from ammo_gui_node.mission_launcher import WORLDS, world_available, world_mushrooms
+from ammo_gui_node.map_view import MapView
+from ammo_gui_node.mission_launcher import (PATTERNS, SEARCH_DEFAULTS, WORLDS,
+                                            shuffle_mushrooms, world_available,
+                                            world_meta_full, world_mushroom_names,
+                                            world_mushrooms)
 
 FORMAT_HINT = ('Each mushroom is  x, y  in metres from the middle of the world.   '
                'Decimals optional:   0.0, 0.0   ·   1, 3   ·   -4, 5.9')
@@ -30,12 +46,27 @@ BUILTIN_LAYOUTS = {
     ],
 }
 
+# The numeric search settings, as (key, label, suffix, minimum, maximum, step).
+SPINS = (
+    ('row_spacing', 'Row / loop spacing', ' m', 1.5, 8.0, 0.5),
+    ('cruise_speed', 'Quadcopter speed', ' m/s', 0.4, 2.5, 0.1),
+    ('cruise_alt', 'Quadcopter height', ' m', 0.6, 4.0, 0.1),
+    ('rover_speed', 'Skidsteer speed', ' m/s', 0.5, 2.0, 0.1),
+)
+
 
 def load_layouts(world):
-    """The world's own mushrooms (if any), then layouts/<world>.json or the built-ins."""
+    """The world's own mushrooms (if any), the saved layouts, then Random.
+
+    Random is last and always present: it is the one that does not care what
+    the world shipped with, and the one you come back to when the robots have
+    learnt the demo layout by heart.
+    """
     own = world_mushrooms(world)
-    first = [{'name': f"World's own {len(own)} mushrooms", 'mushrooms': own, 'in_world': True}] if own else []
-    return first + _saved_layouts(world)
+    first = [{'name': f"World's own {len(own)} mushrooms", 'mushrooms': own,
+              'in_world': True}] if own else []
+    return first + _saved_layouts(world) + [
+        {'name': 'Random placement', 'mushrooms': [], 'random': True}]
 
 
 def _saved_layouts(world):
@@ -119,11 +150,15 @@ class CoordRow(QWidget):
 
 class HomePage(QWidget):
 
-    begin_mission = Signal(dict)
+    prepare_requested = Signal(dict)
 
     def __init__(self):
         super().__init__()
         self.rows = []
+        self._layouts = []
+        # Qt reports a widget inside a hidden window as not visible, so the
+        # preset's own flag decides, not random_box.isVisible().
+        self._random = False
         self._build()
         self._load_world_layouts()
 
@@ -143,19 +178,27 @@ class HomePage(QWidget):
         head_lay.addWidget(stage, 0, Qt.AlignVCenter)
         outer.addWidget(head)
 
-        body = QHBoxLayout()
-        body.setContentsMargins(34, 28, 34, 30)
-        body.setSpacing(22)
-        outer.addLayout(body, 1)
-
+        # The whole page scrolls. With the search settings open this is taller
+        # than a laptop screen, and a Prepare button you cannot reach is worse
+        # than a scrollbar.
+        inner = QWidget()
+        body = QHBoxLayout(inner)
+        body.setContentsMargins(28, 22, 28, 24)
+        body.setSpacing(18)
         body.addWidget(self._setup_card(), 3)
-        body.addWidget(self._info_card(), 1)
+        body.addLayout(self._right_column(), 2)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll, 1)
 
     def _setup_card(self):
         card = cards.panel()
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(26, 22, 26, 22)
-        lay.setSpacing(16)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(14)
 
         title = QHBoxLayout()
         title.setSpacing(12)
@@ -163,7 +206,7 @@ class HomePage(QWidget):
         heading.setStyleSheet(
             f'color: {theme.TEXT}; font-size: 18px; font-weight: 600; letter-spacing: 1px;')
         title.addWidget(heading)
-        title.addWidget(cards.label('Nothing is spawned or started until you press Launch.', 'Dim'))
+        title.addWidget(cards.label('Prepare brings the world up and stops. Nothing is timed until you launch.', 'Dim'))
         title.addStretch(1)
         lay.addLayout(title)
 
@@ -174,19 +217,31 @@ class HomePage(QWidget):
         col.setSpacing(6)
         col.addWidget(cards.section('WORLD / TERRAIN'))
         self.world_box = QComboBox()
-        self.world_box.addItems([w for w in WORLDS if world_available(w)])
+        self.world_box.addItems([w for w in WORLDS if world_available(w)] or ['simple_trees'])
         self.world_box.currentTextChanged.connect(self._load_world_layouts)
         col.addWidget(self.world_box)
         self.show_sim = QCheckBox('Show the Gazebo window')
+        self.show_sim.setChecked(True)
         col.addWidget(self.show_sim)
         row.addLayout(col, 2)
 
         col = QVBoxLayout()
         col.setSpacing(6)
-        col.addWidget(cards.section('CAPTURE TOOL'))
-        self.tool_box = QComboBox()
-        self.tool_box.addItems(['gripper', 'cage'])
-        col.addWidget(self.tool_box)
+        col.addWidget(cards.section('ROBOTS'))
+        counts = QHBoxLayout()
+        counts.setSpacing(10)
+        self.quad_count = self._count_spin('Quadcopters')
+        self.rover_count = self._count_spin('Skidsteers')
+        for caption, spin in (('Quad', self.quad_count), ('Rover', self.rover_count)):
+            box = QVBoxLayout()
+            box.setSpacing(3)
+            box.addWidget(cards.label(caption, 'Faint'))
+            box.addWidget(spin)
+            counts.addLayout(box)
+        col.addLayout(counts)
+        hint = cards.label('Not wired up yet - one of each is spawned.', 'Faint')
+        hint.setWordWrap(True)
+        col.addWidget(hint)
         row.addLayout(col, 1)
         lay.addLayout(row)
 
@@ -197,6 +252,28 @@ class HomePage(QWidget):
         self.layout_box = QComboBox()
         self.layout_box.currentIndexChanged.connect(self._apply_layout)
         col.addWidget(self.layout_box)
+
+        # Only for the Random preset: how many, and roll again.
+        self.random_box = QWidget()
+        rlay = QHBoxLayout(self.random_box)
+        rlay.setContentsMargins(0, 2, 0, 0)
+        rlay.setSpacing(10)
+        rlay.addWidget(cards.label('How many', 'Dim'))
+        self.random_count = QSpinBox()
+        self.random_count.setRange(1, 12)
+        self.random_count.setValue(4)
+        self.random_count.setFixedWidth(78)
+        self.random_count.setMinimumHeight(38)
+        self.random_count.valueChanged.connect(self._reroll)
+        rlay.addWidget(self.random_count)
+        reroll = QPushButton('Roll again')
+        reroll.setObjectName('Ghost')
+        reroll.clicked.connect(self._reroll)
+        rlay.addWidget(reroll)
+        rlay.addWidget(cards.label('Clear of trunks and water, away from the spawn '
+                                   'clearing. You can still edit them below.', 'Faint'), 1)
+        self.random_box.hide()
+        col.addWidget(self.random_box)
         lay.addLayout(col)
 
         # coordinates
@@ -218,12 +295,13 @@ class HomePage(QWidget):
 
         self.rows_box = QVBoxLayout()
         self.rows_box.setSpacing(7)
+        self.rows_box.addStretch(1)   # rows keep their own height, not a share of the box
         holder = QWidget()
         holder.setLayout(self.rows_box)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(holder)
-        scroll.setMinimumHeight(150)
+        scroll.setMinimumHeight(130)
         clay.addWidget(scroll, 1)
 
         buttons = QHBoxLayout()
@@ -244,7 +322,6 @@ class HomePage(QWidget):
         modes = QHBoxLayout()
         modes.setSpacing(12)
         self.mode_group = QButtonGroup(self)
-
         self.auto_radio = self._mode_option(
             modes, 'Autonomous',
             'The rover plans its own route to each mushroom the quadcopter '
@@ -264,15 +341,32 @@ class HomePage(QWidget):
         nlay = QHBoxLayout(note)
         nlay.setContentsMargins(14, 10, 14, 10)
         nlay.addWidget(cards.label(
-            'The quadcopter is autonomous in both modes - it is never hand-flown '
-            'from this window.', 'Dim'))
+            'The quadcopter flies itself in both modes. You can still take it over '
+            'from the mission page while it is running.', 'Dim'))
         lay.addWidget(note)
 
-        self.launch_button = QPushButton('LAUNCH MISSION')
+        self.launch_button = QPushButton('PREPARE TO LAUNCH')
         self.launch_button.setObjectName('Primary')
         self.launch_button.clicked.connect(self._launch)
         lay.addWidget(self.launch_button)
         return card
+
+    @staticmethod
+    def _count_spin(tip):
+        """A robot count. Deliberately inert: the launch ignores it.
+
+        It is here so the shape of multi-robot setup is visible and agreed
+        before the plumbing exists - spawning a second robot needs its own
+        namespace, bridge config and a split search area, none of which is in
+        the repo yet.
+        """
+        spin = QSpinBox()
+        spin.setRange(1, 4)
+        spin.setValue(1)
+        spin.setFixedWidth(78)
+        spin.setMinimumHeight(38)
+        spin.setToolTip(f'{tip}: not wired up yet')
+        return spin
 
     def _mode_option(self, parent_layout, title, blurb, checked=False):
         box = cards.panel(deep=True)
@@ -299,30 +393,132 @@ class HomePage(QWidget):
             f'QFrame#PanelDeep {{ background: {theme.PANEL_DEEP};'
             f'border: {width}px solid {edge}; border-radius: 8px; }}')
 
+    # -- right-hand column --------------------------------------------------
+    def _right_column(self):
+        col = QVBoxLayout()
+        col.setSpacing(16)
+        col.addWidget(self._preview_panel(), 3)
+        col.addWidget(self._pattern_card(), 0)
+        col.addWidget(self._info_card(), 0)
+        return col
+
+    def _preview_panel(self):
+        panel = cards.panel()
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        head = QHBoxLayout()
+        head.setContentsMargins(14, 9, 14, 9)
+        head.addWidget(cards.section('WORLD PREVIEW'))
+        head.addStretch(1)
+        self.preview_note = cards.label('', 'Faint')
+        head.addWidget(self.preview_note)
+        lay.addLayout(head)
+        lay.addWidget(cards.hline())
+        self.preview = MapView(interactive=False, compact=True, show_key=True)
+        self.preview.setMinimumHeight(240)
+        lay.addWidget(self.preview, 1)
+        return panel
+
+    def _pattern_card(self):
+        card = cards.panel()
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(10)
+
+        head = QHBoxLayout()
+        head.addWidget(cards.section('SEARCH PATTERN'))
+        head.addStretch(1)
+        self.pattern_toggle = QPushButton('Show settings')
+        self.pattern_toggle.setObjectName('Ghost')
+        self.pattern_toggle.setCheckable(True)
+        self.pattern_toggle.toggled.connect(self._toggle_pattern)
+        head.addWidget(self.pattern_toggle)
+        lay.addLayout(head)
+
+        self.pattern_group = QButtonGroup(self)
+        self.pattern_radios = {}
+        for key, title, blurb in PATTERNS:
+            box = cards.panel(deep=True)
+            blay = QVBoxLayout(box)
+            blay.setContentsMargins(13, 10, 13, 10)
+            blay.setSpacing(4)
+            radio = QRadioButton(title)
+            radio.setChecked(key == ('center_out' if SEARCH_DEFAULTS['center_out'] else 'rows'))
+            self.pattern_group.addButton(radio)
+            radio.toggled.connect(lambda on, b=box: self._style_option(b, on))
+            blay.addWidget(radio)
+            text = cards.label(blurb, 'Faint')
+            text.setWordWrap(True)
+            blay.addWidget(text)
+            self._style_option(box, radio.isChecked())
+            lay.addWidget(box)
+            self.pattern_radios[key] = radio
+
+        self.detail_box = QWidget()
+        dlay = QVBoxLayout(self.detail_box)
+        dlay.setContentsMargins(0, 4, 0, 0)
+        dlay.setSpacing(7)
+        self.spins = {}
+        for key, label, suffix, lo, hi, step in SPINS:
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            caption = cards.label(label, 'Dim')
+            row.addWidget(caption, 1)
+            spin = QDoubleSpinBox()
+            spin.setRange(lo, hi)
+            spin.setSingleStep(step)
+            spin.setDecimals(1)
+            spin.setSuffix(suffix)
+            spin.setValue(float(SEARCH_DEFAULTS[key]))
+            spin.setFixedWidth(132)
+            spin.setMinimumHeight(38)
+            row.addWidget(spin, 0)
+            dlay.addLayout(row)
+            self.spins[key] = spin
+
+        self.strafe_check = QCheckBox('Keep moving through corners')
+        self.strafe_check.setChecked(bool(SEARCH_DEFAULTS['strafe']))
+        dlay.addWidget(self.strafe_check)
+        self.planner_check = QCheckBox('Plan around the world file')
+        self.planner_check.setChecked(bool(SEARCH_DEFAULTS['planner']))
+        dlay.addWidget(self.planner_check)
+        hint = cards.label(
+            'Turning the planner off flies straight legs with trunk detours - '
+            'the first z-camera trial, kept for comparison.', 'Faint')
+        hint.setWordWrap(True)
+        dlay.addWidget(hint)
+
+        self.detail_box.hide()
+        lay.addWidget(self.detail_box)
+        return card
+
+    def _toggle_pattern(self, on):
+        self.detail_box.setVisible(on)
+        self.pattern_toggle.setText('Hide settings' if on else 'Show settings')
+
     def _info_card(self):
         card = cards.panel()
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(22, 22, 22, 22)
-        lay.setSpacing(14)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(9)
 
-        lay.addWidget(cards.section('WHAT LAUNCH DOES'))
-        for line in ('1.  Starts Gazebo, Nav2 and both robots in the chosen world',
-                     '2.  Spawns the mushrooms listed on the left',
-                     '3.  Starts the quadcopter search and the rover capture',
-                     '4.  Starts the mission clock and opens the operator view'):
+        lay.addWidget(cards.section('WHAT PREPARE DOES'))
+        for line in ('1.  Starts Gazebo, Nav2 and both robots',
+                     '2.  Waits until every camera, detector and Nav2 is really up',
+                     '3.  Holds both mission nodes, then spawns the mushrooms',
+                     '4.  Photographs the result from above, to launch or shuffle'):
             item = cards.label(line, 'Dim')
             item.setWordWrap(True)
             lay.addWidget(item)
 
-        lay.addStretch(1)
         self.status_note = cards.label('', 'Faint')
         self.status_note.setWordWrap(True)
         lay.addWidget(self.status_note)
 
         tail = cards.label(
             'The simulation takes about 30 s to come up (longer for river worlds). '
-            'Ending a mission closes it again.',
-            'Faint')
+            'Ending a mission leaves it up, so the next run starts straight away.', 'Faint')
         tail.setWordWrap(True)
         lay.addWidget(tail)
         return card
@@ -335,24 +531,49 @@ class HomePage(QWidget):
         self.layout_box.clear()
         self.layout_box.addItems([lay.get('name', 'unnamed') for lay in self._layouts])
         self.layout_box.blockSignals(False)
+        meta = world_meta_full(world)
+        self.preview.clear()
+        self.preview.set_world(meta)
+        self.preview_note.setText(
+            'from the world file' if meta else 'no world file - showing the spawn points only')
         self._apply_layout()
 
     def _apply_layout(self):
         idx = max(0, self.layout_box.currentIndex())
-        points = []
-        if 0 <= idx < len(self._layouts):
-            points = self._layouts[idx].get('mushrooms', [])
+        chosen = self._layouts[idx] if 0 <= idx < len(self._layouts) else {}
+        random_preset = bool(chosen.get('random'))
+        self._random = random_preset
+        self.random_box.setVisible(random_preset)
+        points = (self._rolled() if random_preset
+                  else chosen.get('mushrooms', []))
+        self._set_rows(points)
+
+    def _set_rows(self, points):
         for row in list(self.rows):
             self._remove_row(row)
         for x, y in points:
             self._add_row(x, y)
+        self._refresh_count()
+
+    def _rolled(self):
+        """A fresh random placement for the current world.
+
+        Unseeded on purpose: pressing Roll again has to give you something
+        different, and a layout worth keeping can be saved as a preset.
+        """
+        return shuffle_mushrooms(self.world_box.currentText(),
+                                 int(self.random_count.value()))
+
+    def _reroll(self):
+        if self._random:
+            self._set_rows(self._rolled())
 
     def _add_row(self, x, y):
         row = CoordRow(len(self.rows) + 1, x, y)
         row.removed.connect(self._remove_row)
         row.changed.connect(self._refresh_count)
         self.rows.append(row)
-        self.rows_box.addWidget(row)
+        self.rows_box.insertWidget(self.rows_box.count() - 1, row)
         self._refresh_count()
 
     def _remove_row(self, row):
@@ -370,24 +591,48 @@ class HomePage(QWidget):
         return [p for p in (row.value() for row in self.rows) if p is not None]
 
     def _refresh_count(self):
-        good = len(self.points())
-        bad = len(self.rows) - good
-        text = f'{good} to find'
+        good = self.points()
+        bad = len(self.rows) - len(good)
+        text = f'{len(good)} to find'
         if bad:
             text += f'  ·  {bad} row(s) need fixing'
         self.count_label.setText(text)
         self.launch_button.setEnabled(bad == 0)
+        self.preview.set_planned(good)
 
     # -- go -----------------------------------------------------------------
+    def options(self):
+        """The search settings, as mission_launcher wants them."""
+        values = {key: float(spin.value()) for key, spin in self.spins.items()}
+        values['center_out'] = self.pattern_radios['center_out'].isChecked()
+        values['strafe'] = self.strafe_check.isChecked()
+        values['planner'] = self.planner_check.isChecked()
+        return values
+
     def _launch(self):
-        self.begin_mission.emit({
-            'world': self.world_box.currentText(),
-            'tool': self.tool_box.currentText(),
+        points = self.points()
+        chosen = self._current_layout()
+        in_world = chosen.get('in_world', False)
+        world = self.world_box.currentText()
+        self.prepare_requested.emit({
+            'world': world,
+            'tool': 'gripper',
             'layout': self.layout_box.currentText(),
             'mode': 'manual' if self.manual_radio.isChecked() else 'autonomous',
-            'points': self.points(),
-            'spawn': not self._current_layout().get('in_world', False),
+            'points': points,
+            # Spawn ours unless the preset is the world's own set, in which
+            # case the models are already in the .sdf and spawning would
+            # double them up.
+            'spawn': not in_world,
+            # ...and if we are spawning our own on a world that shipped its
+            # own, those have to come out first, or the quadcopter finds
+            # twice as many mushrooms as the counter says exist.
+            'clear_world': (not in_world) and bool(world_mushroom_names(world)),
+            'random': bool(chosen.get('random')),
+            'count': int(self.random_count.value()),
             'show_sim': self.show_sim.isChecked(),
+            'options': self.options(),
+            'meta': world_meta_full(world),
         })
 
     def _current_layout(self):

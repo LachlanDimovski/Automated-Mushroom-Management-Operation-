@@ -22,6 +22,9 @@ STATUS_COLOURS = {
     'collecting': (theme.AMBER, 'COLLECTING'),
     'collected': (theme.GREEN, 'COLLECTED'),
     'abandoned': (theme.GREY, 'GAVE UP'),
+    # the gripper closed and came up empty: a different outcome from giving
+    # up on a mushroom, and worth telling apart when reviewing a run
+    'missed': (theme.AMBER, 'NOTHING THERE'),
 }
 
 

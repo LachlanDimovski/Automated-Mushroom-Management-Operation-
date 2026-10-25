@@ -8,7 +8,7 @@ package_name = 'ammo_gui_node'
 setup(
     name=package_name,
     version='0.2.0',
-    packages=find_packages(exclude=['test']),
+    packages=find_packages(exclude=['test', 'tests', 'tests.*']),
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         (os.path.join('share', package_name), ['package.xml']),
@@ -29,7 +29,6 @@ setup(
             'fleet_viewer = ammo_gui_node.fleet_viewer:main',
             'fleet_debug = ammo_gui_node.fleet_debug_window:main',
             'mission_bridge = ammo_gui_node.mission_bridge:main',
-            'native_tracker = ammo_gui_node.native_tracker:main',
         ],
     },
 )

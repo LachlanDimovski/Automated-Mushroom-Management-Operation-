@@ -16,10 +16,10 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
+        # autostart: a fleet run has no operator window to press Launch, so the bridge starts
+        # the mission on the rover's first log line
         Node(package='ammo_gui_node', executable='mission_bridge', output='screen',
-             parameters=[{'use_sim_time': use_sim_time}]),
-        Node(package='ammo_gui_node', executable='native_tracker', output='screen',
-             parameters=[{'use_sim_time': use_sim_time}]),
+             parameters=[{'use_sim_time': use_sim_time, 'autostart': True}]),
         Node(package='ammo_gui_node', executable='fleet_debug', output='screen',
              parameters=[{'use_sim_time': use_sim_time}]),
     ])

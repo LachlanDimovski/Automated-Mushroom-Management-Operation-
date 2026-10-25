@@ -1,18 +1,19 @@
-"""The mission timeline: one grey bar per minute, filled as time passes.
+"""The mission timeline: one grey bar per two minutes, filled as time passes.
 
-t = 0 is the left edge of the first bar. A whole minute fills a whole bar,
-and when the minute is up the next one starts on a new row underneath, so a
-twelve-minute run reads as twelve rows and you can see the shape of the
-mission at a glance - long green transits, short purple grabs, a grey band
-where someone paused it.
+t = 0 is the left edge of the first bar. A full row is `C.TIMELINE_ROW_S`
+seconds, and when that is up the next one starts on a new row underneath, so
+a sixteen-minute run reads as eight rows and you can see the shape of the
+mission at a glance - long green transits, a blue band where it crossed the
+river, short purple grabs, a grey band where someone paused it.
 
-A state that runs across a minute boundary is drawn as two pieces, one at
-the end of a row and one at the start of the next, which is what you want
+Two minutes a row rather than one: a river run is fifteen minutes and more,
+and thirty rows do not fit on a screen next to two camera feeds.
+
+A state that runs across a row boundary is drawn as two pieces, one at the
+end of a row and one at the start of the next, which is what you want
 visually even though it is one state underneath.
 
-Event markers (a mushroom cap when one is found, a cross when one is
-collected, a little rover when you send it somewhere) sit above the bar at
-the moment they happened.
+Event markers sit above the bar at the moment they happened.
 """
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -22,21 +23,34 @@ from PySide6.QtWidgets import QWidget
 from ammo_gui_node import contract as C
 from ammo_gui_node import theme
 
-MINUTE = 60.0
 LABEL_W = 52
-BAR_H = 22
-MARKER_H = 18
-ROW_GAP = 12
-ROW_H = BAR_H + MARKER_H + ROW_GAP
 TOP_PAD = 6
 FOOT_H = 34          # the "what is happening right now" line
+
+# Which events earn a mark above the bar. Everything else lives in the event
+# feed: a timeline with twenty symbol types is a wall, not a summary.
+MARKED = {
+    C.EV_FOUND: 'found',
+    C.EV_COLLECTED: 'collected',
+    C.EV_ABANDONED: 'abandoned',
+    C.EV_MISSED: 'missed',
+    C.EV_NATIVE: 'native',
+    C.EV_FORD: 'ford',
+    C.EV_WEDGED: 'wedged',
+    C.EV_OPERATOR_GOAL: 'goal',
+}
 
 
 class Timeline(QWidget):
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, compact=False, row_seconds=None):
         super().__init__(parent)
-        self.setMinimumHeight(ROW_H * 2 + FOOT_H + TOP_PAD)
+        self.compact = bool(compact)
+        self.row_seconds = float(row_seconds or C.TIMELINE_ROW_S)
+        self.bar_h = 14 if compact else 22
+        self.marker_h = 14 if compact else 18
+        self.row_gap = 7 if compact else 12
+        self.setMinimumHeight(self.row_h() * 2 + FOOT_H + TOP_PAD)
         self.segments = []      # (t_start, t_end, state)
         self.markers = []       # (t, kind, label)
         self.now = 0.0
@@ -45,6 +59,9 @@ class Timeline(QWidget):
         self.detail = ''
         self.state_since = 0.0
         self._dots = 0
+
+    def row_h(self):
+        return self.bar_h + self.marker_h + self.row_gap
 
     # -- inputs -------------------------------------------------------------
     def apply_events(self, events):
@@ -65,19 +82,13 @@ class Timeline(QWidget):
                 if open_state is not None and t > open_t:
                     segments.append((open_t, t, open_state))
                 open_state, open_t = state, t
-            elif kind == C.EV_FOUND:
-                markers.append((t, 'found', f"M{ev.get('n', '')}"))
-            elif kind == C.EV_COLLECTED:
-                markers.append((t, 'collected', f"M{ev.get('n', '')}"))
-            elif kind == C.EV_ABANDONED:
-                markers.append((t, 'abandoned', f"M{ev.get('n', '')}"))
-            elif kind == C.EV_NATIVE:
-                markers.append((t, 'native', f"N{ev.get('n', '')}"))
-            elif kind == C.EV_OPERATOR_GOAL:
-                markers.append((t, 'goal', 'goal'))
             elif kind == C.EV_MISSION_START:
                 segments, markers = [], []
                 open_state, open_t = C.SEARCH, t
+            elif kind in MARKED:
+                n = ev.get('n')
+                label = f'M{n}' if n is not None else MARKED[kind]
+                markers.append((t, MARKED[kind], label))
         if open_state is not None:
             segments.append((open_t, None, open_state))
         self.segments = segments
@@ -102,23 +113,23 @@ class Timeline(QWidget):
 
     # -- geometry -----------------------------------------------------------
     def row_count(self):
-        return max(1, int(self.now // MINUTE) + 1)
+        return max(1, int(self.now // self.row_seconds) + 1)
 
     def _resize_rows(self):
-        wanted = TOP_PAD + self.row_count() * ROW_H + FOOT_H
+        wanted = TOP_PAD + self.row_count() * self.row_h() + FOOT_H
         if wanted != self.minimumHeight():
             self.setMinimumHeight(wanted)
 
     def _bar_rect(self, row):
         x = LABEL_W
         w = max(60, self.width() - LABEL_W - 12)
-        y = TOP_PAD + row * ROW_H + MARKER_H
-        return QRectF(x, y, w, BAR_H)
+        y = TOP_PAD + row * self.row_h() + self.marker_h
+        return QRectF(x, y, w, self.bar_h)
 
     def _x_at(self, row, t):
-        """Where a mission time sits inside a given minute's bar."""
+        """Where a mission time sits inside a given row's bar."""
         bar = self._bar_rect(row)
-        frac = min(1.0, max(0.0, (t - row * MINUTE) / MINUTE))
+        frac = min(1.0, max(0.0, (t - row * self.row_seconds) / self.row_seconds))
         return bar.x() + frac * bar.width()
 
     # -- painting -----------------------------------------------------------
@@ -128,12 +139,12 @@ class Timeline(QWidget):
         p.fillRect(self.rect(), QColor(theme.PANEL))
 
         rows = self.row_count()
-        p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 7 if self.compact else 8))
         for row in range(rows):
             bar = self._bar_rect(row)
             p.setPen(QColor(theme.TEXT_FAINT))
-            p.drawText(QPointF(8, bar.y() + BAR_H - 6),
-                       f'{row:02d}:00')
+            p.drawText(QPointF(8, bar.y() + self.bar_h - 4),
+                       format_clock(row * self.row_seconds))
             p.setPen(Qt.NoPen)
             p.setBrush(QBrush(QColor(theme.PANEL_DEEP)))
             p.drawRoundedRect(bar, 4, 4)
@@ -155,47 +166,68 @@ class Timeline(QWidget):
         colour = QColor(C.STATE_COLOURS.get(state, theme.LINE))
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(colour))
-        first, last = int(t0 // MINUTE), int(t1 // MINUTE)
+        first, last = int(t0 // self.row_seconds), int(t1 // self.row_seconds)
         for row in range(first, last + 1):
             if row >= self.row_count():
                 break
-            a = max(t0, row * MINUTE)
-            b = min(t1, (row + 1) * MINUTE)
+            a = max(t0, row * self.row_seconds)
+            b = min(t1, (row + 1) * self.row_seconds)
             if b <= a:
                 continue
             bar = self._bar_rect(row)
             x0, x1 = self._x_at(row, a), self._x_at(row, b)
-            p.drawRect(QRectF(x0, bar.y(), max(1.0, x1 - x0), BAR_H))
+            p.drawRect(QRectF(x0, bar.y(), max(1.0, x1 - x0), self.bar_h))
 
     def _draw_marker(self, p, t, kind, label):
-        row = int(t // MINUTE)
+        row = int(t // self.row_seconds)
         if row >= self.row_count():
             return
         bar = self._bar_rect(row)
         x = self._x_at(row, t)
-        y = bar.y() - 4
+        y = bar.y() - 3
 
-        if kind in ('found', 'native'):
-            p.setPen(Qt.NoPen)
-            p.setBrush(QBrush(QColor(theme.TEXT)))
-            p.drawRoundedRect(QRectF(x - 1.6, y - 5, 3.2, 5), 1.0, 1.0)
-            path = QPainterPath()
-            path.moveTo(x - 6, y - 5)
-            path.arcTo(QRectF(x - 6, y - 9.5, 12, 9), 180, -180)
-            path.closeSubpath()
-            p.setBrush(QBrush(QColor(theme.BLUE if kind == 'native' else theme.ACCENT)))
-            p.drawPath(path)
+        if kind == 'found':
+            self._cap(p, x, y, QColor(theme.ACCENT))
+        elif kind == 'native':
+            self._cap(p, x, y, QColor(theme.TEAL))
         elif kind in ('collected', 'abandoned'):
             col = theme.GREEN if kind == 'collected' else theme.GREY
             p.setPen(QPen(QColor(col), 2.0, Qt.SolidLine, Qt.RoundCap))
             p.drawLine(QPointF(x - 5, y - 10), QPointF(x + 5, y))
             p.drawLine(QPointF(x + 5, y - 10), QPointF(x - 5, y))
+        elif kind == 'missed':
+            pen = QPen(QColor(theme.AMBER), 1.6)
+            pen.setDashPattern([2, 2])
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(QPointF(x, y - 5), 4.6, 4.6)
+        elif kind == 'ford':
+            p.setPen(QPen(QColor(C.STATE_COLOURS[C.FORD]), 2.0, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(x - 6, y - 5), QPointF(x + 6, y - 5))
+            p.drawLine(QPointF(x - 4, y - 9), QPointF(x - 4, y - 1))
+            p.drawLine(QPointF(x + 4, y - 9), QPointF(x + 4, y - 1))
+        elif kind == 'wedged':
+            p.setPen(QPen(QColor(C.STATE_COLOURS[C.STUCK]), 1.8))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(QRectF(x - 4.5, y - 9.5, 9, 9))
+            p.drawLine(QPointF(x - 4.5, y - 9.5), QPointF(x + 4.5, y - 0.5))
         elif kind == 'goal':
             p.setPen(Qt.NoPen)
             p.setBrush(QBrush(QColor(theme.VIOLET)))
             p.drawRoundedRect(QRectF(x - 7, y - 8, 14, 5.5), 1.6, 1.6)
             p.drawEllipse(QPointF(x - 4, y - 1.6), 2.2, 2.2)
             p.drawEllipse(QPointF(x + 4, y - 1.6), 2.2, 2.2)
+
+    def _cap(self, p, x, y, colour):
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(QColor(theme.TEXT)))
+        p.drawRoundedRect(QRectF(x - 1.6, y - 5, 3.2, 5), 1.0, 1.0)
+        path = QPainterPath()
+        path.moveTo(x - 6, y - 5)
+        path.arcTo(QRectF(x - 6, y - 9.5, 12, 9), 180, -180)
+        path.closeSubpath()
+        p.setBrush(QBrush(colour))
+        p.drawPath(path)
 
     def _draw_now_line(self, p, rows):
         """The blinking head of the bar, so 'still going' reads as motion."""
@@ -213,11 +245,11 @@ class Timeline(QWidget):
             p.setOpacity(1.0 - i * 0.3)
             cx = x + 8 + i * 11
             if cx < bar.right() - 2:
-                p.drawEllipse(QPointF(cx, bar.y() + BAR_H / 2), 3.0, 3.0)
+                p.drawEllipse(QPointF(cx, bar.y() + self.bar_h / 2), 3.0, 3.0)
         p.setOpacity(1.0)
 
     def _draw_footer(self, p, rows):
-        y = TOP_PAD + rows * ROW_H + 4
+        y = TOP_PAD + rows * self.row_h() + 4
         colour = QColor(C.STATE_COLOURS.get(self.state, theme.LINE))
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(colour))

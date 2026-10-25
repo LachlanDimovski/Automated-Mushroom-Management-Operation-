@@ -47,6 +47,7 @@ from std_msgs.msg import Bool, Float64, Header, Int32
 from vision_msgs.msg import Detection2DArray
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from scipy import ndimage
+from std_msgs.msg import String
 
 from ammo_mission_control import cage_capture_node as cc
 from quad_zcams import fleet_coordinator as fleet, obstacle_map, shared_map
@@ -881,6 +882,9 @@ class RoverCapture(cc.CageCapture):
                                                      and math.hypot(p[0] - self.x, p[1] - self.y) < 2 * f['exit'])]
             self.crossing, self.nav_from, self.stall_ref = None, (self.x, self.y), None
             self.state, self.state_since = 'NAV', self._now()
+            # this transition bypasses _set_state, so publish it here too or the
+            # GUI would show FORD until the next real state change
+            self.state_pub.publish(String(data=self.state))
             if rest:
                 self.via_queue = rest[1:]
                 self._nav_to(*rest[0])
