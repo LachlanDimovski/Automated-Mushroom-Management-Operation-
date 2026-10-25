@@ -76,6 +76,7 @@ RECENTRE_M = 0.4          # a hold re-aims on a sighting at least this far from 
 NATIVE_CLASS = 'native_mushroom'  # detector class for non-invasive mushrooms
 NATIVE_GUARD_M = 0.75  # an 'amanita' this close to a logged native is that native
 NATIVE_CONFIRM_S = 0.4  # a native is logged on a second sighting at least this much later (another frame)
+NATIVE_ROVER_SIGHT_M = 1.3  # base_link to the gripper tips is about 1.0 m
 STRAFE_SPEED = 0.6        # strafe: along the path in the body frame while the yaw catches up...
 STRAFE_MAX_RAD = 2.0      # ...unless the next corner is this far round (then turn on the spot)
 
@@ -543,6 +544,8 @@ class ZCamQuad(qs.QuadSearchController):
             if det.results[0].hypothesis.class_id == NATIVE_CLASS:  # monitored, never collected
                 if det.results[0].hypothesis.score < self.native_min_conf or det.bbox.size_x < self.native_min_px:
                     continue
+                if self._sight_over_rover(g):
+                    continue
                 if all(math.hypot(g[0] - nx, g[1] - ny) > 1.5 for nx, ny in self.natives_seen):
                     self._native_sighting(g)
                 continue
@@ -553,6 +556,17 @@ class ZCamQuad(qs.QuadSearchController):
                 continue
             return g
         return None
+
+    def _sight_over_rover(self, g):
+        """The rover's black wheel and bumper score as a native (demo check, 25 Oct). A box on the body projects
+        past the rover to the ground, beyond ROVER_EXCLUDE_M, so a sighting whose line of sight crosses the rover
+        is dropped."""
+        if self.rover_xy is None:
+            return False
+        sx, sy = g[0] - self.x, g[1] - self.y
+        rx, ry = self.rover_xy[0] - self.x, self.rover_xy[1] - self.y
+        t = max(0.0, min(1.0, (rx * sx + ry * sy) / max(sx * sx + sy * sy, 1e-9)))
+        return math.hypot(rx - t * sx, ry - t * sy) < NATIVE_ROVER_SIGHT_M
 
     def _native_sighting(self, g):
         now = self._now_s()
