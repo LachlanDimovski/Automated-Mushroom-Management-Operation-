@@ -298,3 +298,26 @@ dictionary is the one place to change.
 - With the default `quad:=zcam` the rover node is `rover_capture_node`, a
   subclass of `cage_capture_node` with the same node name (`cage_capture`)
   and the same log lines.
+
+## 4. No change made - but the assets need Git LFS (26 Oct)
+
+Nothing in `41068_ignition_bringup` was changed. Recording it here because it
+looked for a while like a missing file and is not.
+
+`41068_ignition_bringup/.gitattributes` puts `*.png`, `*.obj` and `*.mtl` in
+Git LFS. On a machine without `git-lfs` installed, a clone or pull writes
+132-byte pointer files in their place - right name, right extension,
+unreadable by any mesh loader. On Danil's checkout that includes
+`mushroom_amanita/meshes/mushroom.obj` and `material_0.png`, the tree bark and
+branch textures, the terrain heightmaps, and `mushroom_native/meshes/
+native_cap.png`. Gazebo spawns such a model as an entity with no geometry and
+prints nothing, which is why the mushrooms appeared never to spawn.
+
+Everyone on the team needs `git lfs install && git lfs pull` once. Worth
+saying in the group chat - anyone whose trees look untextured or whose world
+loads to a black screen has the same thing.
+
+Note for whoever reads the history: `mushroom_native/meshes/
+native_mushroom.obj` is real content (committed before `.gitattributes` grew
+`*.obj`) while `mushroom_amanita/meshes/mushroom.obj` is a pointer, so the two
+mushroom models are in different states in the same repo.

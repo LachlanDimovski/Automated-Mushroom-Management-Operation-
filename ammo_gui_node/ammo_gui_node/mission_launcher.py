@@ -24,6 +24,7 @@ import glob
 import json
 import math
 import os
+import re
 import random
 import signal
 import subprocess
@@ -332,6 +333,51 @@ def _interpolate(samples, x, y, floor):
     return sum(w * z for w, (_sx, _sy, z) in zip(weights, near)) / sum(weights)
 
 
+LFS_POINTER = b'version https://git-lfs.github.com/spec/v1'
+
+
+def mesh_problem(model_sdf):
+    """What is wrong with the mesh a model file draws itself with, or None.
+
+    Worth its own check because of how this fails. Gazebo Fortress ships
+    ColladaLoader, OBJLoader and STLLoader and nothing else, and a model whose
+    mesh will not load still spawns perfectly well: it is a real entity,
+    `ign model --list` lists it, `create` reports success, and it has no
+    geometry on it. Nothing is printed. It is invisible to the operator and
+    invisible to YOLO, which is a very long way to go before anyone suspects
+    the mesh file.
+
+    Two things go wrong in this repo. The file can be absent -
+    `mushroom_native` has no mesh at all. Or, far more insidiously, it can be
+    a **Git LFS pointer**: `41068_ignition_bringup/.gitattributes` puts
+    `*.png`, `*.obj` and `*.mtl` in LFS, so on a machine without `git-lfs`
+    installed a clone or pull writes a 132-byte text file that merely names
+    the real asset. It has the right name and the right extension and no mesh
+    loader on earth can read it.
+    """
+    try:
+        with open(model_sdf) as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    found = re.search(r'<uri>\s*(?:model://[^/]+/)?([^<]+?)\s*</uri>', text)
+    if not found:
+        return None
+    rel = found.group(1).strip()
+    path = os.path.join(os.path.dirname(model_sdf), rel)
+    if not os.path.exists(path):
+        return f'{rel} is not in the package'
+    try:
+        with open(path, 'rb') as fh:
+            head = fh.read(len(LFS_POINTER))
+    except OSError:
+        return None
+    if head == LFS_POINTER:
+        return (f'{rel} is a Git LFS pointer, not a mesh - run '
+                f'"git lfs install && git lfs pull" in the checkout')
+    return None
+
+
 def ground_z_at(world, x, y):
     """A guess at the ground height at (x, y), for spawning a mushroom on it.
 
@@ -577,11 +623,28 @@ class MissionLauncher:
         # same export. The fleet loads the two-class detector itself; the
         # single-quad launch defaults to a one-class model that sees no
         # natives, so it is passed explicitly.
+        # Every world needs the bringup models on the path, not just the river
+        # ones. `mushroom_amanita` and `mushroom_native` live there, the river
+        # world <include>s both by `model://` URI, and the model file the GUI
+        # spawns refers to its own mesh the same way - so the server has to be
+        # able to resolve them or they load as entities with no geometry.
+        # Nothing else in the repo sets this; `models/mushroom_amanita/
+        # README_MUSHROOM.md` says as much and tells you to export it by hand,
+        # which is not something an operator should have to know.
+        extra = []
+        bringup = _share('41068_ignition_bringup')
+        if bringup:
+            extra.append(os.path.join(bringup, 'models'))
         if WORLDS.get(world) == 'forest_worlds':
             base = _forest_worlds_dir()
-            extra = glob.glob(os.path.join(base, 'models', '*')) + [os.path.join(base, 'world_assets')]
+            extra += glob.glob(os.path.join(base, 'models', '*')) + [os.path.join(base, 'world_assets')]
+        if extra:
             env['IGN_GAZEBO_RESOURCE_PATH'] = ':'.join(
                 extra + [env.get('IGN_GAZEBO_RESOURCE_PATH', '')]).strip(':')
+            # Garden and later read a different name; setting both costs
+            # nothing and saves a confusing afternoon if anyone upgrades.
+            env['GZ_SIM_RESOURCE_PATH'] = env['IGN_GAZEBO_RESOURCE_PATH']
+        if WORLDS.get(world) == 'forest_worlds':
             if not fleet:
                 model = os.path.join(_share('perception') or '', 'models', 'variants',
                                      'amanita_river_v6_yolo11n.pt')
@@ -709,6 +772,12 @@ class MissionLauncher:
         if not os.path.exists(sdf):
             self.log(f'the mushroom model is missing at {sdf} - nothing to spawn')
             return []
+        problem = mesh_problem(sdf)
+        if problem:
+            self.log(f'WARNING: {problem}. The mushrooms will spawn as entities '
+                     f'with no geometry - invisible in Gazebo, invisible to '
+                     f'YOLO, and no error anywhere. Fix that before blaming '
+                     f'the detector.')
         errors = []
         for i, (x, y) in enumerate(points, 1):
             name = f'{MUSHROOM_PREFIX}{i}'
@@ -861,14 +930,51 @@ class MissionLauncher:
         Returns the number of processes it signalled.
         """
         patterns = [r'ign gazebo', r'gz sim', r'ruby .*ign gazebo',
+                    'ign-gazebo-server', 'ign-gazebo-gui',
                     'cage_mission.launch.py', 'fleet_mission.launch.py',
                     'zcam_mission.launch.py', 'parameter_bridge', 'yolo_node',
                     'fleet_yolo_pool', 'fleet_coordinator']
         killed = 0
-        for pattern in patterns:
-            out = subprocess.run(['pkill', '-f', pattern], capture_output=True)
-            if out.returncode == 0:
+        for sig in ('-TERM', '-KILL'):
+            for pattern in patterns:
+                out = subprocess.run(['pkill', sig, '-f', pattern],
+                                     capture_output=True)
+                if out.returncode == 0:
+                    killed += 1
+            killed += self._kill_ign_ruby()
+        return killed
+
+    def _kill_ign_ruby(self):
+        """Kill Ignition's own server and GUI, found the way they really look.
+
+        `ign gazebo` is a ruby script, and on Fortress the server and the GUI
+        end up as separate ruby processes whose command lines do not reliably
+        contain the string "ign gazebo" - which is why pattern matching alone
+        left a Gazebo window that would not close and sometimes needed a
+        reboot. `forest_worlds/view.sh` has always done it this way instead,
+        and that one works: look at every ruby process and read its command
+        line. Matching on the ruby name as well as "ign" is what keeps this
+        from ever touching an unrelated ruby program.
+        """
+        killed = 0
+        try:
+            pids = subprocess.run(['pgrep', '-x', 'ruby'], capture_output=True,
+                                  text=True, timeout=5).stdout.split()
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return 0
+        for pid in pids:
+            try:
+                with open(f'/proc/{pid}/cmdline', 'rb') as fh:
+                    cmdline = fh.read().decode('utf-8', 'replace')
+            except (OSError, ValueError):
+                continue
+            if 'ign' not in cmdline and 'gz' not in cmdline:
+                continue
+            try:
+                os.kill(int(pid), signal.SIGKILL)
                 killed += 1
+            except (ProcessLookupError, PermissionError, ValueError, OSError):
+                continue
         return killed
 
     def topdown_running(self):
@@ -971,6 +1077,11 @@ class MissionLauncher:
         """End everything: mission nodes, Nav2 and Gazebo."""
         self.stop_topdown()
         if not self.proc:
+            # Nothing of ours is running, but something of somebody's might
+            # be - an interrupted launch, or a Gazebo that outlived its
+            # group. The setup page is supposed to mean nothing is running,
+            # so sweep anyway rather than returning on a technicality.
+            self.kill_strays()
             self.state = IDLE
             return
         self.resume()

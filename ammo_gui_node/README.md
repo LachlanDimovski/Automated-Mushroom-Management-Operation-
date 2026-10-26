@@ -156,8 +156,27 @@ Gazebo's clock, both mission node processes, both robots' odometry, both
 cameras, both detectors, Nav2's action server, and the rover's `husky1_map`
 frame on `/husky1/tf` (**not** `/tf` - every robot gets its own TF topic). On the right is the photo from above, the same placement drawn from
 the world file, and the coordinates. Shuffle moves the mushrooms and
-re-photographs; Retake just re-photographs; Back to setup leaves everything
-running.
+re-photographs; Retake just re-photographs; **Back to setup stops
+everything.**
+
+**Being on the setup page means nothing is running.** Back to setup and End
+Mission both take the whole simulation down, and `shutdown` sweeps for
+processes that outlived their group whether or not this GUI started them.
+That used to be the other way round - the simulation was deliberately kept up
+so a second Prepare on the same world was instant - and that single
+optimisation is behind most of the confusing behaviour of the last three
+runs: stale latched topics feeding camera panels for robots that were gone,
+coverage frozen at a figure from a dead run, a leftover `ign gazebo` making
+the next Prepare refuse quietly so the Launch button looked dead, and a
+Gazebo window that would not close without a reboot. A slow second Prepare is
+a much smaller price than a simulation nobody can account for.
+
+Killing Ignition takes more than matching `ign gazebo` in a command line: the
+server and the GUI end up as separate `ruby` processes whose command lines do
+not reliably contain that string, which is why pattern matching alone left
+windows alive. `kill_strays` now also walks every `ruby` process and reads
+`/proc/<pid>/cmdline`, which is what `forest_worlds/view.sh` has always done
+and what actually works.
 
 **Each check is "has this arrived recently", not "has this ever arrived".**
 That distinction is the whole correctness of the page. The record lives on
@@ -348,13 +367,58 @@ driving.
   stopping the nodes alone would leave them coasting. On resume the rover
   re-plans, and because its own timers were frozen, a long pause can make it
   give up on the waypoint it was on and re-queue it.
-- **Ending a mission keeps the simulation.** It freezes the two mission node
-  processes and removes the mushrooms the GUI spawned; Gazebo, Nav2 and the
-  perception stack stay up. That is done by stopping processes rather than by
-  a second, mission-only launch path, which is deliberate: a launch path of
-  our own would drift from the team's the first time they edited theirs.
-  Changing world is what tears it down.
-- **Mushrooms are spawned by the GUI**, not by `mushrooms:=`, and they are
+- **Ending a mission takes the simulation with it.** It stands both robots
+  down, removes the mushrooms the GUI spawned and stops Gazebo, Nav2 and the
+  perception stack. It used to keep them up so a second run was instant; see
+  the note above on why the setup page now means nothing is running.
+
+### Why the mushrooms were invisible
+
+They were not. They spawned every time - as real entities with no geometry on
+them.
+
+`models/mushroom_amanita/model.sdf` draws itself with
+`model://mushroom_amanita/meshes/mushroom.obj`, and on this checkout that file
+is **132 bytes of text**:
+
+```
+version https://git-lfs.github.com/spec/v1
+oid sha256:41e34d8ffa2a8a6137083b92d5794edab336c59e5d95063e4e65e73ba025d340
+size 1341217
+```
+
+`41068_ignition_bringup/.gitattributes` puts `*.png`, `*.obj` and `*.mtl` in
+Git LFS, so without `git-lfs` installed a clone or pull writes a pointer that
+merely names the real 1.3 MB asset. It has the right name and the right
+extension, and no mesh loader can read it. `material_0.png` beside it is the
+same, and so are the tree bark textures, the terrain heightmaps and the
+native mushroom's cap texture.
+
+The failure is silent by design. Gazebo Fortress spawns the model anyway -
+`create` reports success, `ign model --list` lists it, the collision cylinder
+is there and the rover could collect it - and draws nothing. So the
+quadcopter's camera sees bare ground, the detector has nothing to detect, and
+every count reads zero with no error in any log. Their own
+`README_MUSHROOM.md` has it as the first row of its troubleshooting table:
+"Mesh invisible, no error".
+
+The fix is on the machine, not in the code:
+
+```bash
+sudo apt install -y git-lfs
+cd ~/41068_ws/src/RS1_Team5_ && git lfs install && git lfs pull
+```
+
+`mesh_problem()` now checks the model file's mesh before spawning - absent,
+or an LFS pointer - and says so in the event log along with that command, so
+nobody has to spend another week on the detector.
+
+Separately, **the launch now puts the bringup models on
+`IGN_GAZEBO_RESOURCE_PATH`** for every world rather than only the river ones.
+Nothing in the repo set it, which is why loading the river world by hand dies
+with `Unable to find uri[model://mushroom_amanita]` before it finishes.
+
+**Mushrooms are spawned by the GUI**, not by `mushrooms:=`, and they are
   spawned after the mission nodes are frozen. Spawn height is estimated from
   the world file's own objects, because `forest_random` rises over three
   metres and a mushroom spawned at z = 0 there is underground.
@@ -383,7 +447,7 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-580 checks, a few seconds, no ROS, no simulation, no display and no built
+589 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and

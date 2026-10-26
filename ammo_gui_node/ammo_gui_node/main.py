@@ -360,23 +360,30 @@ class OperatorApp:
             'below is the same information. Retake tries again.')
 
     def back_to_setup(self):
-        """Leave the simulation up and go back to the setup page."""
+        """Stop everything and go back to the setup page.
+
+        Being on the setup page means nothing is running. Full stop. It used
+        to leave the simulation up so that preparing again on the same world
+        was instant, and that one optimisation is behind most of the
+        confusing behaviour of the last three runs: stale latched topics
+        feeding panels for robots that were gone, a leftover `ign gazebo`
+        making the next Prepare refuse quietly so the button looked dead, and
+        a Gazebo window that would not close. A slow second Prepare is a far
+        smaller cost than a simulation nobody can account for.
+        """
         if self._photo_wait:
             self._photo_wait = False
             self.launcher.stop_topdown()
         self.probe.stop()
-        if self.phase == 'preparing':
-            # A half-started simulation is not worth keeping. The hold goes
-            # with it; while the simulation stays up the hold stays on, which
-            # is what keeps the robots still on the setup page.
-            self.link.set_holding(False)
-            self.link.set_standdown('all', False)
-            self.launcher.shutdown()
-        self.phase = 'setup' if not self.launcher.prepared() else 'ready'
+        self.link.set_holding(False)
+        self.link.set_standdown('all', False)
+        self.launcher.shutdown()
+        self.placed = []
+        self.phase = 'setup'
         self.link.publish_command({'cmd': 'prepare', 'stage': 'idle'})
-        self.home.set_note('The simulation is still up - Prepare again is instant '
-                           'unless you change world.'
-                           if self.launcher.prepared() else '')
+        self.home.set_blocked(False)
+        self.home.set_note('Simulation stopped. Preparing again starts a fresh '
+                           'one, so give it the usual half minute.')
         self.stack.setCurrentWidget(self.home)
 
     # -- stage two: launch --------------------------------------------------

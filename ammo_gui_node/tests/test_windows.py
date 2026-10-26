@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -714,6 +715,53 @@ calls.clear()
 check('a second clear does nothing', placer.clear_world_mushrooms() is True
       and not calls)
 
+# ------------------------------------------------------------ the meshes ---
+section('a mushroom with nothing to draw')
+
+# Half a term of "the mushrooms are not spawning" was this. They spawn: they
+# are real entities, `ign model --list` lists them, `create` reports success -
+# and they have no geometry on them, because the mesh their model file names
+# could not be loaded. Nothing is printed. Invisible in Gazebo, invisible to
+# YOLO. In this repo the mesh is a Git LFS pointer:
+# 41068_ignition_bringup/.gitattributes puts *.png, *.obj and *.mtl in LFS, so
+# a checkout on a machine without git-lfs writes a 132-byte text file with the
+# right name and the right extension that no mesh loader can read.
+_mesh_dir = tempfile.mkdtemp()
+os.makedirs(os.path.join(_mesh_dir, 'meshes'), exist_ok=True)
+
+
+def _model_sdf(uri):
+    path = os.path.join(_mesh_dir, 'model.sdf')
+    with open(path, 'w') as fh:
+        fh.write(f'<sdf><model><link><visual><geometry><mesh>'
+                 f'<uri>{uri}</uri></mesh></geometry></visual></link></model></sdf>')
+    return path
+
+
+_pointer = os.path.join(_mesh_dir, 'meshes', 'pointer.obj')
+with open(_pointer, 'w') as fh:
+    fh.write('version https://git-lfs.github.com/spec/v1\n'
+             'oid sha256:41e34d8ffa2a8a6137083b92d5794edab336c59e5d95063e4e65e73ba025d340\n'
+             'size 1341217\n')
+_real = os.path.join(_mesh_dir, 'meshes', 'real.obj')
+with open(_real, 'w') as fh:
+    fh.write('# a real wavefront obj\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n')
+
+check('a mesh that is really there is not a problem',
+      ml.mesh_problem(_model_sdf('model://x/meshes/real.obj')) is None)
+check('a mesh that is absent is reported',
+      'not in the package' in (ml.mesh_problem(
+          _model_sdf('model://x/meshes/nope.obj')) or ''),
+      ml.mesh_problem(_model_sdf('model://x/meshes/nope.obj')))
+check('and a Git LFS pointer is reported as what it is',
+      'LFS' in (ml.mesh_problem(_model_sdf('model://x/meshes/pointer.obj')) or ''),
+      ml.mesh_problem(_model_sdf('model://x/meshes/pointer.obj')))
+check('with the command that fixes it, not just a complaint',
+      'git lfs pull' in (ml.mesh_problem(
+          _model_sdf('model://x/meshes/pointer.obj')) or ''))
+check('a model file that does not exist is not called a mesh problem',
+      ml.mesh_problem('/nowhere/model.sdf') is None)
+
 # ------------------------------------------------------------- readiness ---
 section('the readiness checklist')
 
@@ -987,8 +1035,16 @@ class FakeLauncher:
         return True
 
     def end_mission(self, keep_sim=True):
-        self.state, self.held = ml.READY, True
-        self.calls.append('end')
+        # keep_sim=False is what the window actually sends now: the whole
+        # simulation goes, so the state falls back to idle rather than
+        # sitting at READY with a Gazebo nobody is watching.
+        self.state = ml.READY if keep_sim else ml.IDLE
+        self.held = True
+        self.calls.append('end' if keep_sim else 'end+teardown')
+
+    def kill_strays(self):
+        self.calls.append('kill_strays')
+        return 0
 
     def spawn_mushrooms(self, points):
         self.placed = list(points)
@@ -1107,9 +1163,28 @@ check('the overhead camera is left up as the fourth feed',
 app_under_test.finish_mission()
 check('ending zeros the robots rather than leaving them coasting',
       True in fake_link.hold_log[-2:], fake_link.hold_log[-3:])
-check('and keeps the simulation', fake_launcher.state == ml.READY)
+check('and takes the simulation down with it',
+      fake_launcher.state == ml.IDLE, fake_launcher.state)
 check('back on the setup page',
       app_under_test.stack.currentWidget() is app_under_test.home)
+check('and the setup page means nothing is running',
+      app_under_test.phase == 'setup', app_under_test.phase)
+
+# Back to setup from a half-prepared run: same promise. This used to leave
+# Gazebo up on purpose so a second Prepare was instant, and that is what left
+# stale topics feeding panels and a leftover simulation blocking the next run.
+backer = FakeLauncher()
+app_under_test.launcher = backer
+app_under_test.begin_prepare({'world': 'simple_trees', 'points': [(1.0, 1.0)],
+                              'spawn': True, 'count': 1})
+backer.nodes_running = True
+app_under_test.back_to_setup()
+check('going back stops the simulation too', backer.state == ml.IDLE, backer.state)
+check('and says so rather than promising an instant restart',
+      'stopped' in app_under_test.home.status_note.text().lower(),
+      app_under_test.home.status_note.text())
+check('and the robots are let go, not left held by a dead hold',
+      fake_link.standdown == set(), fake_link.standdown)
 
 # launching straight out of an unfinished checklist still places and holds
 second = FakeLauncher()
