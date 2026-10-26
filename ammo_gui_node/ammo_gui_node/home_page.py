@@ -225,6 +225,12 @@ class HomePage(QWidget):
         self.show_sim = QCheckBox('Show the Gazebo window')
         self.show_sim.setChecked(True)
         col.addWidget(self.show_sim)
+        # A fleet always runs headless. That was already true but only said so
+        # in the log, so ticking this box and getting no window read as a bug.
+        self.show_sim_note = cards.label('', 'Faint')
+        self.show_sim_note.setWordWrap(True)
+        self.show_sim_note.hide()
+        col.addWidget(self.show_sim_note)
         row.addLayout(col, 2)
 
         col = QVBoxLayout()
@@ -241,6 +247,8 @@ class HomePage(QWidget):
             box.addWidget(spin)
             counts.addLayout(box)
         col.addLayout(counts)
+        for spin in (self.quad_count, self.rover_count):
+            spin.valueChanged.connect(self._sync_show_sim)
         self.robot_hint = cards.label('', 'Faint')
         self.robot_hint.setWordWrap(True)
         col.addWidget(self.robot_hint)
@@ -563,6 +571,25 @@ class HomePage(QWidget):
         return card
 
     # -- rows ---------------------------------------------------------------
+    def _sync_show_sim(self):
+        """Grey out the Gazebo window for a fleet, and say why.
+
+        The window renderer cannot keep up with several robots' sensors under
+        software OpenGL - it is the single most common reason a prepared world
+        sits on a black screen and never produces a camera frame. So for more
+        than one of either robot the GUI runs headless whatever this box says,
+        and this makes that visible before the run rather than after it.
+        """
+        fleet = self.quad_count.value() > 1 or self.rover_count.value() > 1
+        self.show_sim.setEnabled(not fleet)
+        self.show_sim_note.setVisible(fleet)
+        if fleet:
+            self.show_sim_note.setText(
+                'A fleet runs headless. The Gazebo window cannot render this '
+                'many sensors under software OpenGL, and trying is what '
+                'leaves a world stuck on a black screen. Gazebo still runs; '
+                'use the camera panels and the map instead.')
+
     def _load_world_layouts(self):
         world = self.world_box.currentText() if hasattr(self, 'world_box') else 'simple_trees'
         self._layouts = load_layouts(world)

@@ -94,7 +94,10 @@ choice is gone.
 
 A fleet is forced headless: two quadcopters means two YOLO instances and two
 depth cameras, and Gazebo's own renderer on top of that is what left a world
-that never finished loading. Every camera is in the GUI regardless.
+that never finished loading. Every camera is in the GUI regardless. The
+checkbox greys itself out as soon as either count goes above one and says so
+on the page - it used to be a line in the log, so ticking the box and getting
+no window read as a fault.
 
 **The robot counts are real.** One of each runs `cage_mission.launch.py` as
 before. More than one of either runs `quad_zcams/fleet_mission.launch.py`
@@ -156,14 +159,30 @@ the world file, and the coordinates. Shuffle moves the mushrooms and
 re-photographs; Retake just re-photographs; Back to setup leaves everything
 running.
 
+**Each check is "has this arrived recently", not "has this ever arrived".**
+That distinction is the whole correctness of the page. The record lives on
+the bridge node, which outlives any one run, so an "ever" test meant the
+second Prepare of a session started with the cameras and telemetry already
+ticked - from the *previous* simulation's messages - and offered a Launch on
+a world that had not finished loading. Every Prepare now clears that record
+first, and a feed has to have delivered something within `FRESH_S` to count,
+so a camera that dies mid-run is noticed instead of being remembered fondly.
+
 If something never arrives, the button offers to launch anyway and says what
 will be missing. Patience is measured from the last thing that arrived rather
 than from the start - a river world takes far longer to come up, but in both
 cases pieces keep arriving until the last one does, so forty-five seconds
 with nothing new is a stall whatever the world. Launching anyway still
 freezes the nodes and spawns the mushrooms; it just does not wait for the
-photo. Gazebo and the mission nodes are the two checks it will not waive -
-without those there is no mission to run.
+photo.
+
+**Gazebo, the mission nodes and at least one camera are the checks it will
+not waive.** The first two because without them there is no mission; the
+camera because a run with no camera at all cannot detect a single mushroom,
+so launching one is not a degraded run, it is a guaranteed empty one. When
+the stall hits with a camera still missing the button says CANNOT LAUNCH YET
+and the page explains it - including the thing that most often causes it,
+which is the Gazebo window being ticked on a heavy world.
 
 The photo needs a working camera in Gazebo. On software rendering it can
 take a long time or never arrive, which is why there is a timeout and the
@@ -272,12 +291,25 @@ odometry and `parrot1/detections`, into `ammo/mission/status` and
 
 ## The map
 
-Press **M** over either window to ring every mushroom and every robot on the
-overhead view. The robots are not decoration: a robot is visible in the
-picture, so if its circle sits on it, the mushroom circles are in the right
-place too. The projection is in `overhead.py` - a straight-down, centred,
-flat camera is a scale and two sign flips, and those two signs are the only
-thing that could be wrong.
+Press **M** over either window, or click **MARKS** in the corner of the
+overhead panel, to mark every mushroom and every robot on the overhead view.
+Shape says what a thing is and colour says what is known about it, so neither
+has to be read from hue alone: **mushrooms are circles** - red still out
+there, amber sighted, green collected, grey given up on, purple gripped with
+nothing in it - and **robots are squares**, teal for a quadcopter and blue for
+a skidsteer, each with its number.
+
+That button used to toggle detector boxes, which was useless on this panel:
+the overhead camera has no detector attached, so there were never any boxes
+to draw and clicking it appeared to do nothing.
+
+The robots are not decoration. A robot is visible in the picture, so if its
+square sits on it, the mushroom circles are in the right place too - it is a
+free check on the projection every time you look. That projection is in
+`overhead.py`: a straight-down, centred, flat camera is a scale and two sign
+flips, and those two signs are the only thing that could be wrong. The
+colour rules and the mark building live there too, so both windows share one
+implementation instead of two that drift.
 
 The **world edge** is drawn as a near-white dashed box with its size on it,
 read from `world.playable_size_m`, and the map opens fitted to show all of
@@ -351,7 +383,7 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-555 checks, a few seconds, no ROS, no simulation, no display and no built
+580 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and

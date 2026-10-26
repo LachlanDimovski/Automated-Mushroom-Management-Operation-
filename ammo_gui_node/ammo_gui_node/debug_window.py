@@ -20,7 +20,6 @@ run's events or a clock that is not counting. The camera feeds are live
 throughout - they are the only way to see whether the detectors have come up
 while a run is being prepared, which is exactly when you want to know.
 """
-import math
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QProgressBar,
@@ -33,7 +32,8 @@ from ammo_gui_node.event_feed import EventFeed
 from ammo_gui_node.map_view import MapView
 from ammo_gui_node.mission_report import MissionReport
 from ammo_gui_node.mission_launcher import topdown_height
-from ammo_gui_node.overhead import metres_to_px, project
+from ammo_gui_node.overhead import MARK_KEY
+from ammo_gui_node.overhead import overhead_marks as _overhead_marks
 from ammo_gui_node.mission_launcher import world_meta_full
 from ammo_gui_node.timeline import Timeline, format_clock
 
@@ -55,44 +55,16 @@ BANNER = {
 
 
 def overhead_marks(world, placed, mushrooms, robots):
-    """Circles for the overhead camera: every mushroom, and every robot.
+    """Marks for the overhead camera, for this world's camera geometry.
 
-    `placed` is where the GUI put them, `mushrooms` is what the mission has
-    found so far (so a found one can be drawn differently), and `robots` is
-    {key: (x, y)}. The robots are not decoration - they are the check. A
-    robot is visible in the picture, so if its circle sits on it, the
-    mushroom circles are in the right place too.
+    The drawing and the colour rules live in `overhead.py`, which has no Qt
+    in it; this only supplies the camera height and lens for the world in
+    question. Both windows call it, so it is one implementation rather than
+    two that drift.
     """
-    height = topdown_height(world)
-    px = C.TOPDOWN_PX
-    marks = []
-    found = [(float(m.get('x', 0.0)), float(m.get('y', 0.0)), m.get('status'))
-             for m in (mushrooms or [])]
-    for i, point in enumerate(placed or [], 1):
-        try:
-            x, y = float(point[0]), float(point[1])
-        except (TypeError, ValueError, IndexError):
-            continue
-        at = project(x, y, height, px, hfov=C.TOPDOWN_HFOV)
-        if at is None:
-            continue
-        near = min((math.hypot(x - fx, y - fy), st) for fx, fy, st in found) if found else None
-        state = near[1] if near and near[0] < 1.5 else None
-        colour = {'collected': theme.GREEN, 'abandoned': theme.GREY,
-                  'missed': theme.AMBER}.get(state, theme.ACCENT)
-        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': True,
-                      'r': max(7.0, metres_to_px(0.9, height, px, C.TOPDOWN_HFOV)),
-                      'colour': colour, 'label': f'M{i}'})
-    for key, (x, y) in (robots or {}).items():
-        at = project(x, y, height, px, hfov=C.TOPDOWN_HFOV)
-        if at is None:
-            continue
-        label = ('Q' + key[4:]) if key.startswith('quad') else ('S' + key[5:])
-        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': False,
-                      'r': max(9.0, metres_to_px(1.2, height, px, C.TOPDOWN_HFOV)),
-                      'colour': theme.TEXT if key.startswith('quad') else theme.BLUE,
-                      'label': label})
-    return marks
+    return _overhead_marks(placed, mushrooms, robots,
+                           height=topdown_height(world),
+                           px=C.TOPDOWN_PX, hfov=C.TOPDOWN_HFOV)
 
 
 class DebugWindow(QWidget):
@@ -228,9 +200,13 @@ class DebugWindow(QWidget):
         self.cam_grid.setSpacing(12)
         self.rover_cam = CameraPanel('SKIDSTEER CAMERA', C.HUSKY_CAM, theme.ACCENT)
         self.quad_cam = CameraPanel('QUADCOPTER CAMERA', C.PARROT_CAM, theme.TEXT)
+        # overlay_button: this panel's corner button toggles the world-position
+        # marks, not detector boxes - it has no detector of its own.
         self.topdown_cam = CameraPanel('OVERHEAD', C.TOPDOWN_TOPIC, theme.BLUE,
-                                        stale_s=SLOW_STALE_S)
+                                        stale_s=SLOW_STALE_S,
+                                        overlay_button=True)
         self.topdown_cam.set_show_boxes(False)
+        self.topdown_cam.boxes_toggled.connect(self._overhead_marks_toggled)
         self.cams = {'rover1': self.rover_cam, 'quad1': self.quad_cam}
         for i in range(2, C.MAX_QUADS + 1):
             self.cams[f'quad{i}'] = CameraPanel(
@@ -542,10 +518,16 @@ class DebugWindow(QWidget):
             status.get('mushrooms') or [],
             robots))
 
+    def _overhead_marks_toggled(self, on):
+        """The panel's own MARKS button was clicked."""
+        self.topdown_cam.set_note(MARK_KEY if on else '')
+        if on:
+            self._refresh_overhead(getattr(self, 'status', {}) or {})
+
     def toggle_overhead_overlay(self):
         on = not self.topdown_cam.show_overlay
         self.topdown_cam.set_show_overlay(on)
-        self.topdown_cam.set_note('M: mushrooms and robots ringed' if on else '')
+        self.topdown_cam.set_note(MARK_KEY if on else '')
         if on:
             self._refresh_overhead(self.status if hasattr(self, 'status') else {})
         return on

@@ -47,6 +47,12 @@ def yaw_of(q):
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
+# How recently a camera frame or an odometry message must have arrived for
+# that check to count as live. The slowest of them runs at a few hertz, so
+# six seconds is far longer than a healthy feed ever goes quiet, and short
+# enough that a dead one is noticed within a poll or two.
+FRESH_S = 6.0
+
 class _LinkNode(Node):
     """The actual ROS node. Everything here runs on the spin thread."""
 
@@ -55,10 +61,18 @@ class _LinkNode(Node):
         self.link = link
         self.role = role
         self._last_image = {}
-        # What has been seen at least once, for the readiness checklist. A
-        # frame or a message arriving is a much better answer to "is the
-        # camera working" than a publisher existing on the topic.
-        self.seen = set()
+        # When each thing on the readiness checklist last arrived. A frame or
+        # a message arriving is a much better answer to "is the camera
+        # working" than a publisher existing on the topic.
+        #
+        # It is a time and not a flag on purpose. "Arrived at least once" was
+        # the original test and it was wrong twice over: the set was built
+        # when this node started and never cleared, so every Prepare after
+        # the first ticked these boxes before the new simulation had produced
+        # anything at all - the checklist said a world was ready that had not
+        # even finished loading - and a camera that died mid-run went on
+        # reading as live for the rest of the session.
+        self.seen = {}
         self._tf_ok = False
 
         self.create_subscription(String, C.STATUS_TOPIC, self._on_status, LIVE_QOS)
@@ -330,12 +344,12 @@ class _LinkNode(Node):
         self.link.pause_changed.emit(bool(msg.data))
 
     def _on_rover_odom(self, msg):
-        self.seen.add('rover_odom')
+        self.seen['rover_odom'] = time.monotonic()
         p = msg.pose.pose.position
         self.link.rover_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation))
 
     def _on_quad_odom(self, msg):
-        self.seen.add('quad_odom')
+        self.seen['quad_odom'] = time.monotonic()
         p = msg.pose.pose.position
         self.link.quad_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
 
@@ -369,7 +383,7 @@ class _LinkNode(Node):
 
     def _image(self, msg, signal, seen=None):
         if seen:
-            self.seen.add(seen)
+            self.seen[seen] = time.monotonic()
         now = time.monotonic()
         if now - self._last_image.get(id(signal), 0.0) < 1.0 / IMAGE_HZ:
             return
@@ -495,16 +509,29 @@ class _LinkNode(Node):
                 return
 
     # -- readiness ----------------------------------------------------------
+    def reset_readiness(self):
+        """Forget everything the checklist has seen. Called on every Prepare.
+
+        A new simulation has to prove itself from scratch, however much the
+        last one managed. Without this the second run of a session starts
+        with half the checklist already ticked by the first run's messages.
+        """
+        self.seen.clear()
+        if self._tf_ok is not None:      # None means tf2_msgs is missing
+            self._tf_ok = False
+
     def probe_readiness(self):
         """One look at everything the prepare stage is waiting for.
 
-        Cameras and odometry are judged by whether a message has actually
-        arrived; detectors by whether their topic has a publisher, because a
-        YOLO node with its weights loaded has created the publisher even
-        before anything walks into frame. Nav2 is asked directly.
+        Cameras and odometry are judged by whether a message has arrived
+        *recently* - see `FRESH_S`, and the note on `self.seen`. Detectors are
+        judged by whether their topic has a publisher, because a YOLO node
+        with its weights loaded has created the publisher even before anything
+        walks into frame. Nav2 is asked directly.
         """
-        probe = {key: (key in self.seen) for key in ('rover_odom', 'quad_odom',
-                                                     'rover_cam', 'quad_cam')}
+        now = time.monotonic()
+        probe = {key: (now - self.seen.get(key, -1e9)) < FRESH_S
+                 for key in ('rover_odom', 'quad_odom', 'rover_cam', 'quad_cam')}
         probe['sim'] = self._has_publisher(C.CLOCK_TOPIC)
         probe['rover_yolo'] = self._has_publisher(C.HUSKY_DETECTIONS)
         probe['quad_yolo'] = self._has_publisher(C.PARROT_DETECTIONS)
@@ -680,6 +707,10 @@ class RosLink(QObject):
 
     def probe_readiness(self):
         return self._node.probe_readiness()
+
+    def reset_readiness(self):
+        """Make the next Prepare start from nothing. See the node's own."""
+        self._node.reset_readiness()
 
     def publish_stop(self):
         """One zero on cmd_vel_raw, so the guard stops replaying a stale command."""

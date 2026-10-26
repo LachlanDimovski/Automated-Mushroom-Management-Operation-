@@ -37,6 +37,14 @@ CHECK_KEYS = tuple(key for key, _label, _detail in CHECKS)
 # making it worse. Everything else can be waived by the operator.
 REQUIRED = ('sim', 'nodes')
 
+# Groups where at least one member has to be there. A run with no camera at
+# all cannot detect a single mushroom, so "launch anyway" on one is not a
+# degraded run, it is a guaranteed empty one - which is what made a Launch
+# button that did nothing useful look like a Launch button that was broken.
+REQUIRED_ANY = (
+    (('rover_cam', 'quad_cam'), 'a camera'),
+)
+
 # When to stop waiting. Measured from the last thing that arrived, not from
 # the start: a river world takes a lot longer to come up than a forest one,
 # but in both cases pieces arrive steadily until the last one does. Forty-five
@@ -89,7 +97,23 @@ class Readiness:
 
     def can_launch(self):
         """Enough is up that a mission would not be a waste of time."""
-        return all(self.state[key] for key in REQUIRED if key in self.state)
+        if not all(self.state[key] for key in REQUIRED if key in self.state):
+            return False
+        for keys, _label in REQUIRED_ANY:
+            present = [k for k in keys if k in self.state]
+            if present and not any(self.state[k] for k in present):
+                return False
+        return True
+
+    def blocking(self):
+        """What is stopping a launch outright, in checklist words."""
+        out = [label for key, label, _d in self.checks
+               if key in REQUIRED and not self.state[key]]
+        for keys, label in REQUIRED_ANY:
+            present = [k for k in keys if k in self.state]
+            if present and not any(self.state[k] for k in present):
+                out.append(label)
+        return out
 
     def missing(self):
         return [label for key, label, _detail in self.checks if not self.state[key]]
@@ -114,6 +138,10 @@ class Readiness:
             return ('Nothing new in %.0f s. Still missing: ' % self.stalled_for()
                     + ', '.join(m.lower() for m in missing))
         if not self.can_launch():
+            blocking = self.blocking()
+            if blocking:
+                return ('Cannot launch yet - still waiting for '
+                        + ', '.join(b.lower() for b in blocking))
             return f'Waiting for {missing[0].lower()}...'
         if len(missing) == 1:
             return f'Waiting for the {missing[0].lower()}.'

@@ -32,6 +32,8 @@ so if its circle sits on it, the mushroom circles can be believed.
 """
 import math
 
+from ammo_gui_node import theme
+
 U_SIGN = -1.0   # world +Y goes left in the image
 V_SIGN = -1.0   # world +X goes up in the image
 
@@ -71,3 +73,82 @@ def metres_to_px(metres, height, px, hfov=1.5):
     if height <= 0.0:
         return 0.0
     return focal_px(px, hfov) * float(metres) / height
+
+
+# How a mushroom is drawn on the overhead view, by what the mission knows of
+# it. Red is the default because a mushroom nobody has found yet is the thing
+# the operator is looking for; the rest are the states it can reach.
+MARK_COLOURS = {
+    'found': theme.AMBER,          # sighted, not collected yet
+    'collected': theme.GREEN,
+    'abandoned': theme.GREY,       # given up on
+    'missed': theme.PURPLE,        # gripped, nothing there
+}
+MARK_UNFOUND = theme.ACCENT        # still out there
+QUAD_COLOUR = theme.TEAL
+ROVER_COLOUR = theme.BLUE
+MARK_NEAR_M = 1.5                  # how close a report has to be to be this one
+
+# What the note under the picture says, so the colours do not need explaining.
+MARK_KEY = ('circles: mushrooms - red out there, amber seen, green collected  '
+            'boxes: teal quad, blue skidsteer')
+
+
+def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
+    """Marks for the overhead camera: every mushroom, and every robot.
+
+    `placed` is where the GUI put the mushrooms, `mushrooms` is what the
+    mission has reported so far (so a found or collected one is drawn
+    differently), and `robots` is {key: (x, y)}.
+
+    The robots are not decoration - they are the check. A robot is visible in
+    the picture, so if its box sits on it, the mushroom circles are in the
+    right place too. They are drawn as squares and the mushrooms as circles,
+    so the two are never told apart by colour alone.
+
+    `height`, `px` and `hfov` describe the camera. The callers in the two
+    windows pass the ones for the world in question; the defaults are the
+    camera `mission_launcher` spawns over a 60 m world.
+    """
+    height = float(height if height is not None else 34.3)
+    px = int(px if px is not None else 640)
+    hfov = float(hfov if hfov is not None else 1.5)
+    marks = []
+    found = []
+    for m in (mushrooms or []):
+        try:
+            found.append((float(m.get('x', 0.0)), float(m.get('y', 0.0)),
+                          m.get('status')))
+        except (TypeError, ValueError):
+            continue
+    for i, point in enumerate(placed or [], 1):
+        try:
+            x, y = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        at = project(x, y, height, px, hfov=hfov)
+        if at is None:
+            continue
+        near = min((math.hypot(x - fx, y - fy), st) for fx, fy, st in found) if found else None
+        state = near[1] if near and near[0] < MARK_NEAR_M else None
+        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': True,
+                      'shape': 'circle', 'state': state,
+                      'r': max(7.0, metres_to_px(0.9, height, px, hfov)),
+                      'colour': MARK_COLOURS.get(state, MARK_UNFOUND),
+                      'label': f'M{i}'})
+    for key, pos in (robots or {}).items():
+        try:
+            x, y = float(pos[0]), float(pos[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        at = project(x, y, height, px, hfov=hfov)
+        if at is None:
+            continue
+        quad = str(key).startswith('quad')
+        label = ('Q' + str(key)[4:]) if quad else ('S' + str(key)[5:])
+        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': False,
+                      'shape': 'box',
+                      'r': max(9.0, metres_to_px(1.2, height, px, hfov)),
+                      'colour': QUAD_COLOUR if quad else ROVER_COLOUR,
+                      'label': label})
+    return marks

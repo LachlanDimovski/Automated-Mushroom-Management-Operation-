@@ -338,7 +338,9 @@ class ReadyPage(QWidget):
             self.rows[key].set_ok(ok)
         self.progress.setValue(self.readiness.done_count())
         self.summary.setText(self.readiness.summary())
-        if self.readiness.impatient() and self.readiness.can_launch():
+        if not self.readiness.impatient():
+            return
+        if self.readiness.can_launch():
             self.launch_button.setEnabled(True)
             self.launch_button.setText('LAUNCH ANYWAY')
             self.note.setText(
@@ -346,6 +348,19 @@ class ReadyPage(QWidget):
                 + ', '.join(m.lower() for m in self.readiness.missing())
                 + ' - the mushrooms are still spawned and the photo still '
                 'attempted; those panels will just be empty.')
+            return
+        # Impatient and still not launchable. Say so instead of leaving a dead
+        # button with no explanation - that reads as the GUI being broken when
+        # what is actually broken is the simulation.
+        self.launch_button.setEnabled(False)
+        self.launch_button.setText('CANNOT LAUNCH YET')
+        self.note.setText(
+            'This simulation has not come up: still waiting for '
+            + ', '.join(b.lower() for b in self.readiness.blocking())
+            + '. Launching would give a run with nothing to see, so it is '
+            'not offered. Go back to setup and prepare again - and if the '
+            'Gazebo window is ticked, untick it: on a heavy world or a fleet '
+            'the window is usually what never finishes loading.')
 
     # -- stage two: ready ---------------------------------------------------
     def set_ready(self, points):

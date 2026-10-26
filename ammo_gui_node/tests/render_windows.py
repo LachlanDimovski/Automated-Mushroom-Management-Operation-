@@ -69,6 +69,13 @@ class FakeLink(QObject):
     def probe_readiness(self):
         return dict(self.probe)
 
+    def reset_readiness(self):
+        """Only counted here. `probe` on this fake is what the simulation is
+        reporting right now, which a reset does not change; what the real one
+        clears is the record of what arrived earlier, and that is tested
+        against the real node."""
+        self.readiness_resets = getattr(self, 'readiness_resets', 0) + 1
+
     def publish_command(self, payload):
         self.commands.append(payload)
 

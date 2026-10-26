@@ -22,6 +22,7 @@ from render_windows import (FakeLink, fake_camera, mission_events,   # noqa: E40
 from ammo_gui_node import contract as C, theme                     # noqa: E402
 from ammo_gui_node import mission_launcher as ml                    # noqa: E402
 from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel   # noqa: E402
+from ammo_gui_node.ros_bridge import FRESH_S                      # noqa: E402
 from ammo_gui_node.debug_window import DebugWindow                  # noqa: E402
 from ammo_gui_node.event_feed import EventFeed                      # noqa: E402
 from ammo_gui_node.home_page import HomePage, parse_pair            # noqa: E402
@@ -720,7 +721,13 @@ r = Readiness()
 check('nothing is ready to start with', r.ready() is False and r.done_count() == 0)
 check('and it will not let you launch', r.can_launch() is False)
 r.update({'sim': True, 'nodes': True}, elapsed=5.0)
-check('the simulation and the nodes are enough to allow it', r.can_launch() is True)
+check('the simulation and the nodes alone are not enough any more',
+      r.can_launch() is False)
+check('because a run with no camera can detect nothing',
+      r.blocking() == ['a camera'], r.blocking())
+r.update({'quad_cam': True}, elapsed=5.5)
+check('one camera is enough to allow a launch', r.can_launch() is True)
+check('and then nothing is blocking it', r.blocking() == [], r.blocking())
 check('but it is still not ready', r.ready() is False)
 check('it says what it is waiting for', 'waiting' in r.summary().lower(), r.summary())
 r.update({'sim': False}, elapsed=6.0)
@@ -807,13 +814,29 @@ check('the buttons report back', fired == ['launch', 'shuffle'], fired)
 
 impatient = ReadyPage()
 impatient.begin({'world': 'forest_random'})
-impatient.apply_probe({'sim': True, 'nodes': True}, 1e6)
+impatient.apply_probe({'sim': True, 'nodes': True, 'quad_cam': True}, 1e6)
 check('a simulation that will not finish still offers a launch',
       impatient.launch_button.isEnabled() is True)
 check('and renames the button', impatient.launch_button.text() == 'LAUNCH ANYWAY',
       impatient.launch_button.text())
 check('and says what will be missing',
       'nav2' in impatient.note.text().lower(), impatient.note.text())
+
+# The run that prompted this: Gazebo up, both controllers up, and not one
+# camera frame or odometry message in three and a half minutes. The old page
+# offered LAUNCH ANYWAY, which could only ever have produced an empty run.
+dead = ReadyPage()
+dead.begin({'world': 'river_moderate_aus'})
+dead.apply_probe({'sim': True, 'nodes': True, 'rover_yolo': True,
+                  'quad_yolo': True, 'nav2': True}, 1e6)
+check('a world that never came up does not offer a launch at all',
+      dead.launch_button.isEnabled() is False)
+check('and the button says so rather than sitting there dead',
+      dead.launch_button.text() == 'CANNOT LAUNCH YET', dead.launch_button.text())
+check('and it names a camera as the thing missing',
+      'camera' in dead.note.text().lower(), dead.note.text())
+check('and tells the operator what usually causes it',
+      'untick' in dead.note.text().lower())
 
 # -------------------------------------------------- the readiness probe ----
 section('what the ROS link reports to the checklist')
@@ -886,6 +909,33 @@ check('an unrelated transform does not count',
 tf_node.feed(C.ROVER_TF_TOPIC, tf_message(C.ROVER_MAP_FRAME, 'husky1_odom'))
 check('husky1_map on the rover topic does',
       tf_link.probe_readiness()['map_frame'] is True)
+
+# The bug a second run exposed: the checklist remembered the first run. The
+# old test was "has this ever arrived", so every Prepare after the first
+# ticked the camera and telemetry boxes from the dead simulation's messages
+# and offered a Launch on a world that had not finished loading.
+check('a camera that has gone quiet stops counting',
+      probe_node.seen.get('rover_cam') is not None)
+probe_node.seen['rover_cam'] = time.monotonic() - (FRESH_S + 5.0)
+check('and the probe says so rather than remembering it fondly',
+      link5.probe_readiness()['rover_cam'] is False)
+probe_node.feed(C.HUSKY_CAM, ros_image())
+check('a fresh frame brings it back', link5.probe_readiness()['rover_cam'] is True)
+
+probe_node.feed(C.ROVER_TF_TOPIC, tf_message(C.ROVER_MAP_FRAME, 'husky1_odom'))
+check('and the map frame is seen', link5.probe_readiness()['map_frame'] is True)
+link5.reset_readiness()
+probe = link5.probe_readiness()
+check('a reset forgets every camera and every odometry',
+      not any(probe[k] for k in ('rover_cam', 'quad_cam', 'rover_odom', 'quad_odom')),
+      probe)
+check('and forgets the map frame too', probe['map_frame'] is False)
+check('but not what the graph itself says - the clock is still published',
+      probe['sim'] is True)
+probe_node._tf_ok = None
+link5.reset_readiness()
+check('a missing tf2_msgs is left alone by a reset, not turned into a block',
+      probe_node._tf_ok is None)
 
 # ------------------------------------------- the whole prepare sequence ----
 section('prepare, hold, place, launch, end - in order')
@@ -993,6 +1043,9 @@ app_under_test.begin_prepare({'world': 'forest_random', 'points': [(3.0, 4.0)],
                               'meta': ml.world_meta_full('forest_random')})
 check('preparing starts the launch', fake_launcher.calls == ['prepare'],
       fake_launcher.calls)
+check('and the checklist is told to forget the last run first',
+      getattr(fake_link, 'readiness_resets', 0) == 1,
+      getattr(fake_link, 'readiness_resets', 0))
 check('and shows the ready page',
       app_under_test.stack.currentWidget() is app_under_test.ready)
 check('the bridge is told we are preparing',
@@ -1304,10 +1357,18 @@ check('the spinners are sent with the run',
       sent2[-1]['quads'] == 2 and sent2[-1]['rovers'] == 2, sent2[-1])
 check('and the page says a fleet is what will start',
       'fleet' in counts.robot_hint.text().lower(), counts.robot_hint.text())
+check('a fleet greys out the Gazebo window instead of silently ignoring it',
+      counts.show_sim.isEnabled() is False)
+check('and says why on the page, not only in the log',
+      counts.show_sim_note.isHidden() is False
+      and 'headless' in counts.show_sim_note.text().lower(),
+      counts.show_sim_note.text())
 counts.quad_count.setValue(1)
 counts.rover_count.setValue(1)
 check('and says the plain thing for one of each',
       'one of each' in counts.robot_hint.text().lower(), counts.robot_hint.text())
+check('and one of each gets the window back',
+      counts.show_sim.isEnabled() is True and counts.show_sim_note.isHidden())
 check('the spinners do not offer more than their launch allows',
       counts.quad_count.maximum() == C.MAX_QUADS
       and counts.rover_count.maximum() == C.MAX_ROVERS)
@@ -1363,6 +1424,23 @@ check("the fleet's own quad executable is watched for",
       'fleet_quad_node' in ml.QUAD_NODES, ml.QUAD_NODES)
 
 # a slow feed must not be called dead by the fast feed's rule
+# The overhead panel has no detector, so its corner button toggles the world
+# marks instead of detector boxes that can never arrive.
+marks_cam = CameraPanel('OVERHEAD', 'x', theme.BLUE, overlay_button=True)
+marks_cam.set_show_boxes(False)
+check('the overhead button starts with the marks off',
+      marks_cam.show_overlay is False)
+flips = []
+marks_cam.boxes_toggled.connect(flips.append)
+marks_cam.toggle_boxes()
+check('clicking it turns the marks on', marks_cam.show_overlay is True)
+check('and leaves the detector boxes alone', marks_cam.show_boxes is False)
+check('and reports the change', flips == [True], flips)
+marks_cam.toggle_boxes()
+check('clicking again turns them off', marks_cam.show_overlay is False)
+check('an ordinary panel still toggles boxes',
+      CameraPanel('ROVER', 'y', theme.ACCENT).overlay_button is False)
+
 slow_cam = CameraPanel('OVERHEAD', 'x', theme.BLUE, stale_s=SLOW_STALE_S)
 fast_cam = CameraPanel('ROVER', 'y', theme.ACCENT)
 slow_cam.set_image(fake_camera())

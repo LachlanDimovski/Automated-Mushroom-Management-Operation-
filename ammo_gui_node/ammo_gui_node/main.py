@@ -188,6 +188,10 @@ class OperatorApp:
         # thirty seconds the checklist takes - there is no window to lose.
         self.link.set_standdown('all', True)
         self.link.set_holding(True)
+        # Everything the checklist knows is from the last run. Forget it, or a
+        # second Prepare ticks the camera and telemetry boxes from messages
+        # the previous simulation sent and offers a Launch that cannot work.
+        self.link.reset_readiness()
         started = self.launcher.prepare(world,
                                         show_sim=config.get('show_sim', True),
                                         options=config.get('options'),

@@ -505,6 +505,8 @@ class MissionLauncher:
         self.held = False          # the two mission nodes are frozen right now
         self.quads, self.rovers = 1, 1
         self._reported_death = False
+        self._env = None           # the launch's environment, for short commands
+        self.last_error = ''       # stderr of the last short command
         self._topdown_proc = None
 
     # -- stage one: prepare -------------------------------------------------
@@ -541,6 +543,9 @@ class MissionLauncher:
             return None
 
         env = dict(os.environ)
+        # Kept so `create`, `remove` and `ign model --list` run against the
+        # same resource path as the server they are talking to.
+        self._env = env
         # the nodes we freeze talk over UDP: over shared memory a long freeze cut them off from Nav2 for good
         env['AMMO_FREEZABLE_PROFILE'] = os.path.join(_share('ammo_gui_node') or '', 'config', 'fastdds_udp_only.xml')
         fleet = quads > 1 or rovers > 1
@@ -701,22 +706,36 @@ class MissionLauncher:
             self.log('cannot find 41068_ignition_bringup to spawn mushrooms')
             return []
         sdf = os.path.join(share, 'models', 'mushroom_amanita', 'model.sdf')
+        if not os.path.exists(sdf):
+            self.log(f'the mushroom model is missing at {sdf} - nothing to spawn')
+            return []
+        errors = []
         for i, (x, y) in enumerate(points, 1):
             name = f'{MUSHROOM_PREFIX}{i}'
             z = ground_z_at(self.world, float(x), float(y)) + GROUND_LIFT_M
             self._run(['ros2', 'run', 'ros_ign_gazebo', 'create', '-file', sdf,
                        '-name', name, '-x', str(float(x)), '-y', str(float(y)),
                        '-z', f'{z:.3f}'], 20)
+            if self.last_error:
+                errors.append(f'{name}: {self.last_error.splitlines()[-1][:120]}')
             self.spawned.append((name, float(x), float(y)))
         if self.spawned:
             there = self.confirm_mushrooms()
             if there is None:
-                self.log(f'{len(self.spawned)} mushroom(s) placed')
+                self.log(f'{len(self.spawned)} mushroom(s) asked for, but Gazebo '
+                         f'would not say what it has - `ign model --list` gave '
+                         f'nothing, so treat the count as unconfirmed')
+            elif there == 0:
+                self.log(f'NONE of the {len(self.spawned)} mushrooms are in the '
+                         f'world. The spawn command ran and Gazebo has no '
+                         f'model named {MUSHROOM_PREFIX}*. Model file: {sdf}')
             elif there < len(self.spawned):
                 self.log(f'only {there} of {len(self.spawned)} mushrooms are '
                          f'actually in the world - the rest did not spawn')
             else:
                 self.log(f'{there} mushroom(s) placed and confirmed in Gazebo')
+            for line in errors[:3]:
+                self.log(f'spawn error - {line}')
         return [(x, y) for _n, x, y in self.spawned]
 
     def confirm_mushrooms(self):
@@ -765,10 +784,24 @@ class MissionLauncher:
                    '--timeout', '2000', '--req', f'name: "{name}" type: MODEL'], 6)
 
     def _run(self, args, timeout):
+        """Run one short command and give back its stdout.
+
+        It inherits the launch's own environment when there is one, so a
+        `create` call resolves models against the same resource path Gazebo
+        was started with rather than the GUI's bare environment. stderr is
+        kept in `self.last_error` - `create` reports success on stdout
+        whether or not the model file resolved, so the only account of what
+        went wrong is on the other stream.
+        """
+        self.last_error = ''
         try:
-            return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            done = subprocess.run(args, capture_output=True, text=True,
+                                  timeout=timeout, env=self._env or None)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            self.last_error = str(exc)
             return ''
+        self.last_error = (done.stderr or '').strip()
+        return done.stdout
 
     # -- the top-down camera --------------------------------------------------
     def topdown_height(self):

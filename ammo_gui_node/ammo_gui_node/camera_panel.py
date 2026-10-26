@@ -44,9 +44,16 @@ class CameraPanel(QWidget):
     boxes_toggled = Signal(bool)
 
     def __init__(self, title, topic='', dot_colour=None, parent=None,
-                 show_boxes=True, allow_expand=True, stale_s=STALE_S):
+                 show_boxes=True, allow_expand=True, stale_s=STALE_S,
+                 overlay_button=False):
         super().__init__(parent)
         self.stale_s = float(stale_s)
+        # The overhead camera has no detector of its own, so its corner
+        # button would toggle boxes that can never arrive. On that panel the
+        # same button toggles the world-position marks instead - the robots
+        # and the mushrooms - which is the thing worth switching on and off
+        # there.
+        self.overlay_button = bool(overlay_button)
         self.setMinimumSize(200, 150)
         self.title = title
         self.topic = topic
@@ -92,6 +99,10 @@ class CameraPanel(QWidget):
         self.update()
 
     def toggle_boxes(self):
+        if self.overlay_button:
+            self.set_show_overlay(not self.show_overlay)
+            self.boxes_toggled.emit(self.show_overlay)
+            return
         self.set_show_boxes(not self.show_boxes)
 
     def set_overlay(self, marks):
@@ -194,7 +205,10 @@ class CameraPanel(QWidget):
 
     def _tab(self, p, live):
         rect = self._tab_rect()
-        label = 'BOXES' if self.show_boxes else 'NO BOXES'
+        if self.overlay_button:
+            label = 'MARKS' if self.show_overlay else 'NO MARKS'
+        else:
+            label = 'BOXES' if self.show_boxes else 'NO BOXES'
         if self.frozen:
             label = 'HELD'
         elif not live:
@@ -205,7 +219,8 @@ class CameraPanel(QWidget):
         if live and not self.frozen:
             p.setPen(QPen(QColor(theme.LINE_SOFT), 1))
             p.setBrush(Qt.NoBrush)
-            width = 44 if self.show_boxes else 62
+            on = self.show_overlay if self.overlay_button else self.show_boxes
+            width = 46 if on else 64
             p.drawRoundedRect(QRectF(rect.right() - width - 4, 7, width, 16), 3, 3)
 
     def _frame(self, p, view, dim):
@@ -244,8 +259,14 @@ class CameraPanel(QWidget):
             colour = QColor(mark.get('colour') or theme.ACCENT)
             p.setBrush(Qt.NoBrush)
             p.setPen(QPen(colour, 1.8))
-            p.drawEllipse(QPointF(cx, cy), r, r)
-            # a cross in the middle, so a big circle still points at a spot
+            # Shape carries the kind and colour carries the state, so the
+            # two never have to be told apart by hue alone: a robot is a
+            # square, a mushroom is a circle, whatever colour either is.
+            if mark.get('shape') == 'box':
+                p.drawRect(QRectF(cx - r, cy - r, 2 * r, 2 * r))
+            else:
+                p.drawEllipse(QPointF(cx, cy), r, r)
+            # a cross in the middle, so a big mark still points at a spot
             p.setPen(QPen(colour, 1.0))
             p.drawLine(QPointF(cx - 3, cy), QPointF(cx + 3, cy))
             p.drawLine(QPointF(cx, cy - 3), QPointF(cx, cy + 3))
