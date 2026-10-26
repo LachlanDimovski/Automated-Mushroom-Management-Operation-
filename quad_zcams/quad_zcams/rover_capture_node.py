@@ -61,6 +61,8 @@ VIS_GATE_M = 1.0
 VIS_STALE_S = 2.5         # the fleet's YOLO pool runs the rover's camera at 1 Hz
 VIS_AGREE_RAD = math.radians(15)  # camera and odometry headings further apart than this: trust odometry
 VIS_SKIP = {'native_mushroom'}
+REGRAB_STALE_S = 5.0      # an empty grab with a camera sighting this recent goes back for it once, at the sighting
+REGRAB_MIN_M = 0.3        # ...when the sighting is this far from where the claw closed (closer: nothing new to try)
 CLEAR_TRY_S = 4.0
 CLEAR_GIVEUP_S = 15.0
 CLEAR_MOVED_M = 0.3       # moved this far since the clear-out began: the parent's nudge is working
@@ -230,6 +232,7 @@ class RoverCapture(cc.CageCapture):
         self.poses = deque(maxlen=400)  # (stamp, x, y, yaw): the pose each camera frame was taken from
         self.vis_steering = False     # whether ALIGN is currently using the camera
         self.checked = set()
+        self.regrab, self.regrabbed = None, set()  # see _collect
         self.bad, self.nav_from = [], None
         self.qmap, self.route, self.route_seen, self.map_logged = None, None, None, -1e9
         self.create_subscription(OccupancyGrid, 'parrot1/ground_obstacles', self._quad_map,
@@ -1043,6 +1046,13 @@ class RoverCapture(cc.CageCapture):
         if self._end_step():
             return
         self._retry_given_up()
+        if self.regrab and self.state in ('DRIVE', 'NAV'):  # after RAISE has popped the empty target
+            if self.state == 'NAV':  # already off to the next one: the grab's Gazebo queries finished late
+                self._cancel_nav()
+                self.nav_result, self.via_queue, self.nav_from = None, [], None
+                self._set_state('DRIVE')
+            self.targets.insert(0, self.regrab)
+            self.regrab, self.nav_tries = None, 0
         if self.have_odom and self.state not in ('UNWEDGE',) and (
                 not self.crumbs or math.hypot(self.x - self.crumbs[-1][0], self.y - self.crumbs[-1][1]) >= CRUMB_M):
             self.crumbs = (self.crumbs + [(self.x, self.y)])[-CRUMBS:]
@@ -1179,8 +1189,21 @@ class RoverCapture(cc.CageCapture):
 
     def _collect(self, cx, cy):
         """The parent's grab, with done reported as soon as the mushroom is found under the gripper: the coordinator
-        sends the next one on done, and the checked remove below takes two more ign calls."""
+        sends the next one on done, and the checked remove below takes two more ign calls.
+        An empty grab with a fresh camera sighting of the target is not done (the quad's report can be 0.5 m off):
+        the rover goes back for it once, at the sighting (_step)."""
+        tgt = self.targets[0] if self.targets else None  # read before the slow Gazebo queries: RAISE pops it
+        vis = self.vis_point if self.vis_point is not None and self._now() - self.vis_stamp < REGRAB_STALE_S else None
         under = self._mushrooms_near(cx, cy)
+        key = lambda p: (round(p[0], 1), round(p[1], 1))
+        if (not under and tgt and vis and self.state != 'TELEOP' and key(tgt) not in self.regrabbed
+                and math.hypot(vis[0] - tgt[0], vis[1] - tgt[1]) < VIS_GATE_M
+                and math.hypot(vis[0] - cx, vis[1] - cy) > REGRAB_MIN_M):
+            self.regrabbed |= {key(tgt), key(vis)}
+            self.regrab = vis
+            self.get_logger().warn(f'Grab empty at ({cx:.2f},{cy:.2f}), but the camera saw it at ({vis[0]:.2f},'
+                                   f'{vis[1]:.2f}) - going back for it.')
+            return
         self._done(cx, cy)
         if not under:
             m = PointStamped()
