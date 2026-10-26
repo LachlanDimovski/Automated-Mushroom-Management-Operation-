@@ -8,6 +8,8 @@ The controls are Pause/Resume, End Mission, clicking the map to send the
 rover somewhere, and hand-driving either robot. Each camera fills the window
 on a double-click, which is what you want while flying by hand.
 """
+import math
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QProgressBar,
                                QPushButton, QScrollArea, QStackedWidget,
@@ -16,10 +18,53 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QProgressBar,
 from ammo_gui_node import cards, contract as C, theme
 from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel
 from ammo_gui_node.map_view import MapView
+from ammo_gui_node.mission_launcher import topdown_height
+from ammo_gui_node.overhead import metres_to_px, project
 from ammo_gui_node.mission_launcher import world_meta_full
 from ammo_gui_node.mushroom_log import MushroomLog
 from ammo_gui_node.teleop_widget import TeleopWidget
 from ammo_gui_node.timeline import format_clock
+
+
+def overhead_marks(world, placed, mushrooms, robots):
+    """Circles for the overhead camera: every mushroom, and every robot.
+
+    `placed` is where the GUI put them, `mushrooms` is what the mission has
+    found so far (so a found one can be drawn differently), and `robots` is
+    {key: (x, y)}. The robots are not decoration - they are the check. A
+    robot is visible in the picture, so if its circle sits on it, the
+    mushroom circles are in the right place too.
+    """
+    height = topdown_height(world)
+    px = C.TOPDOWN_PX
+    marks = []
+    found = [(float(m.get('x', 0.0)), float(m.get('y', 0.0)), m.get('status'))
+             for m in (mushrooms or [])]
+    for i, point in enumerate(placed or [], 1):
+        try:
+            x, y = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        at = project(x, y, height, px, hfov=C.TOPDOWN_HFOV)
+        if at is None:
+            continue
+        near = min((math.hypot(x - fx, y - fy), st) for fx, fy, st in found) if found else None
+        state = near[1] if near and near[0] < 1.5 else None
+        colour = {'collected': theme.GREEN, 'abandoned': theme.GREY,
+                  'missed': theme.AMBER}.get(state, theme.ACCENT)
+        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': True,
+                      'r': max(7.0, metres_to_px(0.9, height, px, C.TOPDOWN_HFOV)),
+                      'colour': colour, 'label': f'M{i}'})
+    for key, (x, y) in (robots or {}).items():
+        at = project(x, y, height, px, hfov=C.TOPDOWN_HFOV)
+        if at is None:
+            continue
+        label = ('Q' + key[4:]) if key.startswith('quad') else ('S' + key[5:])
+        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': False,
+                      'r': max(9.0, metres_to_px(1.2, height, px, C.TOPDOWN_HFOV)),
+                      'colour': theme.TEXT if key.startswith('quad') else theme.BLUE,
+                      'label': label})
+    return marks
 
 
 class OperatorPage(QWidget):
@@ -41,6 +86,7 @@ class OperatorPage(QWidget):
         self.world = None
         self.latest_quad_yolo = None
         self.latest_rover_frame = None
+        self.status = {}
         self.aborting = False
         self.quads, self.rovers = 1, 1
         self.cams = {}            # key -> CameraPanel, for a fleet
@@ -279,6 +325,10 @@ class OperatorPage(QWidget):
         self.topdown_on = bool(on)
         self._relayout_cams()
 
+    def _set_fit(self, world):
+        self.fit_button.setText('FIT: WORLD' if world else 'FIT: ROBOTS')
+        self.map.set_fit_world(world)
+
     def _on_map_click(self, x, y):
         # Refuse a point outside the world rather than sending a goal Nav2
         # will reject - a rejection reads as the rover ignoring you.
@@ -334,6 +384,15 @@ class OperatorPage(QWidget):
         self.click_mode = self._click_mode_button()
         self.click_mode.toggled.connect(self._click_hint)
         head.addWidget(self.click_mode)
+        self.fit_button = QPushButton('FIT: WORLD')
+        self.fit_button.setObjectName('Ghost')
+        self.fit_button.setCheckable(True)
+        self.fit_button.setChecked(True)
+        self.fit_button.setToolTip(
+            'Whole world, so you can see the edge - or in close on the robots, '
+            'where the trees are readable')
+        self.fit_button.toggled.connect(self._set_fit)
+        head.addWidget(self.fit_button)
         self.key_button = QPushButton('Key')
         self.key_button.setObjectName('Ghost')
         self.key_button.setCheckable(True)
@@ -404,6 +463,9 @@ class OperatorPage(QWidget):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape and self.stack.currentIndex() == 1:
             self._collapse()
+            return
+        if event.key() == Qt.Key_M:
+            self.toggle_overhead_overlay()
             return
         return super().keyPressEvent(event)
 
@@ -497,6 +559,7 @@ class OperatorPage(QWidget):
 
     # -- live data ----------------------------------------------------------
     def apply_status(self, status):
+        self.status = status
         self.clock.setText(format_clock(status.get('elapsed', 0)))
         total = status.get('total') or 0
         self.found_card.set(status.get('found', 0))
@@ -541,6 +604,32 @@ class OperatorPage(QWidget):
             self.goal_label.setText(f'{goal[0]:.1f}, {goal[1]:.1f}')
         self.rover_teleop.set_blocked(self.paused or bool(goal))
         self.quad_teleop.set_blocked(self.paused)
+        self._refresh_overhead(status)
+
+    def _refresh_overhead(self, status):
+        """Ring the mushrooms and the robots on the overhead picture."""
+        if not self.topdown_cam.show_overlay:
+            return
+        robots = {}
+        if self.map.rover:
+            robots['rover1'] = (self.map.rover[0], self.map.rover[1])
+        if self.map.quad:
+            robots['quad1'] = (self.map.quad[0], self.map.quad[1])
+        for key, pose in self.map.fleet.items():
+            robots[key] = (pose[0], pose[1])
+        self.topdown_cam.set_overlay(overhead_marks(
+            status.get('world') or self.world or 'simple_trees',
+            status.get('placed') or [],
+            status.get('mushrooms') or [],
+            robots))
+
+    def toggle_overhead_overlay(self):
+        on = not self.topdown_cam.show_overlay
+        self.topdown_cam.set_show_overlay(on)
+        self.topdown_cam.set_note('M: mushrooms and robots ringed' if on else '')
+        if on:
+            self._refresh_overhead(self.status if hasattr(self, 'status') else {})
+        return on
 
     def apply_event(self, ev):
         kind = ev.get('kind')

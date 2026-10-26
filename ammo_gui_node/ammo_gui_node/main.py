@@ -405,6 +405,13 @@ class OperatorApp:
             'world': world,
             'layout': config.get('layout', ''),
             'total': config['total'],
+            # Where they actually are. Only the GUI knows - it spawned them -
+            # and the Debug UI needs it to reveal them on the overhead view
+            # and to tag them in the end-of-mission report.
+            'placed': [[round(float(x), 2), round(float(y), 2)]
+                       for x, y in self.placed],
+            'quads': self.launcher.quads,
+            'rovers': self.launcher.rovers,
         })
         self.phase = 'running'
         self.mission_running = True
@@ -429,11 +436,12 @@ class OperatorApp:
         self.link.set_holding(True)
         self.link.set_standdown('all', True)
         self.launcher.stop_topdown()
-        # Keeps Gazebo: the next run on the same world needs no warm-up.
-        self.launcher.end_mission(keep_sim=True)
-        if not self.launcher.prepared():
-            self.link.set_holding(False)
-            self.link.set_standdown('all', False)
+        # Everything goes: the simulation outliving its mission is what left
+        # phantom robots on the cameras, a coverage figure frozen at a number
+        # from a dead run, and a Prepare that refused to start.
+        self.launcher.end_mission(keep_sim=False)
+        self.link.set_holding(False)
+        self.link.set_standdown('all', False)
         self._held_said = False
         self.aborting = self.abort_done = False
         self.abort_watch.stop()
@@ -441,9 +449,9 @@ class OperatorApp:
         self.placed = []
         self.phase = 'ready' if self.launcher.prepared() else 'setup'
         self.operator.stop_mission()
-        self.home.set_note('Mission ended. The simulation is still up - Prepare '
-                           'again to run the same world straight away.'
-                           if self.launcher.prepared() else 'Mission ended.')
+        self.home.set_note('Mission ended and the simulation is closed. The '
+                           'Debug UI is holding the report until you prepare '
+                           'the next run.')
         self.stack.setCurrentWidget(self.home)
 
     # -- abort --------------------------------------------------------------

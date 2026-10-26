@@ -52,6 +52,25 @@ OBJ_STYLE = {
     'decoy': ('square', '#2E2A33', '#4A4454', 0.22),
 }
 
+# The world boundary. Near-white on purpose: it has to read on a black map
+# at a glance, and nothing else on the map is this colour.
+EDGE_COLOUR = '#C9D4DC'
+
+# Below this many pixels per metre the world is zoomed far enough out that
+# the object symbols stop being shapes and become specks. At that point they
+# are drawn at a floor size and in brighter colours, because a tree you
+# cannot see is a tree that is not telling you which way the map is facing.
+FAR_PPM = 7.0
+FAR_FILL = {
+    'tree': '#39493F',
+    'fallen_tree': '#4A4036',
+    'log': '#473D33',
+    'stump': '#453F38',
+    'rock': '#3C444A',
+    'clutter': '#373D43',
+    'decoy': '#473F50',
+}
+
 RIVER_FILL = '#14323F'
 RIVER_EDGE = '#1F4E61'
 FORD_FILL = '#2C3A33'
@@ -164,8 +183,7 @@ class MapView(QWidget):
         size = (meta.get('world') or {}).get('playable_size_m')
         self.playable_half = float(size) / 2.0 if size else None
         self.clearing = meta.get('spawn_clearing') or None
-        if self.fit_world and self.playable_half:
-            self._grow(self.playable_half, self.playable_half)
+        self._apply_fit()
 
         # Deliberately not growing to the hedge: the playable area is 60 m
         # across while the robots and the mushrooms live inside about 15 m of
@@ -190,6 +208,34 @@ class MapView(QWidget):
         self._push(self.quad_trail, x, y)
         self._grow(x, y)
         self.update()
+
+    def set_fit_world(self, on):
+        """Whole world, or in close on the robots.
+
+        Whole world is the default because it is the only way to see where
+        you may click - but it makes a 60 m world's trees very small, so
+        this is a button rather than a decision taken once.
+        """
+        self.fit_world = bool(on)
+        if not self.fit_world:
+            # Shrink back to what is actually out there. `_grow` only ever
+            # grows, so the range has to be rebuilt from scratch.
+            self.range_m = MIN_RANGE_M
+            for pose in [self.rover, self.quad] + list(self.fleet.values()):
+                if pose:
+                    self._grow(pose[0], pose[1])
+            for obj in self.world_mushrooms:
+                self._grow(_x(obj), _y(obj))
+            for x, y in self.planned:
+                self._grow(x, y)
+            for m in self.mushrooms:
+                self._grow(m.get('x', 0.0), m.get('y', 0.0))
+        self._apply_fit()
+        self.update()
+
+    def _apply_fit(self):
+        if self.fit_world and self.playable_half:
+            self._grow(self.playable_half, self.playable_half)
 
     def set_robot(self, key, x, y, yaw, alt=None):
         """Place any robot by its key: 'quad1', 'rover2', ...
@@ -381,17 +427,21 @@ class MapView(QWidget):
         self.update()
 
     def _playable(self, p):
-        """The edge of the world, so a click never lands outside it blind."""
+        """The edge of the world, so a click never lands outside it blind.
+
+        Drawn in a near-white, because on a black map a dim blue dash is
+        invisible - which is exactly what happened the first time.
+        """
         if not self.playable_half:
             return
         h = self.playable_half
-        pen = QPen(QColor(theme.BLUE), 1.4)
-        pen.setDashPattern([6, 4])
+        pen = QPen(QColor(EDGE_COLOUR), 1.6)
+        pen.setDashPattern([7, 5])
         p.setPen(pen)
         p.setBrush(Qt.NoBrush)
         p.drawRect(QRectF(self.to_px(-h, h), self.to_px(h, -h)))
         corner = self.to_px(-h, h)
-        p.setPen(QColor(theme.BLUE))
+        p.setPen(QColor(EDGE_COLOUR))
         p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
         p.drawText(QPointF(corner.x() + 5, corner.y() + 12),
                    f'world edge  {2 * h:.0f} x {2 * h:.0f} m')
@@ -514,11 +564,14 @@ class MapView(QWidget):
         ppm = self.ppm()
         order = [k for k in C.OBJ_ORDER if k in self.objects and k != 'mushroom']
         order += [k for k in self.objects if k not in C.OBJ_ORDER]
+        far = ppm < FAR_PPM
         for kind in order:
             style = OBJ_STYLE.get(kind)
             if style is None:
                 continue
             shape, fill, edge, fallback_r = style
+            if far:
+                fill = FAR_FILL.get(kind, fill)
             p.setPen(QPen(QColor(edge), 1.0))
             p.setBrush(QBrush(QColor(fill)))
             for obj in self.objects[kind]:
@@ -546,12 +599,13 @@ class MapView(QWidget):
             p.drawLine(self.to_px(x - dx, y - dy), self.to_px(x + dx, y + dy))
             p.restore()
             return
+        floor = 2.6 if ppm < FAR_PPM else 2.0
         if shape == 'square':
-            s = max(2.0, r * ppm)
+            s = max(floor, r * ppm)
             pt = self.to_px(x, y)
             p.drawRect(QRectF(pt.x() - s, pt.y() - s, 2 * s, 2 * s))
             return
-        rad = max(1.6, r * ppm)
+        rad = max(floor, r * ppm)
         p.drawEllipse(self.to_px(x, y), rad, rad)
 
     def _world_mushrooms(self, p):

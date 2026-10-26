@@ -160,6 +160,10 @@ ROSOUT = '/rosout'
 # photo of the spawn, then removes again. Not part of anybody's launch file -
 # the model and the bridge are both started and stopped by mission_launcher.
 TOPDOWN_TOPIC = '/ammo/topdown/image'
+# The camera's own geometry, needed by anything projecting world coordinates
+# into its picture. mission_launcher builds the camera from these.
+TOPDOWN_PX = 640
+TOPDOWN_HFOV = 1.5
 
 # Gazebo's own clock, bridged by the team's launch. Its presence is the
 # cheapest honest answer to "is the simulation actually up?".

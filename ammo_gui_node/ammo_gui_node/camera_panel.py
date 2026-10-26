@@ -57,6 +57,11 @@ class CameraPanel(QWidget):
         self.last_at = 0.0
         self.detections = []
         self.det_at = 0.0
+        # Marks drawn in the source image's own pixels, scaled with it:
+        # {'u', 'v', 'r', 'colour', 'label'}. Used by the overhead view to
+        # ring the mushrooms and the robots.
+        self.overlay = []
+        self.show_overlay = False
         self.frozen = False
         self.note = ''
         self.expanded = False
@@ -88,6 +93,15 @@ class CameraPanel(QWidget):
 
     def toggle_boxes(self):
         self.set_show_boxes(not self.show_boxes)
+
+    def set_overlay(self, marks):
+        self.overlay = list(marks or [])
+        if self.show_overlay:
+            self.update()
+
+    def set_show_overlay(self, on):
+        self.show_overlay = bool(on)
+        self.update()
 
     def set_frozen(self, frozen):
         self.frozen = bool(frozen)
@@ -163,6 +177,8 @@ class CameraPanel(QWidget):
             target = self._frame(p, view, dim=not live and not self.frozen)
             if self.show_boxes:
                 self._boxes(p, target)
+            if self.show_overlay and self.overlay:
+                self._overlay(p, target)
 
         if self.note:
             p.setPen(QColor(theme.AMBER))
@@ -204,6 +220,39 @@ class CameraPanel(QWidget):
             p.setBrush(QBrush(QColor(15, 20, 24, DIM_ALPHA)))
             p.drawRect(target)
         return target
+
+    def _overlay(self, p, target):
+        """Ring things whose world position is known, in image pixels.
+
+        Scaled exactly like the detector's boxes: the marks are given in the
+        source image's own pixels, so they follow the picture wherever it is
+        letterboxed to.
+        """
+        img = self.image
+        if img is None or img.width() <= 0:
+            return
+        sx = target.width() / img.width()
+        sy = target.height() / img.height()
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
+        for mark in self.overlay:
+            try:
+                cx = target.x() + float(mark['u']) * sx
+                cy = target.y() + float(mark['v']) * sy
+                r = max(5.0, float(mark.get('r', 6.0)) * sx)
+            except (KeyError, TypeError, ValueError):
+                continue
+            colour = QColor(mark.get('colour') or theme.ACCENT)
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(colour, 1.8))
+            p.drawEllipse(QPointF(cx, cy), r, r)
+            # a cross in the middle, so a big circle still points at a spot
+            p.setPen(QPen(colour, 1.0))
+            p.drawLine(QPointF(cx - 3, cy), QPointF(cx + 3, cy))
+            p.drawLine(QPointF(cx, cy - 3), QPointF(cx, cy + 3))
+            label = str(mark.get('label') or '')
+            if label:
+                p.setPen(QPen(colour, 1.0))
+                p.drawText(QPointF(cx + r + 3, cy + 4), label)
 
     def _boxes(self, p, target):
         """Draw the detector's boxes, scaled from source pixels into the view."""

@@ -52,6 +52,8 @@ LATCHED_QOS = QoSProfile(depth=1,
 ROSOUT_QOS = QoSProfile(depth=200, reliability=ReliabilityPolicy.RELIABLE)
 
 STALE_S = 2.0
+# A ground map older than this is from a simulation that is not running.
+GROUND_MAP_STALE_S = 30.0
 STATE_TOPIC_STALE_S = 5.0   # longer than STALE_S: states change rarely
 HOLD_WINDOW_S = 6.0         # a sighting this recent means the quad is holding
 CONF_WINDOW_S = 4.0         # detections this recent belong to the next sighting
@@ -208,6 +210,8 @@ class MissionBridge(Node):
         self.route = None          # the rover's current Nav2 leg, for the map
         self.river = None          # {'blocked_m2', 'fords'} once the rover says so
         self.coverage = None       # fraction of the search area the quad has seen
+        self.placed = []           # where the GUI put the mushrooms, if it said
+        self.quads = self.rovers = 1
         self.natives = []          # [[x, y], ...] native mushrooms left in place
         self.detector_classes = []  # what the loaded weights can actually detect
 
@@ -217,7 +221,8 @@ class MissionBridge(Node):
         self.parrot_odom = None
         self.quad = {}             # the quad's own state payload
         self.seen = {'rover': 0.0, 'quad': 0.0,
-                     'rover_state': -1e9, 'quad_state': -1e9}
+                     'rover_state': -1e9, 'quad_state': -1e9,
+                     'ground_map': -1e9}
 
         self._last_sighting_at = -1e9
         self._last_conf = None
@@ -342,6 +347,15 @@ class MissionBridge(Node):
         self.world = cmd.get('world', '')
         self.layout = cmd.get('layout', '')
         self.total = int(cmd.get('total', 0) or 0)
+        self.placed = [[float(p[0]), float(p[1])] for p in (cmd.get('placed') or [])
+                       if p is not None and len(p) >= 2]
+        self.quads = int(cmd.get('quads', 1) or 1)
+        self.rovers = int(cmd.get('rovers', 1) or 1)
+        # A new mission's coverage starts unknown. Without this it carried the
+        # last run's number - and with a latched grid from a simulation that
+        # had already been killed, it sat there forever looking live.
+        self.coverage = None
+        self.seen['ground_map'] = -1e9
         self.mushrooms = []
         self.queue_len = 0
         self.operator_goal = None
@@ -416,6 +430,7 @@ class MissionBridge(Node):
             return
         before = self.coverage
         self.coverage = frac
+        self.seen['ground_map'] = time.monotonic()
         # worth an event every 10 points, so the feed shows progress without
         # a line every second
         if before is None or int(frac * 10) != int(before * 10):
@@ -806,7 +821,16 @@ class MissionBridge(Node):
             'total': self.total,
             'queue': self.queue_len,
             'retrying': self.retrying,
-            'coverage': None if self.coverage is None else round(self.coverage, 3),
+            # A grid whose publisher has gone stops being an answer. The
+            # topic is transient-local, so a dead simulation's last map hangs
+            # around and would otherwise read as a live number that never
+            # moves.
+            'coverage': (None if self.coverage is None
+                         or not self._fresh('ground_map', GROUND_MAP_STALE_S)
+                         else round(self.coverage, 3)),
+            'placed': self.placed,
+            'quads': self.quads,
+            'rovers': self.rovers,
             'natives': self.natives,
             'detector_classes': self.detector_classes,
             'river': self.river,

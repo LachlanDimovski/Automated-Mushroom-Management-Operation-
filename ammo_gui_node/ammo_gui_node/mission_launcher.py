@@ -51,27 +51,38 @@ RUNNING = 'running'       # the mission nodes are thawed and the clock is going
 
 # name -> folder holding <name>.sdf (None = 41068_ignition_bringup/worlds)
 #
-# The setup page only lists the ones that exist (`world_available`), so today
-# this is three: simple_trees, forest_flat and forest_random.
+# The team settled on two worlds for the demo, so these are the only two
+# offered: `simple_trees` for a quick run that always works, and
+# `river_moderate_aus` for the real thing.
 #
-# `large_demo` is deliberately gone. It ships no `.meta.json`, so the map
-# draws nothing, the world has no boundary to show and Random placement has
-# no objects to avoid - three features that silently do nothing on it.
+# `simple_trees` ships with `41068_ignition_bringup` and is in git, so it is
+# on every machine. It has no ponds and no river, nothing to bog down on, and
+# it loads in seconds - which is what makes it the world to fall back to when
+# something else is being debugged.
 #
-# The river worlds stay listed even though nobody has them. They are not in
-# git and never can be - `forest_worlds/.gitignore` ignores `worlds/`,
-# `models/`, `world_assets/`, `textures/` and `assets_src/` - so each machine
-# builds its own with `forest_worlds/setup.sh` (internet, Blender >= 4.2,
-# numpy, pillow). Leaving them here means the moment someone runs that
-# script they appear in the dropdown with no code change. They are the only
-# worlds with a river, and the only ones without ponds.
+# `river_moderate_aus` is the mushroom demo world: a real river with three
+# rocky crossings, no ponds, Australian flora, and the only world the
+# two-class `amanita_river_v6` weights were trained against - so it is the
+# only world where natives can be detected at all. It is also the world
+# `forest_worlds/demo_river.sh` runs.
+#
+# It is NOT in git and never can be. `forest_worlds/.gitignore` ignores
+# `worlds/`, `models/`, `world_assets/`, `textures/`, `assets_src/` and
+# `dem/`, so what is committed is only the generator scripts. Each machine
+# builds its own copy once with `forest_worlds/setup.sh` (internet, Blender
+# >= 4.2, numpy, pillow); the last line of that script,
+# `build_world.py --preset moderate --flora australian`, is what writes
+# `forest_worlds/worlds/river_moderate_aus.sdf`. Until someone runs it the
+# world simply does not appear in the dropdown, because `world_available`
+# looks for the file - that is why the teammates who have it all built it
+# themselves.
+#
+# `forest_flat`, `forest_random` and `large_demo` are deliberately not
+# listed. Their metas and map drawing still work if anything asks for them
+# by name; they are just off the menu.
 WORLDS = {
     'simple_trees': None,
-    'forest_flat': None,
-    'forest_random': None,
     'river_moderate_aus': 'forest_worlds',
-    'river_moderate_aus_green': 'forest_worlds',
-    'river_moderate_green': 'forest_worlds',
 }
 
 # The search-pattern arguments the setup page can set, with the launch file's
@@ -138,6 +149,18 @@ QUAD_SPAWNS = [(2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0)]
 ROVER_SPAWNS = [(0.0, 0.0), (2.5, -2.5), (-2.5, -2.5), (2.5, 2.5), (-2.5, 2.5)]
 
 
+def topdown_height(world):
+    """How high the overhead camera sits over a world.
+
+    A module function as well as a method because the Debug UI has no
+    launcher and still has to project world coordinates into the picture -
+    and it must arrive at exactly the same number, or the circles land in
+    the wrong place.
+    """
+    size = 2.0 * max(8.0, world_meta(world)[2] + 4.5)
+    return max(12.0, size / (2.0 * math.tan(TOPDOWN_HFOV / 2.0)) + 2.0)
+
+
 def spawn_points(quads=1, rovers=1):
     """[(x, y, label)] for the robots a run will start with."""
     out = [(x, y, f'Q{i}') for i, (x, y) in
@@ -149,8 +172,8 @@ def spawn_points(quads=1, rovers=1):
 
 TOPDOWN_NAME = 'ammo_topdown_cam'
 TOPDOWN_TOPIC = C.TOPDOWN_TOPIC
-TOPDOWN_PX = 640
-TOPDOWN_HFOV = 1.5
+TOPDOWN_PX = C.TOPDOWN_PX
+TOPDOWN_HFOV = C.TOPDOWN_HFOV
 
 
 def _share(pkg):
@@ -521,6 +544,14 @@ class MissionLauncher:
         # the nodes we freeze talk over UDP: over shared memory a long freeze cut them off from Nav2 for good
         env['AMMO_FREEZABLE_PROFILE'] = os.path.join(_share('ammo_gui_node') or '', 'config', 'fastdds_udp_only.xml')
         fleet = quads > 1 or rovers > 1
+        if fleet and show_sim:
+            # Two quads means two YOLO instances and two depth cameras on top
+            # of everything else; adding Gazebo's own renderer to that is what
+            # left a world that never finished loading.
+            show_sim = False
+            self.log('a fleet runs headless - the Gazebo window on top of two '
+                     'detectors is more than this machine will carry. Every '
+                     'camera is in the GUI anyway.')
         if fleet:
             cmd = ['ros2', 'launch', 'quad_zcams', 'fleet_mission.launch.py',
                    f'world:={path}', f'quads:={quads}', f'rovers:={rovers}',
@@ -627,8 +658,18 @@ class MissionLauncher:
         self.state = RUNNING
         return True
 
-    def end_mission(self, keep_sim=True):
-        """Stop the mission. By default Gazebo stays up for the next run."""
+    def end_mission(self, keep_sim=False):
+        """Stop the mission, and by default the simulation with it.
+
+        Keeping Gazebo up between runs is faster, and it is what this did
+        first - but a simulation that outlives its mission turned out to
+        cause most of the trouble worth having: its camera topics keep
+        feeding panels for robots that are gone, its latched occupancy grid
+        reads as a live coverage number that never moves, and the next
+        Prepare refuses to start because something is already running. So
+        the default is now to stop everything, and `keep_sim=True` is the
+        opt-in.
+        """
         if self.state == IDLE:
             return
         if not keep_sim:
@@ -668,8 +709,28 @@ class MissionLauncher:
                        '-z', f'{z:.3f}'], 20)
             self.spawned.append((name, float(x), float(y)))
         if self.spawned:
-            self.log(f'{len(self.spawned)} mushroom(s) placed')
+            there = self.confirm_mushrooms()
+            if there is None:
+                self.log(f'{len(self.spawned)} mushroom(s) placed')
+            elif there < len(self.spawned):
+                self.log(f'only {there} of {len(self.spawned)} mushrooms are '
+                         f'actually in the world - the rest did not spawn')
+            else:
+                self.log(f'{there} mushroom(s) placed and confirmed in Gazebo')
         return [(x, y) for _n, x, y in self.spawned]
+
+    def confirm_mushrooms(self):
+        """How many of ours Gazebo says it actually has, or None if unknown.
+
+        `create` reports success whether or not the model file resolved, so
+        "we ran the command five times" is not the same as "there are five
+        mushrooms in the world" - which is exactly the doubt worth removing.
+        """
+        out = self._run(['ign', 'model', '--list'], 8)
+        if not out:
+            return None
+        return sum(1 for line in out.splitlines()
+                   if MUSHROOM_PREFIX in line)
 
     def remove_mushrooms(self):
         """Take out the mushrooms the GUI put there. Leaves the world's own."""
@@ -711,9 +772,7 @@ class MissionLauncher:
 
     # -- the top-down camera --------------------------------------------------
     def topdown_height(self):
-        """High enough that the whole playable area fits in the frame."""
-        size = 2.0 * max(8.0, world_meta(self.world)[2] + 4.5)
-        return max(12.0, size / (2.0 * math.tan(TOPDOWN_HFOV / 2.0)) + 2.0)
+        return topdown_height(self.world)
 
     def start_topdown(self):
         """Spawn a downward camera over the world and bridge its image topic.
@@ -893,6 +952,13 @@ class MissionLauncher:
             os.killpg(self.proc.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
             pass
+        # Killing the process group is not always enough. Ignition's own
+        # launcher re-parents the server and the GUI, so they survive their
+        # group and go on publishing - which is how a closed Gazebo window
+        # still fed camera feeds, and why it sometimes took a reboot. These
+        # are our own run's processes; `kill_strays` is the same thing for
+        # a run nobody owns.
+        self.kill_strays()
         self.proc = None
         self.spawned = []
         self.cleared_world = False

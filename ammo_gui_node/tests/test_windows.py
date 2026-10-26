@@ -25,6 +25,8 @@ from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel   # noqa: E402
 from ammo_gui_node.debug_window import DebugWindow                  # noqa: E402
 from ammo_gui_node.event_feed import EventFeed                      # noqa: E402
 from ammo_gui_node.home_page import HomePage, parse_pair            # noqa: E402
+from ammo_gui_node import map_view as map_view_mod                  # noqa: E402
+from ammo_gui_node import operator_page as operator_page_mod        # noqa: E402
 from ammo_gui_node.map_view import MapView                          # noqa: E402
 from ammo_gui_node.operator_page import OperatorPage                # noqa: E402
 from ammo_gui_node import readiness                                 # noqa: E402
@@ -313,22 +315,25 @@ check('a random layout is spawned by us', sent[-1]['spawn'] is True)
 check('and says it is random', sent[-1]['random'] is True)
 home.layout_box.setCurrentIndex(0)
 
-worlds = [home.world_box.itemText(i) for i in range(home.world_box.count())]
-if 'forest_random' in worlds:
-    home.world_box.setCurrentText('forest_random')
-    check('a world with its own mushrooms offers them first',
-          "World's own" in home.layout_box.itemText(0), home.layout_box.itemText(0))
-    home._launch()
-    check('the world\'s own mushrooms are not spawned again',
-          sent[-1]['spawn'] is False)
-    check('and do not need clearing out either',
-          sent[-1]['clear_world'] is False)
-    check('the preview loaded that world', len(home.preview.objects) > 0)
-    rand = [home.layout_box.itemText(i) for i in range(home.layout_box.count())]
-    home.layout_box.setCurrentIndex(rand.index('Random placement'))
-    home._launch()
-    check('a different layout clears the world\'s own first',
-          sent[-1]['clear_world'] is True)
+# The menu is down to two worlds and the river one is not built on a test
+# machine, so the behaviour for a world that carries its own mushrooms is
+# driven by putting such a world in the box by hand. `forest_random` still
+# resolves by name even though it is off the menu, which is the point.
+home.world_box.addItem('forest_random')
+home.world_box.setCurrentText('forest_random')
+check('a world with its own mushrooms offers them first',
+      "World's own" in home.layout_box.itemText(0), home.layout_box.itemText(0))
+home._launch()
+check('the world\'s own mushrooms are not spawned again',
+      sent[-1]['spawn'] is False)
+check('and do not need clearing out either',
+      sent[-1]['clear_world'] is False)
+check('the preview loaded that world', len(home.preview.objects) > 0)
+rand = [home.layout_box.itemText(i) for i in range(home.layout_box.count())]
+home.layout_box.setCurrentIndex(rand.index('Random placement'))
+home._launch()
+check('a different layout clears the world\'s own first',
+      sent[-1]['clear_world'] is True)
 
 # -------------------------------------------------------- operator page ----
 section('operator page')
@@ -454,8 +459,33 @@ gate._tick()
 check('and the timeline fills', gate.timeline.row_count() == 4,
       gate.timeline.row_count())
 check('and so does the feed', gate.feed.row_count() > 10, gate.feed.row_count())
-gate.link.status_updated.emit(mission_status(running=False, phase='idle'))
-check('ending the mission clears it again',
+# A run ending now shows the report instead of the window going quiet.
+gate.link.status_updated.emit(mission_status(running=False, phase='ready'))
+check('ending a mission shows the report', gate.showing_report is True)
+check('on its own page', gate.stack.currentIndex() == 2)
+check('with the counts on it', gate.report.collected_card.value.text() == '3',
+      gate.report.collected_card.value.text())
+check('and the timeline kept', gate.report.timeline.row_count() == 4,
+      gate.report.timeline.row_count())
+check('and something to say about it', len(gate.report.advice.text()) > 20)
+
+# the overhead tags must be one-to-one, or two spawned points near one
+# sighting both claim it and the picture grows two M5s
+tagged = gate.report._tagged([
+    {'u': 10, 'v': 10, 'at': (6.1, -4.9), 'mushroom': True, 'label': 'M1'},
+    {'u': 20, 'v': 20, 'at': (6.2, -4.8), 'mushroom': True, 'label': 'M2'},
+    {'u': 30, 'v': 30, 'at': (0.0, 0.0), 'mushroom': False, 'label': 'S1'},
+])
+labels = [t['label'] for t in tagged]
+check('a robot mark is never tagged as a mushroom', labels[2] == 'S1', labels)
+check('and no two mushrooms claim the same sighting',
+      len(set(labels[:2])) == 2, labels)
+
+# ...and the next Prepare is what clears it, which is the visible sign the
+# Debug UI has picked up the new run.
+gate.link.status_updated.emit(mission_status(running=False, phase='preparing'))
+check('preparing again puts the report away', gate.showing_report is False)
+check('and clears the last run',
       gate.feed.row_count() == 0 and gate.timeline.row_count() == 1)
 check('and the banner comes back', gate.banner.isHidden() is False)
 
@@ -1214,6 +1244,18 @@ try:
           'fleet_mission.launch.py' in cmd, cmd[:4])
     check('with the counts passed', 'quads:=3' in cmd and 'rovers:=2' in cmd, cmd)
     check('and still headless when asked', 'headless:=true' in cmd, cmd)
+
+    forced = ml.MissionLauncher()
+    said = []
+    forced.log = said.append
+    forced.prepare('forest_random', quads=2, rovers=1, show_sim=True)
+    check('a fleet is forced headless even when the box is ticked',
+          'headless:=true' in built['cmd'], built['cmd'])
+    check('and says why rather than quietly ignoring you',
+          any('headless' in n for n in said), said)
+    forced._run = lambda a, t: ''
+    forced._signal = lambda n, s: None
+    forced.kill_strays = lambda: 0
     check('the launcher remembers the counts', (fleet.quads, fleet.rovers) == (3, 2))
 
     over = ml.MissionLauncher()
@@ -1226,6 +1268,7 @@ try:
     # thing this test can let happen.
     fleet._run = lambda args, timeout: ''
     fleet._signal = lambda names, sig: None
+    fleet.kill_strays = lambda: 0
     fleet.state = ml.READY
     check('the same world and counts is a reusable simulation',
           fleet.prepare('forest_random', quads=3, rovers=2) == 'reused')
@@ -1305,12 +1348,17 @@ check('a world with no meta at all still answers',
 # -------------------------------------------------- the things that broke --
 section('what the first fleet run exposed')
 
-check('only three worlds are offered, and large_demo is not one',
-      [w for w in ml.WORLDS if ml.world_available(w)]
-      == ['simple_trees', 'forest_flat', 'forest_random'],
-      [w for w in ml.WORLDS if ml.world_available(w)])
-check('the river worlds stay listed, ready for whoever builds them',
-      'river_moderate_aus' in ml.WORLDS)
+check('only the two agreed worlds are on the menu',
+      list(ml.WORLDS) == ['simple_trees', 'river_moderate_aus'], list(ml.WORLDS))
+check('simple_trees ships with the repo, so it is always offered',
+      ml.world_available('simple_trees'))
+check('the river world is listed whether or not this machine has built it',
+      ml.WORLDS['river_moderate_aus'] == 'forest_worlds')
+check('and it is only offered once setup.sh has actually written the file',
+      ml.world_available('river_moderate_aus')
+      == os.path.exists((ml.world_path('river_moderate_aus') or '') + '.sdf'))
+check('a world off the menu still resolves for its meta and map',
+      ml.world_path('forest_random') == 'forest_random')
 check("the fleet's own quad executable is watched for",
       'fleet_quad_node' in ml.QUAD_NODES, ml.QUAD_NODES)
 
@@ -1399,6 +1447,101 @@ busy.shuffling()
 check('so does a shuffle', 'Shuffling' in busy.photo.note and busy.photo.busy)
 busy.set_photo(fake_camera())
 check('a frame ends the busy state', busy.photo.busy is False)
+
+# ------------------------------------------- what the second run exposed --
+section('the overhead overlay, the edge, and ending cleanly')
+
+from ammo_gui_node import overhead                                   # noqa: E402
+
+# The projection. Straight down, centred, flat - so it is a scale and two
+# sign flips, and the signs are the only thing that can be wrong.
+H, PX, FOV = ml.topdown_height('forest_random'), C.TOPDOWN_PX, C.TOPDOWN_HFOV
+check('the camera sees the whole playable area',
+      overhead.ground_half_width(H, FOV) >= 30.0,
+      overhead.ground_half_width(H, FOV))
+check('the world origin lands in the middle of the picture',
+      overhead.project(0, 0, H, PX, hfov=FOV) == (PX / 2.0, PX / 2.0))
+up = overhead.project(10, 0, H, PX, hfov=FOV)
+left = overhead.project(0, 10, H, PX, hfov=FOV)
+check('world +x goes up the picture', up[1] < PX / 2.0 and abs(up[0] - PX / 2) < 0.01)
+check('world +y goes left', left[0] < PX / 2.0 and abs(left[1] - PX / 2) < 0.01)
+check('a point off the ground the camera sees is dropped, not clamped',
+      overhead.project(500, 0, H, PX, hfov=FOV) is None)
+check('a metre is a sane number of pixels',
+      2.0 < overhead.metres_to_px(1.0, H, PX, FOV) < 40.0,
+      overhead.metres_to_px(1.0, H, PX, FOV))
+
+marks = operator_page_mod.overhead_marks(
+    'forest_random', [(5.0, 5.0), (-8.0, 2.0)],
+    [{'x': 5.0, 'y': 5.0, 'status': 'collected', 'n': 1}],
+    {'rover1': (0.0, 0.0), 'quad2': (3.0, -3.0)})
+check('every mushroom and every robot is ringed', len(marks) == 4, len(marks))
+check('each mark remembers the world point it came from',
+      all('at' in m for m in marks))
+check('a collected one is drawn differently from one still out there',
+      marks[0]['colour'] != marks[1]['colour'],
+      [m['colour'] for m in marks])
+check('the robots are marked as not-mushrooms, so the report does not tag them',
+      [m['mushroom'] for m in marks] == [True, True, False, False])
+
+over_cam = CameraPanel('OVERHEAD', 'x', theme.BLUE)
+over_cam.set_image(fake_camera())
+over_cam.set_overlay(marks)
+check('the overlay is off until you ask for it', over_cam.show_overlay is False)
+over_cam.set_show_overlay(True)
+check('and on when you do', over_cam.show_overlay is True)
+
+# the world edge has to be visible on a black map
+check('the edge is drawn near-white, not a dim blue',
+      map_view_mod.EDGE_COLOUR.upper() > '#9', map_view_mod.EDGE_COLOUR)
+far = MapView(fit_world=True)
+far.set_world(forest)
+far.resize(420, 420)
+check('a 60 m world in a 420 px map is zoomed out far enough to count as far',
+      far.ppm() < map_view_mod.FAR_PPM, (far.ppm(), far.range_m))
+check('and the symbols get a brighter fill out there',
+      map_view_mod.FAR_FILL['tree'] != map_view_mod.OBJ_STYLE['tree'][1])
+
+fit = MapView(fit_world=True)
+fit.set_world(forest)
+wide = fit.range_m
+fit.set_robot('rover1', 2.0, 2.0, 0.0)
+fit.set_fit_world(False)
+check('turning the fit off comes back in to the robots', fit.range_m < wide,
+      (wide, fit.range_m))
+fit.set_fit_world(True)
+check('and turning it back on shows the world again', fit.range_m >= 30.0)
+
+# ending a mission must not leave the simulation behind
+built.clear()
+ml.subprocess.Popen = fake_popen
+ml.sim_already_running = lambda: False
+try:
+    ender = ml.MissionLauncher()
+    ender.prepare('forest_flat')
+    ender._run = lambda a, t: ''
+    ender._signal = lambda n, s: None
+    strays = []
+    ender.kill_strays = lambda: strays.append(1) or 1
+    ender.state = ml.RUNNING
+    ender.end_mission()
+    check('ending a mission stops the simulation by default',
+          ender.state == ml.IDLE, ender.state)
+    check('and reaches for the processes that outlive their group',
+          strays == [1], strays)
+finally:
+    ml.subprocess.Popen = real_popen
+    ml.sim_already_running = real_running
+
+counted = ml.MissionLauncher()
+counted.state, counted.world = ml.READY, 'forest_flat'
+counted._run = lambda args, timeout: (
+    'demo_mushroom_1\ndemo_mushroom_2\nhusky1\nparrot1\n'
+    if args[:2] == ['ign', 'model'] else '')
+check('it asks Gazebo what actually spawned', counted.confirm_mushrooms() == 2)
+counted._run = lambda args, timeout: ''
+check('and says it does not know rather than guessing',
+      counted.confirm_mushrooms() is None)
 
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:

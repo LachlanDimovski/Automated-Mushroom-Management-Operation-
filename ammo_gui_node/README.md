@@ -76,15 +76,25 @@ Three things follow from the split, and they are the reason for it:
   The checklist names what has not arrived, and Nav2 or a detector that never
   comes up is visible rather than looking like a robot that does nothing.
 
-Ending a mission zeroes both robots, freezes the mission nodes again and
-removes the mushrooms, but **leaves Gazebo up**, with the zero-velocity hold
-still running so nothing coasts away while it sits idle. Preparing the same
-world again is instant; only changing world tears the simulation down.
+**Ending a mission stops everything**, including Gazebo, and then kills by
+name anything that outlived its process group - Ignition re-parents its own
+server and GUI, which is how a closed Gazebo window went on feeding camera
+panels and why it sometimes took a reboot to clear. Keeping the simulation
+between runs was faster, and it caused most of the trouble worth having: a
+latched occupancy grid reading as a live coverage number that never moved,
+phantom robots on the feeds, and a Prepare that refused to start because
+something was already running.
+
+The Debug UI keeps the run on screen instead - see the mission report below.
 
 **Setup page.** Pick the world, pick or edit the mushroom layout, choose the
 search pattern, choose Autonomous or Manual drive, set how many of each robot
 you want, press Prepare. The capture tool is always the gripper now, so that
 choice is gone.
+
+A fleet is forced headless: two quadcopters means two YOLO instances and two
+depth cameras, and Gazebo's own renderer on top of that is what left a world
+that never finished loading. Every camera is in the GUI regardless.
 
 **The robot counts are real.** One of each runs `cage_mission.launch.py` as
 before. More than one of either runs `quad_zcams/fleet_mission.launch.py`
@@ -93,15 +103,36 @@ instead - up to four quadcopters and five skidsteers, with their
 mission page grows a camera panel, a map marker and a state card per robot.
 The ceilings are their launch file's own.
 
-**Three worlds are offered**, because those are the three that exist:
-`simple_trees`, `forest_flat` and `forest_random`. `large_demo` is gone - it
-ships no `.meta.json`, so the map, the world boundary and Random placement
-all silently did nothing on it. The river worlds are still listed in the
-code and appear by themselves the moment somebody runs
-`forest_worlds/setup.sh`; they are not in git and never can be, since
-`forest_worlds/.gitignore` excludes the generated worlds, models and
-textures. They are also the only worlds with a river and the only ones
-without ponds.
+**Two worlds are offered**, because the team settled on two for the demo:
+`simple_trees` and `river_moderate_aus`.
+
+`simple_trees` lives in `41068_ignition_bringup/worlds/simple_trees.sdf` and
+is in git, so it is on every machine. No ponds, no river, nothing to bog down
+on, and it loads in seconds - the world to fall back to while something else
+is being debugged.
+
+`river_moderate_aus` is the mushroom demo world: a real river with three
+rocky crossings, no ponds, Australian flora, and the only world the two-class
+`amanita_river_v6` weights were trained against, so the only world where
+native mushrooms can be detected at all. It is the world
+`forest_worlds/demo_river.sh` runs. **It is not in git and never can be** -
+`forest_worlds/.gitignore` excludes `worlds/`, `models/`, `world_assets/`,
+`textures/`, `assets_src/` and `dem/`, so what is committed is the generator
+scripts only. Each machine builds its own copy once:
+
+```bash
+cd src/RS1_Team5_/forest_worlds && bash setup.sh      # internet, Blender >= 4.2
+./view.sh moderate                                    # check it opens
+```
+
+The last line of `setup.sh`, `build_world.py --preset moderate --flora
+australian`, is what writes `forest_worlds/worlds/river_moderate_aus.sdf`
+alongside its `.meta.json`. Until that file exists the world is simply absent
+from the dropdown, because `world_available` looks for it - which is why
+whoever on the team has this world built it themselves.
+
+`forest_flat`, `forest_random` and `large_demo` are off the menu. They still
+resolve by name for their metas and map drawing if anything asks.
 
 Layout presets are the world's own mushrooms (on a world that ships some),
 whatever is in `layouts/<world>.json`, and **Random placement**, which puts
@@ -189,6 +220,18 @@ driving into a trunk. The quadcopter adds Q/E to slide sideways and R/F for
 up and down, and goes straight to `parrot1/cmd_vel` - there is no guard in
 front of it.
 
+## The mission report
+
+When a run ends, the Debug UI switches to a report rather than going quiet:
+the counts, the whole timeline, the last overhead frame with **every
+mushroom revealed and tagged** with what became of it - collected, gave up,
+nothing there, never found - and a short read on what the numbers say and
+which knob would change it.
+
+It stays up until the next Prepare. The window dropping back to its waiting
+banner with the cameras coming up one at a time is the visible proof that it
+has picked up the new run, which was otherwise hard to tell.
+
 ## What the Debug UI does
 
 Until a mission is launched, a banner across the top says which stage the
@@ -229,8 +272,15 @@ odometry and `parrot1/detections`, into `ammo/mission/status` and
 
 ## The map
 
-The **world edge** is drawn as a dashed box with its size on it, read from
-`world.playable_size_m`, and the mission map is always fitted to show all of
+Press **M** over either window to ring every mushroom and every robot on the
+overhead view. The robots are not decoration: a robot is visible in the
+picture, so if its circle sits on it, the mushroom circles are in the right
+place too. The projection is in `overhead.py` - a straight-down, centred,
+flat camera is a scale and two sign flips, and those two signs are the only
+thing that could be wrong.
+
+The **world edge** is drawn as a near-white dashed box with its size on it,
+read from `world.playable_size_m`, and the map opens fitted to show all of
 it. That matters because a Nav2 goal outside the playable area is rejected,
 which from the operator's side looks exactly like the rover ignoring the
 click; a click outside the box is now refused with a reason instead of being
@@ -238,6 +288,11 @@ sent. A world with no `.meta.json` has no box and allows everything.
 
 Every robot gets its own marker and trail, labelled Q1, Q2, S1 and so on
 once there is more than one of either.
+
+**FIT** switches between the whole world and in close on the robots. Whole
+world is the default, because it is the only way to see where you may click,
+but a 60 m world makes the trees small - so the symbols are drawn brighter
+and at a floor size when zoomed out, and one button gets the detail back.
 
 Everything static is drawn from the world's `.meta.json` - the same file the
 mission nodes read. Trees, fallen trees, logs, stumps, rocks, debris, ponds
@@ -273,8 +328,8 @@ driving.
   metres and a mushroom spawned at z = 0 there is underground.
 - **A world's own mushrooms can be taken out** - the generators name them
   `mushroom_00`, `mushroom_01`, ... and write the names into the meta - which
-  is what lets Shuffle work on `forest_flat` and `forest_random`. They do not
-  come back until Gazebo restarts.
+  is what lets Shuffle work on the river world and on the forest worlds. They
+  do not come back until Gazebo restarts.
 - **Snapshots** in the mushroom log are held in memory only. Closing the
   window loses them.
 - **Box colours come from the weights' own class names.** The v6 model emits
@@ -296,7 +351,7 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-521 checks, a few seconds, no ROS, no simulation, no display and no built
+555 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and

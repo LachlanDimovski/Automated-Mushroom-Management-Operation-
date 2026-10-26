@@ -20,6 +20,8 @@ run's events or a clock that is not counting. The camera feeds are live
 throughout - they are the only way to see whether the detectors have come up
 while a run is being prepared, which is exactly when you want to know.
 """
+import math
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QProgressBar,
                                QPushButton, QScrollArea, QStackedWidget,
@@ -29,6 +31,9 @@ from ammo_gui_node import cards, contract as C, theme
 from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel
 from ammo_gui_node.event_feed import EventFeed
 from ammo_gui_node.map_view import MapView
+from ammo_gui_node.mission_report import MissionReport
+from ammo_gui_node.mission_launcher import topdown_height
+from ammo_gui_node.overhead import metres_to_px, project
 from ammo_gui_node.mission_launcher import world_meta_full
 from ammo_gui_node.timeline import Timeline, format_clock
 
@@ -49,6 +54,47 @@ BANNER = {
 }
 
 
+def overhead_marks(world, placed, mushrooms, robots):
+    """Circles for the overhead camera: every mushroom, and every robot.
+
+    `placed` is where the GUI put them, `mushrooms` is what the mission has
+    found so far (so a found one can be drawn differently), and `robots` is
+    {key: (x, y)}. The robots are not decoration - they are the check. A
+    robot is visible in the picture, so if its circle sits on it, the
+    mushroom circles are in the right place too.
+    """
+    height = topdown_height(world)
+    px = C.TOPDOWN_PX
+    marks = []
+    found = [(float(m.get('x', 0.0)), float(m.get('y', 0.0)), m.get('status'))
+             for m in (mushrooms or [])]
+    for i, point in enumerate(placed or [], 1):
+        try:
+            x, y = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        at = project(x, y, height, px, hfov=C.TOPDOWN_HFOV)
+        if at is None:
+            continue
+        near = min((math.hypot(x - fx, y - fy), st) for fx, fy, st in found) if found else None
+        state = near[1] if near and near[0] < 1.5 else None
+        colour = {'collected': theme.GREEN, 'abandoned': theme.GREY,
+                  'missed': theme.AMBER}.get(state, theme.ACCENT)
+        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': True,
+                      'r': max(7.0, metres_to_px(0.9, height, px, C.TOPDOWN_HFOV)),
+                      'colour': colour, 'label': f'M{i}'})
+    for key, (x, y) in (robots or {}).items():
+        at = project(x, y, height, px, hfov=C.TOPDOWN_HFOV)
+        if at is None:
+            continue
+        label = ('Q' + key[4:]) if key.startswith('quad') else ('S' + key[5:])
+        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': False,
+                      'r': max(9.0, metres_to_px(1.2, height, px, C.TOPDOWN_HFOV)),
+                      'colour': theme.TEXT if key.startswith('quad') else theme.BLUE,
+                      'label': label})
+    return marks
+
+
 class DebugWindow(QWidget):
     HEADER = 'AMMO FIELD DEBUG'
 
@@ -59,6 +105,8 @@ class DebugWindow(QWidget):
         self.status = {}
         self.world = None
         self.phase = 'idle'
+        self.last_overhead = None
+        self.showing_report = False
         self.setWindowTitle('AMMO Field Debug')
         self.resize(1500, 980)
         self._build()
@@ -111,7 +159,13 @@ class DebugWindow(QWidget):
         self.stack = QStackedWidget()
         self.stack.addWidget(self._main_page())
         self.stack.addWidget(self._expanded_page())
+        self.report = MissionReport()
+        self.stack.addWidget(self.report)
         shell.addWidget(self.stack, 1)
+
+    def _set_fit(self, world):
+        self.fit_button.setText('WORLD' if world else 'ROBOTS')
+        self.map.set_fit_world(world)
 
     def _relayout_cams(self):
         """Lay out the panels that have something to show."""
@@ -249,6 +303,13 @@ class DebugWindow(QWidget):
         head.setContentsMargins(13, 8, 13, 8)
         head.addWidget(cards.section('MINIMAP'))
         head.addStretch(1)
+        self.fit_button = QPushButton('WORLD')
+        self.fit_button.setObjectName('Ghost')
+        self.fit_button.setCheckable(True)
+        self.fit_button.setChecked(True)
+        self.fit_button.setToolTip('Whole world, or in close on the robots')
+        self.fit_button.toggled.connect(self._set_fit)
+        head.addWidget(self.fit_button)
         self.key_button = QPushButton('Key')
         self.key_button.setObjectName('Ghost')
         self.key_button.setCheckable(True)
@@ -257,7 +318,10 @@ class DebugWindow(QWidget):
         head.addWidget(self.key_button)
         lay.addLayout(head)
         lay.addWidget(cards.hline())
-        self.map = MapView(interactive=False, compact=True, show_key=False)
+        # Fitted to the world by default, so the edge box is on screen -
+        # on a black minimap an off-screen boundary is no boundary at all.
+        self.map = MapView(interactive=False, compact=True, show_key=False,
+                           fit_world=True)
         lay.addWidget(self.map, 1)
         return panel
 
@@ -357,6 +421,8 @@ class DebugWindow(QWidget):
             self.big_cam.set_image(image)
 
     def _fleet_frame(self, key, image):
+        if key == 'topdown':
+            self.last_overhead = image
         self._ensure_cam(key)
         panel = self.cams.get(key)
         if panel is not None:
@@ -373,6 +439,9 @@ class DebugWindow(QWidget):
         if event.key() == Qt.Key_Escape and self.stack.currentIndex() == 1:
             self._collapse()
             return
+        if event.key() == Qt.Key_M:
+            self.toggle_overhead_overlay()
+            return
         return super().keyPressEvent(event)
 
     # -- data ---------------------------------------------------------------
@@ -382,9 +451,18 @@ class DebugWindow(QWidget):
         # 'running', which is the distinction that matters most.
         phase = status.get('phase') or ('running' if status.get('running') else 'idle')
         if phase != self.phase:
+            was = self.phase
             self._set_phase(phase)
-            if phase in ('idle', 'preparing'):
+            if was == 'running' and phase in ('ready', 'idle'):
+                # A run just ended. Keep everything on screen instead of
+                # letting it vanish with the simulation.
+                self._show_report(status)
+            elif phase in ('idle', 'preparing'):
                 self._forget_run()
+        if self.showing_report and phase == 'preparing':
+            # The visible proof that this window has noticed the new run.
+            self._hide_report()
+            self._forget_run()
         self.clock.setText('t + ' + format_clock(status.get('elapsed', 0))
                            if phase == 'running' else 't + 00:00')
 
@@ -398,6 +476,7 @@ class DebugWindow(QWidget):
         # Everything counted, mapped or remembered belongs to a mission, and
         # before one is launched there is nothing honest to put there.
         live = self.phase == 'running'
+        self._refresh_overhead(status)
         rover = status.get('rover', {})
         quad = status.get('quad', {})
         self.rover_state.set(rover.get('state', '--'), rover.get('detail', ''))
@@ -446,10 +525,36 @@ class DebugWindow(QWidget):
                                 self.rover_cam.any_fresh(), self.quad_cam.any_fresh()) if ok)
         self.feeds.setText(f'{live} / 4 feeds live')
 
+    def _refresh_overhead(self, status):
+        """Ring the mushrooms and the robots on the overhead picture."""
+        if not self.topdown_cam.show_overlay:
+            return
+        robots = {}
+        if self.map.rover:
+            robots['rover1'] = (self.map.rover[0], self.map.rover[1])
+        if self.map.quad:
+            robots['quad1'] = (self.map.quad[0], self.map.quad[1])
+        for key, pose in self.map.fleet.items():
+            robots[key] = (pose[0], pose[1])
+        self.topdown_cam.set_overlay(overhead_marks(
+            status.get('world') or self.world or 'simple_trees',
+            status.get('placed') or [],
+            status.get('mushrooms') or [],
+            robots))
+
+    def toggle_overhead_overlay(self):
+        on = not self.topdown_cam.show_overlay
+        self.topdown_cam.set_show_overlay(on)
+        self.topdown_cam.set_note('M: mushrooms and robots ringed' if on else '')
+        if on:
+            self._refresh_overhead(self.status if hasattr(self, 'status') else {})
+        return on
+
     def apply_event(self, ev):
         if ev.get('kind') == C.EV_MISSION_START:
             # A new run: drop whatever the transient-local topic replayed
             # from the last one.
+            self._hide_report()
             self.events = [ev]
             self.map.clear()
             self.feed.clear()
@@ -463,6 +568,33 @@ class DebugWindow(QWidget):
         self.timeline.apply_events(self.events)
         self.feed.add(ev)
         self._autoscroll()
+
+    def _show_report(self, status):
+        self.showing_report = True
+        # The report has its own header; the banner underneath it would be
+        # telling you about a stage the run is no longer in.
+        self.banner.hide()
+        robots = {}
+        if self.map.rover:
+            robots['rover1'] = (self.map.rover[0], self.map.rover[1])
+        if self.map.quad:
+            robots['quad1'] = (self.map.quad[0], self.map.quad[1])
+        for key, pose in self.map.fleet.items():
+            robots[key] = (pose[0], pose[1])
+        marks = overhead_marks(status.get('world') or self.world or 'simple_trees',
+                               status.get('placed') or [],
+                               status.get('mushrooms') or [], robots)
+        self.report.show_report(status, self.events, self.last_overhead, marks)
+        self.stack.setCurrentIndex(2)
+
+    def _hide_report(self):
+        if not self.showing_report:
+            return
+        self.showing_report = False
+        self.last_overhead = None
+        self._set_phase(self.phase)       # puts the banner back
+        if self.stack.currentIndex() == 2:
+            self.stack.setCurrentIndex(0)
 
     def _forget_run(self):
         """Back to nothing: the last run's timeline and feed are not this run's."""

@@ -392,6 +392,24 @@ if __name__ == '__main__':
     app.processEvents()
     render(aborted, _paths.out_dir() + '/debug_ui_abort.png')
 
+    # the report the Debug UI keeps when a run ends
+    done = DebugWindow(FakeLink())
+    done.link.topdown_frame.emit(fake_camera(w=560, h=560, tint=(46, 60, 46),
+                                             boxes=False))
+    for ev in mission_events():
+        done.link.event_received.emit(ev)
+    done.link.status_updated.emit(mission_status())
+    done._tick()
+    # after the events, or MISSION_START clears it the way a real new run does
+    done.link.topdown_frame.emit(fake_camera(w=560, h=560, tint=(46, 60, 46),
+                                             boxes=False))
+    done.link.status_updated.emit(mission_status(running=False, phase='ready',
+                                                 placed=[[6.1, -4.9], [-5.2, -5.4],
+                                                         [9.0, -4.0], [-3.0, 6.0],
+                                                         [12.0, 2.0]]))
+    app.processEvents()
+    render(done, _paths.out_dir() + '/debug_ui_report.png')
+
     held = DebugWindow(FakeLink())
     held.link.rover_frame.emit(fake_camera(tint=(34, 54, 40), boxes=False))
     held.link.quad_frame.emit(fake_camera(tint=(40, 62, 46), boxes=False))
