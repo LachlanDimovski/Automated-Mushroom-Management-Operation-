@@ -7,12 +7,38 @@ HUD) - nothing here touches it, and both can run at the same time.
 ## One-time setup, per machine
 
 ```bash
+sudo apt install -y git-lfs libxcb-cursor0
 pip3 install PySide6
-sudo apt install libxcb-cursor0        # Qt 6.5+ needs this for the xcb plugin
+
+cd ~/41068_ws/src/RS1_Team5_
+git lfs install && git lfs pull                 # see below - this is not optional
+cd ~/41068_ws && colcon build                   # AFTER the lfs pull, not before
 ```
 
-That is the whole dependency list. No OpenCV: ROS images are converted to Qt
+`libxcb-cursor0` is what Qt 6.5+ needs for the xcb platform plugin. PySide6 is
+the only Python dependency - no OpenCV, since ROS images are converted to Qt
 images with numpy (`image_utils.py`).
+
+**`git lfs` is not optional, and it is the one step people skip.**
+`41068_ignition_bringup/.gitattributes` puts every `*.png`, `*.jpg`, `*.obj`
+and `*.mtl` in Git LFS. Without `git-lfs` installed, a clone or pull writes
+130-byte text pointers in place of the real assets - the mushroom mesh, its
+texture, the tree bark, the terrain heightmaps, the pond and hedge meshes.
+Gazebo loads such a model as an entity with **no geometry and no error**, so
+the mushrooms spawn invisibly, the detector finds nothing, and every count
+reads zero with nothing in any log to explain it. Check it worked:
+
+```bash
+ls -la 41068_ignition_bringup/models/mushroom_amanita/meshes/mushroom.obj
+```
+
+About **1.3 MB** is right. **130 bytes** means LFS has not run.
+
+**Order matters.** `colcon build` copies `41068_ignition_bringup/models` into
+`install/`, so a build done before `git lfs pull` leaves pointers in the
+installed copy no matter how good the source tree looks. If in doubt,
+`colcon build --packages-select 41068_ignition_bringup` again. The GUI warns
+about this in the event log when it spawns, naming the file and the command.
 
 ## Running
 
