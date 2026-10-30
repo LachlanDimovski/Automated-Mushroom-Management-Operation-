@@ -344,10 +344,19 @@ mushrooms found are the rover's nearest, while **lawnmower rows** start at
 one edge and sweep across. The note under the preview gives the corner count
 and the metres flown per pass, which are not the same for the two patterns.
 
-It is their route, not an illustration of it. `search_preview.py` copies the
-arithmetic out of `quad_search_node.build_lawnmower_waypoints` and
-`zcam_quad_node._center_out`, including the outermost loop sitting a metre
-inside the sweep, and sizes the square the way `zcam_mission.launch.py` does
+The rows are their route exactly. `search_preview.py` copies the arithmetic
+out of `quad_search_node.build_lawnmower_waypoints`, and a test reads their
+launch file, lifts the real function out of it and compares corner for
+corner, so the lawnmower preview cannot drift from what the quad does.
+
+The loops are the one deliberate exception: the preview draws **one
+continuous spiral**, each arm longer than the last, while their
+`_center_out` flies **closed squares** - every loop returns to the corner it
+started at before stepping out to the next. The spiral is the clearer
+picture of the idea and the arm spacing is the real lane width, so coverage
+is honest even though the route is not; the note under the preview says so,
+and `square_loops()` keeps their actual pattern, still tested. It sizes the
+square the way `zcam_mission.launch.py` does
 - the playable half-size less 4.5 m, or 6.5 m on a world with no meta, which
 is why `simple_trees` draws one too. A test reads their launch file, lifts
 the real lawnmower function out of it and compares corner for corner, so the
@@ -513,7 +522,7 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-614 checks, a few seconds, no ROS, no simulation, no display and no built
+618 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and

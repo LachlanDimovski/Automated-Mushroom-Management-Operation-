@@ -629,10 +629,18 @@ class HomePage(QWidget):
         path = search_path(pattern, half, spacing)
         self.preview.set_search_path(path)
         if path:
-            self.search_note.setText(
-                'Dashed line: the quadcopter\'s legs, brightest where it starts. '
-                '%d corners, about %.0f m of flying per pass at %.1f m spacing.'
-                % (len(path), path_length_m(path), spacing))
+            note = ('Dashed line: the quadcopter\'s route, brightest where it '
+                    'starts. %d corners, about %.0f m of flying per pass at '
+                    '%.1f m spacing.'
+                    % (len(path), path_length_m(path), spacing))
+            if pattern == 'center_out':
+                # Said plainly because it is the one place the picture is not
+                # the arithmetic: their node closes each loop before stepping
+                # out, so it flies a little further than this line suggests.
+                note += (' The loops are drawn as one spiral; the quad flies '
+                         'them as closed squares, so expect slightly more '
+                         'flying than the figure above.')
+            self.search_note.setText(note)
         else:
             self.search_note.setText('')
 

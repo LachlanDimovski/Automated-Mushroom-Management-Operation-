@@ -73,6 +73,47 @@ def square_loops(half, spacing):
     return out
 
 
+def square_spiral(half, spacing):
+    """One continuous square spiral out from the spawn, each side longer.
+
+    This is the *preview's* version of "square loops outward", not the route
+    the quad flies. Their `_center_out` closes each loop before stepping out
+    to the next, so its first side is flown twice; `square_loops` above is
+    that, exactly. Asked for a picture of the idea rather than of the
+    arithmetic, this is the idea: one unbroken line, turning left, with every
+    arm longer than the one before it.
+
+    Arms grow by half a spacing each turn, which puts consecutive parallel
+    arms a full `spacing` apart - the same lane width the real pattern flies,
+    so the drawing is honest about coverage even though it is not honest
+    about the route.
+    """
+    edge = half - EDGE_INSET_M
+    if edge <= 0 or spacing <= 0:
+        return []
+    steps = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
+    x = y = 0.0
+    out = [(0.0, 0.0)]
+    k = 0
+    while True:
+        dx, dy = steps[k % 4]
+        arm = spacing * (k + 2) / 2.0
+        nx, ny = x + dx * arm, y + dy * arm
+        if max(abs(nx), abs(ny)) > edge:
+            # The last arm runs into the edge of the sweep. Clip it there
+            # rather than overshooting or stopping short: how far can we go
+            # along this one axis before leaving the box?
+            wall = edge if (dx + dy) > 0 else -edge
+            room = min(arm, abs(wall - (x if dx else y)))
+            if room > 0.05:
+                out.append((round(x + dx * room, 3), round(y + dy * room, 3)))
+            break
+        x, y = nx, ny
+        out.append((round(x, 3), round(y, 3)))
+        k += 1
+    return out if len(out) > 2 else []
+
+
 def search_path(pattern, half, spacing):
     """[(x, y)] the quad will fly for this pattern, or [] if it cannot be drawn.
 
@@ -88,7 +129,7 @@ def search_path(pattern, half, spacing):
     if half <= 0:
         return []
     if pattern == 'center_out':
-        return square_loops(half, spacing)
+        return square_spiral(half, spacing)
     if pattern == 'rows':
         return lawnmower(-half, half, -half, half, spacing)
     return []

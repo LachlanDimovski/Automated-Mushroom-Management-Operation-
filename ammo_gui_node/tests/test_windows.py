@@ -727,15 +727,32 @@ check('a lawnmower is a zig-zag of full-width rows', len(rows) >= 8 and
 check('and its rows alternate direction',
       rows[0][0] == -30.0 and rows[1][0] == 30.0 and rows[2][0] == 30.0,
       rows[:3])
-check('square loops grow outward from the spawn',
-      [round(max(abs(x), abs(y)), 2) for x, y in loops[::5]]
-      == sorted({round(max(abs(x), abs(y)), 2) for x, y in loops}),
-      [round(max(abs(x), abs(y)), 2) for x, y in loops[::5]])
-check('each loop is closed - it ends where it began',
-      all(loops[i] == loops[i + 4] for i in range(0, len(loops) - 4, 5)))
-check('and the outermost stays a metre inside the edge',
+# The preview's loops are a true spiral: one unbroken line out from the
+# spawn with every arm longer than the last. Their node flies closed squares
+# instead (`square_loops`, kept below and still checked), so this is the one
+# place the picture shows the idea rather than the arithmetic - a deliberate
+# choice, and the reason both functions exist.
+check('the spiral starts at the spawn', loops[0] == (0.0, 0.0), loops[:1])
+_arms = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(loops, loops[1:])]
+check('every arm is longer than the one before it, bar the clipped last',
+      all(_arms[i] <= _arms[i + 1] + 1e-9 for i in range(len(_arms) - 2)), _arms[:6])
+check('it turns the same way every time, so it never crosses itself',
+      all(abs(a[0] - b[0]) < 1e-9 or abs(a[1] - b[1]) < 1e-9
+          for a, b in zip(loops, loops[1:])))
+check('and it stays a metre inside the edge',
       max(max(abs(x), abs(y)) for x, y in loops) == 29.0,
       max(max(abs(x), abs(y)) for x, y in loops))
+check('a sweep too small for even one arm draws nothing',
+      sp.search_path('center_out', 2.0, 3.0) == [])
+
+# their real route, kept and checked even though the preview draws the idea
+theirs_loops = sp.square_loops(30.0, 6.0)
+check('their own pattern is still here, closed loops and all',
+      all(theirs_loops[i] == theirs_loops[i + 4]
+          for i in range(0, len(theirs_loops) - 4, 5)))
+check('growing outward from the spawn',
+      [round(max(abs(x), abs(y)), 2) for x, y in theirs_loops[::5]]
+      == sorted({round(max(abs(x), abs(y)), 2) for x, y in theirs_loops}))
 check('a pattern we do not know draws nothing rather than something wrong',
       sp.search_path('spiral', 30.0, 6.0) == [])
 check('and neither does a world with no size', sp.search_path('rows', 0, 6.0) == [])
