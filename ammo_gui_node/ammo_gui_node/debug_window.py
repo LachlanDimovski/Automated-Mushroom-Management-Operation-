@@ -20,19 +20,25 @@ run's events or a clock that is not counting. The camera feeds are live
 throughout - they are the only way to see whether the detectors have come up
 while a run is being prepared, which is exactly when you want to know.
 """
+
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar, QPushButton,
-                               QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QProgressBar,
+                               QPushButton, QScrollArea, QStackedWidget,
+                               QVBoxLayout, QWidget)
 
 from ammo_gui_node import cards, contract as C, theme
-from ammo_gui_node.camera_panel import CameraPanel
+from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel
 from ammo_gui_node.event_feed import EventFeed
 from ammo_gui_node.map_view import MapView
+from ammo_gui_node.mission_report import MissionReport
+from ammo_gui_node.mission_launcher import topdown_height
+from ammo_gui_node.overhead import MARK_KEY
+from ammo_gui_node.overhead import overhead_marks as _overhead_marks
 from ammo_gui_node.mission_launcher import world_meta_full
 from ammo_gui_node.timeline import Timeline, format_clock
 
 LEGEND = [C.SEARCH, C.FOUND, C.TRANSIT, C.FORD, C.ALIGN, C.CAPTURE, C.STUCK,
-          C.OPERATOR, C.PAUSED]
+          C.OPERATOR, C.PAUSED, C.ABORT]
 
 # phase from the status message -> (chip, what to say about it)
 BANNER = {
@@ -48,6 +54,19 @@ BANNER = {
 }
 
 
+def overhead_marks(world, placed, mushrooms, robots):
+    """Marks for the overhead camera, for this world's camera geometry.
+
+    The drawing and the colour rules live in `overhead.py`, which has no Qt
+    in it; this only supplies the camera height and lens for the world in
+    question. Both windows call it, so it is one implementation rather than
+    two that drift.
+    """
+    return _overhead_marks(placed, mushrooms, robots,
+                           height=topdown_height(world),
+                           px=C.TOPDOWN_PX, hfov=C.TOPDOWN_HFOV)
+
+
 class DebugWindow(QWidget):
     HEADER = 'AMMO FIELD DEBUG'
 
@@ -58,6 +77,8 @@ class DebugWindow(QWidget):
         self.status = {}
         self.world = None
         self.phase = 'idle'
+        self.last_overhead = None
+        self.showing_report = False
         self.setWindowTitle('AMMO Field Debug')
         self.resize(1500, 980)
         self._build()
@@ -70,6 +91,10 @@ class DebugWindow(QWidget):
         link.quad_frame.connect(lambda img: self._frame('quad', img))
         link.rover_detections.connect(lambda b: self._boxes('rover', b))
         link.quad_detections.connect(lambda b: self._boxes('quad', b))
+        link.fleet_frame.connect(self._fleet_frame)
+        link.fleet_pose.connect(
+            lambda k, x, y, yaw, alt: self.map.set_robot(k, x, y, yaw, alt))
+        link.topdown_frame.connect(lambda img: self._fleet_frame('topdown', img))
         link.teleop_status.connect(self._teleop_status)
 
         # The timeline animates its own "still going" dots, so it needs a
@@ -106,7 +131,32 @@ class DebugWindow(QWidget):
         self.stack = QStackedWidget()
         self.stack.addWidget(self._main_page())
         self.stack.addWidget(self._expanded_page())
+        self.report = MissionReport()
+        self.stack.addWidget(self.report)
         shell.addWidget(self.stack, 1)
+
+    def _set_fit(self, world):
+        self.fit_button.setText('WORLD' if world else 'ROBOTS')
+        self.map.set_fit_world(world)
+
+    def _relayout_cams(self):
+        """Lay out the panels that have something to show."""
+        for key, cam in self.cams.items():
+            self.cam_grid.removeWidget(cam)
+            cam.setVisible(key in self.shown)
+        cols = cards.grid_columns(len(self.shown))
+        for n, key in enumerate(self.shown):
+            self.cam_grid.addWidget(self.cams[key], n // cols, n % cols)
+
+    def _ensure_cam(self, key):
+        """A robot that starts publishing earns a panel."""
+        if key in self.shown or key not in self.cams:
+            return
+        # keep a stable order: rovers, quads, then the overhead last
+        order = ([f'rover{i}' for i in range(1, C.MAX_ROVERS + 1)]
+                 + [f'quad{i}' for i in range(1, C.MAX_QUADS + 1)] + ['topdown'])
+        self.shown = [k for k in order if k in self.shown or k == key]
+        self._relayout_cams()
 
     def _banner(self):
         """Shown until a mission is launched; hidden the moment one is."""
@@ -142,13 +192,35 @@ class DebugWindow(QWidget):
         # cameras and map, given most of the window
         top = QHBoxLayout()
         top.setSpacing(12)
+        # A grid, because a run can now have up to four quadcopters, five
+        # skidsteers and the camera looking down at the whole world. Panels
+        # appear as their topics start publishing, so a single-robot run
+        # still shows exactly two cameras and the overhead.
+        self.cam_grid = QGridLayout()
+        self.cam_grid.setSpacing(12)
         self.rover_cam = CameraPanel('SKIDSTEER CAMERA', C.HUSKY_CAM, theme.ACCENT)
         self.quad_cam = CameraPanel('QUADCOPTER CAMERA', C.PARROT_CAM, theme.TEXT)
-        for cam in (self.rover_cam, self.quad_cam):
-            cam.setMinimumHeight(330)
+        # overlay_button: this panel's corner button toggles the world-position
+        # marks, not detector boxes - it has no detector of its own.
+        self.topdown_cam = CameraPanel('OVERHEAD', C.TOPDOWN_TOPIC, theme.BLUE,
+                                        stale_s=SLOW_STALE_S,
+                                        overlay_button=True)
+        self.topdown_cam.set_show_boxes(False)
+        self.topdown_cam.boxes_toggled.connect(self._overhead_marks_toggled)
+        self.cams = {'rover1': self.rover_cam, 'quad1': self.quad_cam}
+        for i in range(2, C.MAX_QUADS + 1):
+            self.cams[f'quad{i}'] = CameraPanel(
+                f'QUADCOPTER {i}', C.quad_topic(i, 'camera/image'), theme.TEXT)
+        for i in range(2, C.MAX_ROVERS + 1):
+            self.cams[f'rover{i}'] = CameraPanel(
+                f'SKIDSTEER {i}', C.rover_topic(i, 'camera/image'), theme.ACCENT)
+        self.cams['topdown'] = self.topdown_cam
+        for cam in self.cams.values():
+            cam.setMinimumHeight(250)
             cam.expand_requested.connect(self._expand)
-        top.addWidget(self.rover_cam, 4)
-        top.addWidget(self.quad_cam, 4)
+        self.shown = ['rover1', 'quad1', 'topdown']
+        self._relayout_cams()
+        top.addLayout(self.cam_grid, 8)
         top.addWidget(self._map_panel(), 3)
         body.addLayout(top, 5)
 
@@ -207,6 +279,13 @@ class DebugWindow(QWidget):
         head.setContentsMargins(13, 8, 13, 8)
         head.addWidget(cards.section('MINIMAP'))
         head.addStretch(1)
+        self.fit_button = QPushButton('WORLD')
+        self.fit_button.setObjectName('Ghost')
+        self.fit_button.setCheckable(True)
+        self.fit_button.setChecked(True)
+        self.fit_button.setToolTip('Whole world, or in close on the robots')
+        self.fit_button.toggled.connect(self._set_fit)
+        head.addWidget(self.fit_button)
         self.key_button = QPushButton('Key')
         self.key_button.setObjectName('Ghost')
         self.key_button.setCheckable(True)
@@ -215,7 +294,10 @@ class DebugWindow(QWidget):
         head.addWidget(self.key_button)
         lay.addLayout(head)
         lay.addWidget(cards.hline())
-        self.map = MapView(interactive=False, compact=True, show_key=False)
+        # Fitted to the world by default, so the edge box is on screen -
+        # on a black minimap an off-screen boundary is no boundary at all.
+        self.map = MapView(interactive=False, compact=True, show_key=False,
+                           fit_world=True)
         lay.addWidget(self.map, 1)
         return panel
 
@@ -287,7 +369,7 @@ class DebugWindow(QWidget):
 
     # -- full screen --------------------------------------------------------
     def _expand(self, panel):
-        self.big_which = 'rover' if panel is self.rover_cam else 'quad'
+        self.big_which = next((k for k, c in self.cams.items() if c is panel), 'rover1')
         self.big_cam.title = panel.title
         self.big_cam.topic = panel.topic
         self.big_cam.dot_colour = panel.dot_colour
@@ -305,21 +387,36 @@ class DebugWindow(QWidget):
         self.stack.setCurrentIndex(0)
 
     def _panel(self, which):
-        return self.rover_cam if which == 'rover' else self.quad_cam
+        # 'rover'/'quad' are what the single-robot signals carry; the fleet
+        # ones use the explicit keys.
+        return self.cams[{'rover': 'rover1', 'quad': 'quad1'}.get(which, which)]
 
     def _frame(self, which, image):
         self._panel(which).set_image(image)
-        if self.big_which == which:
+        if self.big_which in (which, {'rover': 'rover1', 'quad': 'quad1'}.get(which)):
+            self.big_cam.set_image(image)
+
+    def _fleet_frame(self, key, image):
+        if key == 'topdown':
+            self.last_overhead = image
+        self._ensure_cam(key)
+        panel = self.cams.get(key)
+        if panel is not None:
+            panel.set_image(image)
+        if self.big_which == key:
             self.big_cam.set_image(image)
 
     def _boxes(self, which, boxes):
         self._panel(which).set_detections(boxes)
-        if self.big_which == which:
+        if self.big_which in (which, {'rover': 'rover1', 'quad': 'quad1'}.get(which)):
             self.big_cam.set_detections(boxes)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape and self.stack.currentIndex() == 1:
             self._collapse()
+            return
+        if event.key() == Qt.Key_M:
+            self.toggle_overhead_overlay()
             return
         return super().keyPressEvent(event)
 
@@ -330,9 +427,18 @@ class DebugWindow(QWidget):
         # 'running', which is the distinction that matters most.
         phase = status.get('phase') or ('running' if status.get('running') else 'idle')
         if phase != self.phase:
+            was = self.phase
             self._set_phase(phase)
-            if phase in ('idle', 'preparing'):
+            if was == 'running' and phase in ('ready', 'idle'):
+                # A run just ended. Keep everything on screen instead of
+                # letting it vanish with the simulation.
+                self._show_report(status)
+            elif phase in ('idle', 'preparing'):
                 self._forget_run()
+        if self.showing_report and phase == 'preparing':
+            # The visible proof that this window has noticed the new run.
+            self._hide_report()
+            self._forget_run()
         self.clock.setText('t + ' + format_clock(status.get('elapsed', 0))
                            if phase == 'running' else 't + 00:00')
 
@@ -346,6 +452,7 @@ class DebugWindow(QWidget):
         # Everything counted, mapped or remembered belongs to a mission, and
         # before one is launched there is nothing honest to put there.
         live = self.phase == 'running'
+        self._refresh_overhead(status)
         rover = status.get('rover', {})
         quad = status.get('quad', {})
         self.rover_state.set(rover.get('state', '--'), rover.get('detail', ''))
@@ -394,10 +501,42 @@ class DebugWindow(QWidget):
                                 self.rover_cam.any_fresh(), self.quad_cam.any_fresh()) if ok)
         self.feeds.setText(f'{live} / 4 feeds live')
 
+    def _refresh_overhead(self, status):
+        """Ring the mushrooms and the robots on the overhead picture."""
+        if not self.topdown_cam.show_overlay:
+            return
+        robots = {}
+        if self.map.rover:
+            robots['rover1'] = (self.map.rover[0], self.map.rover[1])
+        if self.map.quad:
+            robots['quad1'] = (self.map.quad[0], self.map.quad[1])
+        for key, pose in self.map.fleet.items():
+            robots[key] = (pose[0], pose[1])
+        self.topdown_cam.set_overlay(overhead_marks(
+            status.get('world') or self.world or 'simple_trees',
+            status.get('placed') or [],
+            status.get('mushrooms') or [],
+            robots))
+
+    def _overhead_marks_toggled(self, on):
+        """The panel's own MARKS button was clicked."""
+        self.topdown_cam.set_note(MARK_KEY if on else '')
+        if on:
+            self._refresh_overhead(getattr(self, 'status', {}) or {})
+
+    def toggle_overhead_overlay(self):
+        on = not self.topdown_cam.show_overlay
+        self.topdown_cam.set_show_overlay(on)
+        self.topdown_cam.set_note(MARK_KEY if on else '')
+        if on:
+            self._refresh_overhead(self.status if hasattr(self, 'status') else {})
+        return on
+
     def apply_event(self, ev):
         if ev.get('kind') == C.EV_MISSION_START:
             # A new run: drop whatever the transient-local topic replayed
             # from the last one.
+            self._hide_report()
             self.events = [ev]
             self.map.clear()
             self.feed.clear()
@@ -411,6 +550,33 @@ class DebugWindow(QWidget):
         self.timeline.apply_events(self.events)
         self.feed.add(ev)
         self._autoscroll()
+
+    def _show_report(self, status):
+        self.showing_report = True
+        # The report has its own header; the banner underneath it would be
+        # telling you about a stage the run is no longer in.
+        self.banner.hide()
+        robots = {}
+        if self.map.rover:
+            robots['rover1'] = (self.map.rover[0], self.map.rover[1])
+        if self.map.quad:
+            robots['quad1'] = (self.map.quad[0], self.map.quad[1])
+        for key, pose in self.map.fleet.items():
+            robots[key] = (pose[0], pose[1])
+        marks = overhead_marks(status.get('world') or self.world or 'simple_trees',
+                               status.get('placed') or [],
+                               status.get('mushrooms') or [], robots)
+        self.report.show_report(status, self.events, self.last_overhead, marks)
+        self.stack.setCurrentIndex(2)
+
+    def _hide_report(self):
+        if not self.showing_report:
+            return
+        self.showing_report = False
+        self.last_overhead = None
+        self._set_phase(self.phase)       # puts the banner back
+        if self.stack.currentIndex() == 2:
+            self.stack.setCurrentIndex(0)
 
     def _forget_run(self):
         """Back to nothing: the last run's timeline and feed are not this run's."""

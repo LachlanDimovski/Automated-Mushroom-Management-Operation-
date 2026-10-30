@@ -29,6 +29,9 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBo
 
 from ammo_gui_node import cards, theme
 from ammo_gui_node.map_view import MapView
+from ammo_gui_node.contract import MAX_QUADS, MAX_ROVERS
+from ammo_gui_node.search_preview import (path_length_m, search_half,
+                                          search_path)
 from ammo_gui_node.mission_launcher import (PATTERNS, SEARCH_DEFAULTS, WORLDS,
                                             shuffle_mushrooms, world_available,
                                             world_meta_full, world_mushroom_names,
@@ -151,6 +154,7 @@ class CoordRow(QWidget):
 class HomePage(QWidget):
 
     prepare_requested = Signal(dict)
+    kill_strays_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -223,6 +227,12 @@ class HomePage(QWidget):
         self.show_sim = QCheckBox('Show the Gazebo window')
         self.show_sim.setChecked(True)
         col.addWidget(self.show_sim)
+        # A fleet always runs headless. That was already true but only said so
+        # in the log, so ticking this box and getting no window read as a bug.
+        self.show_sim_note = cards.label('', 'Faint')
+        self.show_sim_note.setWordWrap(True)
+        self.show_sim_note.hide()
+        col.addWidget(self.show_sim_note)
         row.addLayout(col, 2)
 
         col = QVBoxLayout()
@@ -230,8 +240,8 @@ class HomePage(QWidget):
         col.addWidget(cards.section('ROBOTS'))
         counts = QHBoxLayout()
         counts.setSpacing(10)
-        self.quad_count = self._count_spin('Quadcopters')
-        self.rover_count = self._count_spin('Skidsteers')
+        self.quad_count = self._count_spin('Quadcopters', MAX_QUADS)
+        self.rover_count = self._count_spin('Skidsteers', MAX_ROVERS)
         for caption, spin in (('Quad', self.quad_count), ('Rover', self.rover_count)):
             box = QVBoxLayout()
             box.setSpacing(3)
@@ -239,9 +249,14 @@ class HomePage(QWidget):
             box.addWidget(spin)
             counts.addLayout(box)
         col.addLayout(counts)
-        hint = cards.label('Not wired up yet - one of each is spawned.', 'Faint')
-        hint.setWordWrap(True)
-        col.addWidget(hint)
+        for spin in (self.quad_count, self.rover_count):
+            spin.valueChanged.connect(self._sync_show_sim)
+        self.robot_hint = cards.label('', 'Faint')
+        self.robot_hint.setWordWrap(True)
+        col.addWidget(self.robot_hint)
+        for spin in (self.quad_count, self.rover_count):
+            spin.valueChanged.connect(self._robot_hint)
+        self._robot_hint()
         row.addLayout(col, 1)
         lay.addLayout(row)
 
@@ -351,21 +366,33 @@ class HomePage(QWidget):
         lay.addWidget(self.launch_button)
         return card
 
-    @staticmethod
-    def _count_spin(tip):
-        """A robot count. Deliberately inert: the launch ignores it.
+    def _robot_hint(self):
+        """Say which launch file the chosen counts will actually run."""
+        quads = int(self.quad_count.value())
+        rovers = int(self.rover_count.value())
+        if quads == 1 and rovers == 1:
+            self.robot_hint.setText(
+                'One of each: the usual single-robot mission.')
+        else:
+            self.robot_hint.setText(
+                f'{quads} quadcopter(s) and {rovers} skidsteer(s): the fleet, '
+                'with the coordinator handing mushrooms out between rovers. '
+                'Slower to come up, and heavier on the CPU.')
 
-        It is here so the shape of multi-robot setup is visible and agreed
-        before the plumbing exists - spawning a second robot needs its own
-        namespace, bridge config and a split search area, none of which is in
-        the repo yet.
+    @staticmethod
+    def _count_spin(tip, top):
+        """A robot count, wired to fleet_mission.launch.py.
+
+        The ceilings are their launch file's own (MAX_QUADS and MAX_ROVERS);
+        asking for more would spawn robots with nowhere to stand in the 4 m
+        spawn clearing.
         """
         spin = QSpinBox()
-        spin.setRange(1, 4)
+        spin.setRange(1, top)
         spin.setValue(1)
         spin.setFixedWidth(78)
         spin.setMinimumHeight(38)
-        spin.setToolTip(f'{tip}: not wired up yet')
+        spin.setToolTip(f'{tip}: more than one runs the fleet launch')
         return spin
 
     def _mode_option(self, parent_layout, title, blurb, checked=False):
@@ -418,6 +445,9 @@ class HomePage(QWidget):
         self.preview = MapView(interactive=False, compact=True, show_key=True)
         self.preview.setMinimumHeight(240)
         lay.addWidget(self.preview, 1)
+        self.search_note = cards.label('', 'Faint')
+        self.search_note.setWordWrap(True)
+        lay.addWidget(self.search_note)
         return panel
 
     def _pattern_card(self):
@@ -452,6 +482,7 @@ class HomePage(QWidget):
             text.setWordWrap(True)
             blay.addWidget(text)
             self._style_option(box, radio.isChecked())
+            radio.toggled.connect(lambda on: on and self._refresh_search_path())
             lay.addWidget(box)
             self.pattern_radios[key] = radio
 
@@ -476,6 +507,8 @@ class HomePage(QWidget):
             row.addWidget(spin, 0)
             dlay.addLayout(row)
             self.spins[key] = spin
+            if key == 'row_spacing':
+                spin.valueChanged.connect(lambda _v: self._refresh_search_path())
 
         self.strafe_check = QCheckBox('Keep moving through corners')
         self.strafe_check.setChecked(bool(SEARCH_DEFAULTS['strafe']))
@@ -504,7 +537,7 @@ class HomePage(QWidget):
         lay.setSpacing(9)
 
         lay.addWidget(cards.section('WHAT PREPARE DOES'))
-        for line in ('1.  Starts Gazebo, Nav2 and both robots',
+        for line in ('1.  Starts Gazebo, Nav2 and every robot you asked for',
                      '2.  Waits until every camera, detector and Nav2 is really up',
                      '3.  Holds both mission nodes, then spawns the mushrooms',
                      '4.  Photographs the result from above, to launch or shuffle'):
@@ -516,6 +549,28 @@ class HomePage(QWidget):
         self.status_note.setWordWrap(True)
         lay.addWidget(self.status_note)
 
+        # Only shown when Prepare was refused because something else is
+        # already running - the one failure that looks like a dead button.
+        self.blocked_box = cards.panel(deep=True)
+        self.blocked_box.setStyleSheet(
+            f'QFrame#PanelDeep {{ background: {theme.PANEL_DEEP};'
+            f'border: 1px solid {theme.ACCENT}; border-radius: 8px; }}')
+        blay = QVBoxLayout(self.blocked_box)
+        blay.setContentsMargins(14, 11, 14, 11)
+        blay.setSpacing(8)
+        warn = cards.label('A simulation is already running, so Prepare did '
+                           'nothing. It is usually a launch from an earlier run '
+                           'that did not shut down - its cameras and robots keep '
+                           'publishing, which is why you may see robots that are '
+                           'not there.', 'Dim')
+        warn.setWordWrap(True)
+        blay.addWidget(warn)
+        kill = QPushButton('STOP WHAT IS RUNNING')
+        kill.clicked.connect(self.kill_strays_requested.emit)
+        blay.addWidget(kill)
+        self.blocked_box.hide()
+        lay.addWidget(self.blocked_box)
+
         tail = cards.label(
             'The simulation takes about 30 s to come up (longer for river worlds). '
             'Ending a mission leaves it up, so the next run starts straight away.', 'Faint')
@@ -524,6 +579,25 @@ class HomePage(QWidget):
         return card
 
     # -- rows ---------------------------------------------------------------
+    def _sync_show_sim(self):
+        """Grey out the Gazebo window for a fleet, and say why.
+
+        The window renderer cannot keep up with several robots' sensors under
+        software OpenGL - it is the single most common reason a prepared world
+        sits on a black screen and never produces a camera frame. So for more
+        than one of either robot the GUI runs headless whatever this box says,
+        and this makes that visible before the run rather than after it.
+        """
+        fleet = self.quad_count.value() > 1 or self.rover_count.value() > 1
+        self.show_sim.setEnabled(not fleet)
+        self.show_sim_note.setVisible(fleet)
+        if fleet:
+            self.show_sim_note.setText(
+                'A fleet runs headless. The Gazebo window cannot render this '
+                'many sensors under software OpenGL, and trying is what '
+                'leaves a world stuck on a black screen. Gazebo still runs; '
+                'use the camera panels and the map instead.')
+
     def _load_world_layouts(self):
         world = self.world_box.currentText() if hasattr(self, 'world_box') else 'simple_trees'
         self._layouts = load_layouts(world)
@@ -537,6 +611,38 @@ class HomePage(QWidget):
         self.preview_note.setText(
             'from the world file' if meta else 'no world file - showing the spawn points only')
         self._apply_layout()
+        self._refresh_search_path()
+
+    def _refresh_search_path(self):
+        """Draw the legs the quadcopter will actually fly.
+
+        Built from the same arithmetic as their node, so this is the route,
+        not an illustration of the idea - see `search_preview.py`. Both
+        patterns cover the same square, so what the picture is really for is
+        the order they cover it in: the loops reach the middle first and work
+        outward, the rows start at one edge and sweep across.
+        """
+        meta = world_meta_full(self.world_box.currentText()) or {}
+        half = search_half(meta)
+        pattern = 'center_out' if self.pattern_radios['center_out'].isChecked() else 'rows'
+        spacing = float(self.spins['row_spacing'].value())
+        path = search_path(pattern, half, spacing)
+        self.preview.set_search_path(path)
+        if path:
+            note = ('Dashed line: the quadcopter\'s route, brightest where it '
+                    'starts. %d corners, about %.0f m of flying per pass at '
+                    '%.1f m spacing.'
+                    % (len(path), path_length_m(path), spacing))
+            if pattern == 'center_out':
+                # Said plainly because it is the one place the picture is not
+                # the arithmetic: their node closes each loop before stepping
+                # out, so it flies a little further than this line suggests.
+                note += (' The loops are drawn as one spiral; the quad flies '
+                         'them as closed squares, so expect slightly more '
+                         'flying than the figure above.')
+            self.search_note.setText(note)
+        else:
+            self.search_note.setText('')
 
     def _apply_layout(self):
         idx = max(0, self.layout_box.currentIndex())
@@ -633,6 +739,8 @@ class HomePage(QWidget):
             'show_sim': self.show_sim.isChecked(),
             'options': self.options(),
             'meta': world_meta_full(world),
+            'quads': int(self.quad_count.value()),
+            'rovers': int(self.rover_count.value()),
         })
 
     def _current_layout(self):
@@ -641,3 +749,6 @@ class HomePage(QWidget):
 
     def set_note(self, text):
         self.status_note.setText(text)
+
+    def set_blocked(self, blocked):
+        self.blocked_box.setVisible(bool(blocked))

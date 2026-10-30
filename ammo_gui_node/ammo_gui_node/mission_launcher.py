@@ -24,6 +24,7 @@ import glob
 import json
 import math
 import os
+import re
 import random
 import signal
 import subprocess
@@ -34,7 +35,11 @@ from ammo_gui_node import contract as C
 # executables inside the launch, by role
 ROVER_NODES = ('rover_capture_node', 'cage_capture_node')
 GUARD_NODES = ('collision_guard_node',)
-QUAD_NODES = ('zcam_quad_node', 'quad_search_node')
+# `fleet_quad_node` is the fleet's own quad executable (a FleetQuad subclass
+# of ZCamQuad). Leaving it out meant `mission_nodes_up()` never saw a quad on
+# a fleet run, so the checklist sat on "Mission nodes" forever with
+# everything else green.
+QUAD_NODES = ('zcam_quad_node', 'quad_search_node', 'fleet_quad_node')
 MISSION_NODES = ROVER_NODES + QUAD_NODES          # the guard stays awake
 STOP_TIMEOUT_S = 20.0
 SIM_WARMUP_S = 45.0       # below this, an exit means it failed rather than finished
@@ -46,14 +51,39 @@ READY = 'ready'           # everything is up and the mission nodes are frozen
 RUNNING = 'running'       # the mission nodes are thawed and the clock is going
 
 # name -> folder holding <name>.sdf (None = 41068_ignition_bringup/worlds)
+#
+# The team settled on two worlds for the demo, so these are the only two
+# offered: `simple_trees` for a quick run that always works, and
+# `river_moderate_aus` for the real thing.
+#
+# `simple_trees` ships with `41068_ignition_bringup` and is in git, so it is
+# on every machine. It has no ponds and no river, nothing to bog down on, and
+# it loads in seconds - which is what makes it the world to fall back to when
+# something else is being debugged.
+#
+# `river_moderate_aus` is the mushroom demo world: a real river with three
+# rocky crossings, no ponds, Australian flora, and the only world the
+# two-class `amanita_river_v6` weights were trained against - so it is the
+# only world where natives can be detected at all. It is also the world
+# `forest_worlds/demo_river.sh` runs.
+#
+# It is NOT in git and never can be. `forest_worlds/.gitignore` ignores
+# `worlds/`, `models/`, `world_assets/`, `textures/`, `assets_src/` and
+# `dem/`, so what is committed is only the generator scripts. Each machine
+# builds its own copy once with `forest_worlds/setup.sh` (internet, Blender
+# >= 4.2, numpy, pillow); the last line of that script,
+# `build_world.py --preset moderate --flora australian`, is what writes
+# `forest_worlds/worlds/river_moderate_aus.sdf`. Until someone runs it the
+# world simply does not appear in the dropdown, because `world_available`
+# looks for the file - that is why the teammates who have it all built it
+# themselves.
+#
+# `forest_flat`, `forest_random` and `large_demo` are deliberately not
+# listed. Their metas and map drawing still work if anything asks for them
+# by name; they are just off the menu.
 WORLDS = {
     'simple_trees': None,
-    'forest_flat': None,
-    'forest_random': None,
-    'large_demo': None,
     'river_moderate_aus': 'forest_worlds',
-    'river_moderate_aus_green': 'forest_worlds',
-    'river_moderate_green': 'forest_worlds',
 }
 
 # The search-pattern arguments the setup page can set, with the launch file's
@@ -78,13 +108,34 @@ PATTERNS = (('center_out', 'Square loops outward', 'Loops out from the spawn cle
 # looks for, or it will not recognise what it has collected.
 MUSHROOM_PREFIX = 'demo_mushroom_'
 
-# Shuffle: a mushroom has to be reachable and findable, so keep it clear of
-# trunks and water and away from the robots' spawn point.
-SHUFFLE_TRUNK_M = 1.8
-SHUFFLE_RIVER_M = 2.5
+# Shuffle: a mushroom is only worth placing somewhere the quad can see it and
+# the rover can reach it, so it is kept clear of everything solid, out of the
+# water, and away from the robots' spawn point.
+#
+# The rover needs a 1.7 m standoff and then creeps in, so a mushroom tucked
+# against a trunk or a log is one it circles and gives up on. These margins
+# are from the mushroom to the edge of the obstacle, not to its centre.
+SHUFFLE_CLEAR_M = 2.5      # from any solid object's own radius outward
+SHUFFLE_TRUNK_M = 2.5      # trees, when the meta gives no radius
+SHUFFLE_POND_M = 1.5       # beyond the pond's shore_radius, not its waterline
+SHUFFLE_RIVER_M = 2.5      # from the river's own per-sample width
 SHUFFLE_APART_M = 4.0
 SHUFFLE_HOME_M = 6.0
-SHUFFLE_TRIES = 400
+SHUFFLE_TRIES = 900        # tighter rules need more darts thrown
+
+# How each world-file object type is treated. The radius in the meta is the
+# object's own, so the clearance is added to it; a type with no radius falls
+# back to a nominal one. Ponds are handled separately - they carry a
+# shore_radius, and the shore is the part the rover bogs down on.
+SOLID_TYPES = {
+    'tree': 0.0,           # meta gives a real radius
+    'fallen_tree': 0.4,    # a long one: the radius is its thickness, so pad it
+    'log': 0.4,
+    'stump': 0.2,
+    'rock': 0.2,
+    'clutter': 0.2,
+    'decoy': 0.3,          # not solid, but a mushroom beside one confuses YOLO
+}
 # Spawned a few centimetres high on purpose. The height estimate is good to
 # about that, and the two errors are not equal: a mushroom a little above the
 # ground looks fine and the detector still sees it, while one a little below
@@ -92,10 +143,38 @@ SHUFFLE_TRIES = 400
 # counter says.
 GROUND_LIFT_M = 0.06
 
+# Where fleet_mission.launch.py puts each robot: inside the 4 m spawn
+# clearing, the quads clear of the rovers' axes. Copied from its SPAWNS and
+# ROVER_SPAWNS so the ready page can show you where everything starts.
+QUAD_SPAWNS = [(2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0)]
+ROVER_SPAWNS = [(0.0, 0.0), (2.5, -2.5), (-2.5, -2.5), (2.5, 2.5), (-2.5, 2.5)]
+
+
+def topdown_height(world):
+    """How high the overhead camera sits over a world.
+
+    A module function as well as a method because the Debug UI has no
+    launcher and still has to project world coordinates into the picture -
+    and it must arrive at exactly the same number, or the circles land in
+    the wrong place.
+    """
+    size = 2.0 * max(8.0, world_meta(world)[2] + 4.5)
+    return max(12.0, size / (2.0 * math.tan(TOPDOWN_HFOV / 2.0)) + 2.0)
+
+
+def spawn_points(quads=1, rovers=1):
+    """[(x, y, label)] for the robots a run will start with."""
+    out = [(x, y, f'Q{i}') for i, (x, y) in
+           enumerate(QUAD_SPAWNS[:max(1, int(quads))], 1)]
+    out += [(x, y, f'S{i}') for i, (x, y) in
+            enumerate(ROVER_SPAWNS[:max(1, int(rovers))], 1)]
+    return out
+
+
 TOPDOWN_NAME = 'ammo_topdown_cam'
 TOPDOWN_TOPIC = C.TOPDOWN_TOPIC
-TOPDOWN_PX = 640
-TOPDOWN_HFOV = 1.5
+TOPDOWN_PX = C.TOPDOWN_PX
+TOPDOWN_HFOV = C.TOPDOWN_HFOV
 
 
 def _share(pkg):
@@ -254,6 +333,51 @@ def _interpolate(samples, x, y, floor):
     return sum(w * z for w, (_sx, _sy, z) in zip(weights, near)) / sum(weights)
 
 
+LFS_POINTER = b'version https://git-lfs.github.com/spec/v1'
+
+
+def mesh_problem(model_sdf):
+    """What is wrong with the mesh a model file draws itself with, or None.
+
+    Worth its own check because of how this fails. Gazebo Fortress ships
+    ColladaLoader, OBJLoader and STLLoader and nothing else, and a model whose
+    mesh will not load still spawns perfectly well: it is a real entity,
+    `ign model --list` lists it, `create` reports success, and it has no
+    geometry on it. Nothing is printed. It is invisible to the operator and
+    invisible to YOLO, which is a very long way to go before anyone suspects
+    the mesh file.
+
+    Two things go wrong in this repo. The file can be absent -
+    `mushroom_native` has no mesh at all. Or, far more insidiously, it can be
+    a **Git LFS pointer**: `41068_ignition_bringup/.gitattributes` puts
+    `*.png`, `*.obj` and `*.mtl` in LFS, so on a machine without `git-lfs`
+    installed a clone or pull writes a 132-byte text file that merely names
+    the real asset. It has the right name and the right extension and no mesh
+    loader on earth can read it.
+    """
+    try:
+        with open(model_sdf) as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    found = re.search(r'<uri>\s*(?:model://[^/]+/)?([^<]+?)\s*</uri>', text)
+    if not found:
+        return None
+    rel = found.group(1).strip()
+    path = os.path.join(os.path.dirname(model_sdf), rel)
+    if not os.path.exists(path):
+        return f'{rel} is not in the package'
+    try:
+        with open(path, 'rb') as fh:
+            head = fh.read(len(LFS_POINTER))
+    except OSError:
+        return None
+    if head == LFS_POINTER:
+        return (f'{rel} is a Git LFS pointer, not a mesh - run '
+                f'"git lfs install && git lfs pull" in the checkout')
+    return None
+
+
 def ground_z_at(world, x, y):
     """A guess at the ground height at (x, y), for spawning a mushroom on it.
 
@@ -289,15 +413,58 @@ def _river_distance(meta, x, y):
     return best
 
 
+def _keep_out(world):
+    """[(x, y, radius)] a mushroom must stay outside, from the world file.
+
+    One list for every solid thing plus the ponds, so the shuffle makes a
+    single pass instead of one test per object type - and so a world whose
+    meta only lists trees (the river builder) still gets sensible answers.
+    """
+    data = _meta(world) or {}
+    out = []
+    for obj in data.get('objects', []):
+        kind = obj.get('type')
+        if kind == 'pond':
+            continue                       # handled below, with its shore
+        if kind not in SOLID_TYPES:
+            continue
+        try:
+            x, y = float(obj['x']), float(obj['y'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        radius = obj.get('radius')
+        radius = float(radius) if radius else (SHUFFLE_TRUNK_M if kind == 'tree' else 0.3)
+        out.append((x, y, radius + SOLID_TYPES[kind] + SHUFFLE_CLEAR_M))
+    for pond in list(data.get('ponds', [])) + [o for o in data.get('objects', [])
+                                               if o.get('type') == 'pond']:
+        try:
+            x, y = float(pond['x']), float(pond['y'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # shore_radius is where the bank ends; the waterline (radius) is well
+        # inside it, and the few metres between the two are mud.
+        edge = float(pond.get('shore_radius') or pond.get('radius') or 3.0)
+        out.append((x, y, edge + SHUFFLE_POND_M))
+    return out
+
+
 def shuffle_mushrooms(world, count, seed=None):
     """Random positions a mushroom could plausibly be found and collected at.
 
-    Clear of trunks, out of the river, apart from each other and away from
-    the spawn clearing, inside the same playable area the quad searches.
-    Falls back to fewer than asked rather than looping forever.
+    Clear of every solid object the world file knows about, outside the pond
+    shores and the river, apart from each other and away from the spawn
+    clearing, inside the same playable area the quad searches.
+
+    Returns fewer than asked rather than looping forever - a dense world
+    genuinely may not have room for eight well-spaced mushrooms, and the
+    caller says so rather than pretending.
     """
     meta = world_meta_full(world)
-    trunks = trunk_pairs(world_meta(world)[0])
+    avoid = _keep_out(world)
+    if not avoid:
+        # a meta with no objects at all: fall back to the trunk list
+        avoid = [(tx, ty, SHUFFLE_TRUNK_M)
+                 for tx, ty in trunk_pairs(world_meta(world)[0])]
     half = max(4.0, world_meta(world)[2])
     rng = random.Random(seed)
     picked = []
@@ -308,7 +475,7 @@ def shuffle_mushrooms(world, count, seed=None):
         y = rng.uniform(-half, half)
         if math.hypot(x, y) < SHUFFLE_HOME_M:
             continue
-        if any(math.hypot(x - tx, y - ty) < SHUFFLE_TRUNK_M for tx, ty in trunks):
+        if any(math.hypot(x - ax, y - ay) < r for ax, ay, r in avoid):
             continue
         if any(math.hypot(x - px, y - py) < SHUFFLE_APART_M for px, py in picked):
             continue
@@ -331,26 +498,34 @@ def _as_launch_value(value):
     return str(value)
 
 
-def topdown_sdf(height, px=TOPDOWN_PX, hfov=TOPDOWN_HFOV):
+# `ros2 run ros_ign_gazebo create` builds the spawn pose from its own
+# -x/-y/-z/-R/-P/-Y flags and IGNORES the <pose> in the model file. Leave the
+# flags off and the model lands at the world origin with no rotation - which
+# is why the first version of this camera sat on the ground in the spawn
+# clearing looking sideways into the trees, and produced a picture that
+# looked exactly like the skidsteer's own camera.
+TOPDOWN_PITCH = 1.5707963      # a quarter turn about Y: +x forward -> -z down
+
+
+def topdown_sdf(px=TOPDOWN_PX, hfov=TOPDOWN_HFOV, far=200.0):
     """A camera looking straight down, as a standalone model.
 
-    Pitched a quarter turn about Y so the lens, which looks along +x by
-    default, looks along -z instead.
+    The pose is deliberately NOT in here - see the note above `TOPDOWN_PITCH`.
+    It is passed on the create command line by `start_topdown`.
     """
     return f"""<?xml version="1.0"?>
 <sdf version="1.6">
   <model name="{TOPDOWN_NAME}">
     <static>true</static>
-    <pose>0 0 {height:.2f} 0 1.5707963 0</pose>
     <link name="link">
       <sensor name="topdown" type="camera">
         <always_on>1</always_on>
-        <update_rate>1</update_rate>
+        <update_rate>2</update_rate>
         <topic>{TOPDOWN_TOPIC}</topic>
         <camera>
           <horizontal_fov>{hfov}</horizontal_fov>
           <image><width>{px}</width><height>{px}</height><format>R8G8B8</format></image>
-          <clip><near>0.5</near><far>{height * 3.0:.1f}</far></clip>
+          <clip><near>0.5</near><far>{far:.1f}</far></clip>
         </camera>
       </sensor>
     </link>
@@ -374,48 +549,107 @@ class MissionLauncher:
         self.spawned = []          # [(name, x, y)] mushrooms we put there
         self.cleared_world = False  # the world's own mushrooms have been removed
         self.held = False          # the two mission nodes are frozen right now
+        self.quads, self.rovers = 1, 1
         self._reported_death = False
+        self._env = None           # the launch's environment, for short commands
+        self.last_error = ''       # stderr of the last short command
         self._topdown_proc = None
 
     # -- stage one: prepare -------------------------------------------------
-    def prepare(self, world, show_sim=True, options=None, tool='gripper'):
+    def prepare(self, world, show_sim=True, options=None, tool='gripper',
+                quads=1, rovers=1):
         """Bring the simulation up, or reuse the one already up.
+
+        With one of each robot this runs the team's `cage_mission.launch.py`
+        exactly as before. With more it runs `quad_zcams/fleet_mission.launch.py`
+        instead, which is their own multi-robot path: up to four quads
+        (`parrot1..4`) and five rovers (rover 1 as `husky1`, rover k under
+        `rk`), with `fleet_coordinator` handing mushrooms out between the
+        rovers. The GUI does not spawn a second robot itself - that needs a
+        namespace, a rewritten bridge config, its own TF tree and a split
+        search area, all of which their launch file already does.
 
         Returns 'started', 'reused', or None if it could not begin.
         """
-        if self.state in (READY, RUNNING) and self.world == world:
+        quads = max(1, min(int(quads), C.MAX_QUADS))
+        rovers = max(1, min(int(rovers), C.MAX_ROVERS))
+        if (self.state in (READY, RUNNING) and self.world == world
+                and (self.quads, self.rovers) == (quads, rovers)):
             return 'reused'
         if self.state in (PREPARING, READY, RUNNING):
             self.shutdown()        # a different world needs a different Gazebo
         if sim_already_running():
-            self.log('Gazebo is already running - close it first, the GUI starts its own.')
-            return None
+            self.log('BLOCKED: a simulation is already running. The GUI starts its '
+                     'own, so it will not start a second. Use "Stop what is '
+                     'running" below, or close the other Gazebo.')
+            return 'blocked'
         path = world_path(world)
         if not world_available(world):
             self.log(f'world {world} not found - for river worlds run forest_worlds/setup.sh')
             return None
 
         env = dict(os.environ)
+        # Kept so `create`, `remove` and `ign model --list` run against the
+        # same resource path as the server they are talking to.
+        self._env = env
         # the nodes we freeze talk over UDP: over shared memory a long freeze cut them off from Nav2 for good
         env['AMMO_FREEZABLE_PROFILE'] = os.path.join(_share('ammo_gui_node') or '', 'config', 'fastdds_udp_only.xml')
-        cmd = ['ros2', 'launch', 'ammo_mission_control', 'cage_mission.launch.py',
-               f'world:={path}', f'tool:={tool}', 'meta_goals:=false', 'rviz:=false',
-               # cage_mission defaults husky_yolo to false, which leaves the
-               # rover with no detector and therefore no boxes on its feed.
-               'husky_yolo:=true',
-               f'headless:={"false" if show_sim else "true"}']
-        for key, default in SEARCH_DEFAULTS.items():
-            cmd.append(f'{key}:={_as_launch_value((options or {}).get(key, default))}')
+        fleet = quads > 1 or rovers > 1
+        if fleet and show_sim:
+            # Two quads means two YOLO instances and two depth cameras on top
+            # of everything else; adding Gazebo's own renderer to that is what
+            # left a world that never finished loading.
+            show_sim = False
+            self.log('a fleet runs headless - the Gazebo window on top of two '
+                     'detectors is more than this machine will carry. Every '
+                     'camera is in the GUI anyway.')
+        if fleet:
+            cmd = ['ros2', 'launch', 'quad_zcams', 'fleet_mission.launch.py',
+                   f'world:={path}', f'quads:={quads}', f'rovers:={rovers}',
+                   'meta_goals:=false', 'rviz:=false',
+                   f'headless:={"false" if show_sim else "true"}']
+        else:
+            cmd = ['ros2', 'launch', 'ammo_mission_control', 'cage_mission.launch.py',
+                   f'world:={path}', f'tool:={tool}', 'meta_goals:=false', 'rviz:=false',
+                   # cage_mission defaults husky_yolo to false, which leaves the
+                   # rover with no detector and therefore no boxes on its feed.
+                   'husky_yolo:=true',
+                   f'headless:={"false" if show_sim else "true"}']
+            for key, default in SEARCH_DEFAULTS.items():
+                cmd.append(f'{key}:={_as_launch_value((options or {}).get(key, default))}')
+        # The river worlds need their models on the resource path before
+        # Gazebo starts or nothing spawns at all and the sim looks frozen -
+        # their own README is emphatic about this, and demo_river.sh does the
+        # same export. The fleet loads the two-class detector itself; the
+        # single-quad launch defaults to a one-class model that sees no
+        # natives, so it is passed explicitly.
+        # Every world needs the bringup models on the path, not just the river
+        # ones. `mushroom_amanita` and `mushroom_native` live there, the river
+        # world <include>s both by `model://` URI, and the model file the GUI
+        # spawns refers to its own mesh the same way - so the server has to be
+        # able to resolve them or they load as entities with no geometry.
+        # Nothing else in the repo sets this; `models/mushroom_amanita/
+        # README_MUSHROOM.md` says as much and tells you to export it by hand,
+        # which is not something an operator should have to know.
+        extra = []
+        bringup = _share('41068_ignition_bringup')
+        if bringup:
+            extra.append(os.path.join(bringup, 'models'))
         if WORLDS.get(world) == 'forest_worlds':
-            # as forest_worlds/demo_river.sh: its models first, and the two-class river detector
             base = _forest_worlds_dir()
-            extra = glob.glob(os.path.join(base, 'models', '*')) + [os.path.join(base, 'world_assets')]
+            extra += glob.glob(os.path.join(base, 'models', '*')) + [os.path.join(base, 'world_assets')]
+        if extra:
             env['IGN_GAZEBO_RESOURCE_PATH'] = ':'.join(
                 extra + [env.get('IGN_GAZEBO_RESOURCE_PATH', '')]).strip(':')
-            model = os.path.join(_share('perception') or '', 'models', 'variants',
-                                 'amanita_river_v6_yolo11n.pt')
-            if os.path.exists(model):
-                cmd.append(f'model_path:={model}')
+            # Garden and later read a different name; setting both costs
+            # nothing and saves a confusing afternoon if anyone upgrades.
+            env['GZ_SIM_RESOURCE_PATH'] = env['IGN_GAZEBO_RESOURCE_PATH']
+        if WORLDS.get(world) == 'forest_worlds':
+            if not fleet:
+                model = os.path.join(_share('perception') or '', 'models', 'variants',
+                                     'amanita_river_v6_yolo11n.pt')
+                if os.path.exists(model):
+                    cmd.append(f'model_path:={model}')
         # Mushrooms are NOT passed here any more. The GUI spawns them after the
         # mission nodes are frozen, so they can be shuffled and looked at
         # without the quadcopter ever having had a chance to see them.
@@ -429,6 +663,7 @@ class MissionLauncher:
             return None
         self.state = PREPARING
         self.world = world
+        self.quads, self.rovers = quads, rovers
         self.show_sim = bool(show_sim)
         self.options = dict(options or {})
         self.started_at = time.monotonic()
@@ -436,29 +671,23 @@ class MissionLauncher:
         self.spawned = []
         self.cleared_world = False
         self.held = False
-        self.log(f'preparing {world} - Gazebo and Nav2 take about 30 s '
-                 f'(log: {self.log_path})')
+        what = (f'{quads} quadcopter(s) and {rovers} skidsteer(s)' if fleet
+                else 'one of each robot')
+        self.log(f'preparing {world} with {what} - Gazebo and Nav2 take about '
+                 f'30 s, longer for a fleet (log: {self.log_path})')
         return 'started'
 
     def hold_nodes(self):
-        """Freeze the two mission nodes, as soon as they exist.
+        """Freeze the mission node processes outright. The last resort.
 
-        This is called the first moment the processes appear, long before the
-        rest of the checklist has filled in - which is the whole difference
-        between "prepared" and "already half way through a mission". The
-        quadcopter takes off a few seconds after its node starts, so waiting
-        until everything else was up meant watching it fly a search pattern
-        over a world with no mushrooms in it while the page still said
-        PREPARING.
+        Prepare, Pause, Abort and hand-driving all use the robots' own
+        `teleop_active` stand-down instead, which leaves the nodes running
+        and their clocks and Nav2 connections intact. This is what is left
+        for the case where a node stops answering the heartbeat at all.
 
-        Nothing else on the checklist depends on these two: the cameras,
-        odometry and TF come from Gazebo's bridges, the detectors are their
-        own processes, and Nav2, truth_localizer and collision_guard are all
-        separate. So freezing early costs nothing and is honest.
-
-        The caller must also start a zero-velocity hold. Gazebo's
-        VelocityControl plugin keeps the last command it was given forever,
-        so a node frozen mid-takeoff leaves a quadcopter still climbing.
+        The caller must also publish zeros. Gazebo's VelocityControl keeps
+        the last command it was given forever, so a node frozen one second
+        into a take-off leaves a quadcopter still climbing.
 
         Returns True only on the call that actually froze them.
         """
@@ -471,37 +700,51 @@ class MissionLauncher:
     def mark_ready(self):
         """Everything has arrived; hold here until the operator launches.
 
+        This no longer stops any process. The robots are held still by their
+        own `teleop_active` stand-down, published by the window - see
+        `contract.PARROT_TELEOP`. A standing-down node keeps its timers, its
+        clock and its Nav2 connection, re-plans from where it was left, and
+        goes on reporting sightings; a stopped one comes back with all of
+        those stale. `suspend`/`resume` are still here as a last resort.
+
         Also accepted from READY, which is the state a finished mission
-        leaves behind: preparing the same world again re-freezes rather than
-        restarting anything.
+        leaves behind, so preparing the same world again just re-holds.
         """
         if self.state not in (PREPARING, READY):
             return False
-        self.hold_nodes()          # usually already done, early, by the caller
-        self.suspend(MISSION_NODES)
-        self.held = True
         self.state = READY
-        self.log('ready - the simulation is up and the mission nodes are held')
+        self.log('ready - the simulation is up and both robots are held')
         return True
 
     # -- stage two: run -----------------------------------------------------
     def launch(self):
+        """Start the mission. The window releases the stand-down itself."""
         if self.state != READY:
             return False
-        self.resume(MISSION_NODES)
+        self.resume(MISSION_NODES)   # no-op unless something was suspended
         self.held = False
         self.state = RUNNING
         return True
 
-    def end_mission(self, keep_sim=True):
-        """Stop the mission. By default Gazebo stays up for the next run."""
+    def end_mission(self, keep_sim=False):
+        """Stop the mission, and by default the simulation with it.
+
+        Keeping Gazebo up between runs is faster, and it is what this did
+        first - but a simulation that outlives its mission turned out to
+        cause most of the trouble worth having: its camera topics keep
+        feeding panels for robots that are gone, its latched occupancy grid
+        reads as a live coverage number that never moves, and the next
+        Prepare refuses to start because something is already running. So
+        the default is now to stop everything, and `keep_sim=True` is the
+        opt-in.
+        """
         if self.state == IDLE:
             return
         if not keep_sim:
             self.shutdown()
             return
-        self.suspend(MISSION_NODES)
-        self.held = True
+        # Not suspended: the window holds both robots with their own
+        # stand-down, which leaves the nodes healthy for the next run.
         self.remove_mushrooms()
         self.state = READY if self.proc and self.proc.poll() is None else IDLE
         self.log('mission ended - the simulation is still up')
@@ -526,16 +769,56 @@ class MissionLauncher:
             self.log('cannot find 41068_ignition_bringup to spawn mushrooms')
             return []
         sdf = os.path.join(share, 'models', 'mushroom_amanita', 'model.sdf')
+        if not os.path.exists(sdf):
+            self.log(f'the mushroom model is missing at {sdf} - nothing to spawn')
+            return []
+        problem = mesh_problem(sdf)
+        if problem:
+            self.log(f'WARNING: {problem}. The mushrooms will spawn as entities '
+                     f'with no geometry - invisible in Gazebo, invisible to '
+                     f'YOLO, and no error anywhere. Fix that before blaming '
+                     f'the detector.')
+        errors = []
         for i, (x, y) in enumerate(points, 1):
             name = f'{MUSHROOM_PREFIX}{i}'
             z = ground_z_at(self.world, float(x), float(y)) + GROUND_LIFT_M
             self._run(['ros2', 'run', 'ros_ign_gazebo', 'create', '-file', sdf,
                        '-name', name, '-x', str(float(x)), '-y', str(float(y)),
                        '-z', f'{z:.3f}'], 20)
+            if self.last_error:
+                errors.append(f'{name}: {self.last_error.splitlines()[-1][:120]}')
             self.spawned.append((name, float(x), float(y)))
         if self.spawned:
-            self.log(f'{len(self.spawned)} mushroom(s) placed')
+            there = self.confirm_mushrooms()
+            if there is None:
+                self.log(f'{len(self.spawned)} mushroom(s) asked for, but Gazebo '
+                         f'would not say what it has - `ign model --list` gave '
+                         f'nothing, so treat the count as unconfirmed')
+            elif there == 0:
+                self.log(f'NONE of the {len(self.spawned)} mushrooms are in the '
+                         f'world. The spawn command ran and Gazebo has no '
+                         f'model named {MUSHROOM_PREFIX}*. Model file: {sdf}')
+            elif there < len(self.spawned):
+                self.log(f'only {there} of {len(self.spawned)} mushrooms are '
+                         f'actually in the world - the rest did not spawn')
+            else:
+                self.log(f'{there} mushroom(s) placed and confirmed in Gazebo')
+            for line in errors[:3]:
+                self.log(f'spawn error - {line}')
         return [(x, y) for _n, x, y in self.spawned]
+
+    def confirm_mushrooms(self):
+        """How many of ours Gazebo says it actually has, or None if unknown.
+
+        `create` reports success whether or not the model file resolved, so
+        "we ran the command five times" is not the same as "there are five
+        mushrooms in the world" - which is exactly the doubt worth removing.
+        """
+        out = self._run(['ign', 'model', '--list'], 8)
+        if not out:
+            return None
+        return sum(1 for line in out.splitlines()
+                   if MUSHROOM_PREFIX in line)
 
     def remove_mushrooms(self):
         """Take out the mushrooms the GUI put there. Leaves the world's own."""
@@ -570,36 +853,59 @@ class MissionLauncher:
                    '--timeout', '2000', '--req', f'name: "{name}" type: MODEL'], 6)
 
     def _run(self, args, timeout):
+        """Run one short command and give back its stdout.
+
+        It inherits the launch's own environment when there is one, so a
+        `create` call resolves models against the same resource path Gazebo
+        was started with rather than the GUI's bare environment. stderr is
+        kept in `self.last_error` - `create` reports success on stdout
+        whether or not the model file resolved, so the only account of what
+        went wrong is on the other stream.
+        """
+        self.last_error = ''
         try:
-            return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            done = subprocess.run(args, capture_output=True, text=True,
+                                  timeout=timeout, env=self._env or None)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            self.last_error = str(exc)
             return ''
+        self.last_error = (done.stderr or '').strip()
+        return done.stdout
 
-    # -- the top-down photo -------------------------------------------------
+    # -- the top-down camera --------------------------------------------------
+    def topdown_height(self):
+        return topdown_height(self.world)
+
     def start_topdown(self):
-        """Spawn a downward camera and bridge its image topic.
+        """Spawn a downward camera over the world and bridge its image topic.
 
-        Returns False if it could not be started. The GUI subscribes to
-        TOPDOWN_TOPIC, takes the first frame it gets, and calls
-        `stop_topdown()`. On a machine without hardware OpenGL this can take
-        several seconds or never arrive, which is why the caller times out
-        and falls back to the drawn map.
+        Stays up for the whole run now, not just long enough for one frame:
+        the operator page and the Debug UI both show it as a live feed. It is
+        a third rendered camera, so `stop_topdown` is worth calling when the
+        feed is switched off.
+
+        Returns False if it could not be started at all. On a machine without
+        hardware OpenGL frames can take several seconds or never arrive,
+        which is why the caller times out and falls back to the drawn map.
         """
         if self.state not in (READY, RUNNING) or not self.world:
             return False
-        size = 2.0 * max(8.0, world_meta(self.world)[2] + 4.5)
-        height = max(12.0, size / (2.0 * math.tan(TOPDOWN_HFOV / 2.0)) + 2.0)
+        if self._topdown_proc is not None and self._topdown_proc.poll() is None:
+            return True                      # already up
+        height = self.topdown_height()
         path = os.path.join(os.path.dirname(self.log_path), 'ammo_topdown.sdf')
         try:
             with open(path, 'w') as fh:
-                fh.write(topdown_sdf(height))
+                fh.write(topdown_sdf(far=max(50.0, height * 3.0)))
         except OSError:
             return False
-        # `create` prints nothing useful on success on some builds, so a
-        # blank result is not proof of failure - but a missing executable is,
-        # and that is what the bridge below would fail on anyway.
+        # The pose goes HERE, not in the SDF. `create` ignores the model's own
+        # <pose> and uses these flags, defaulting every one it is not given
+        # to zero - which put the camera on the ground looking sideways.
         self._run(['ros2', 'run', 'ros_ign_gazebo', 'create',
-                   '-file', path, '-name', TOPDOWN_NAME], 25)
+                   '-file', path, '-name', TOPDOWN_NAME,
+                   '-x', '0', '-y', '0', '-z', f'{height:.2f}',
+                   '-R', '0', '-P', f'{TOPDOWN_PITCH:.7f}', '-Y', '0'], 25)
         try:
             self._topdown_proc = subprocess.Popen(
                 ['ros2', 'run', 'ros_ign_bridge', 'parameter_bridge',
@@ -610,6 +916,69 @@ class MissionLauncher:
             self._remove_model(TOPDOWN_NAME)
             return False
         return True
+
+    def kill_strays(self):
+        """Kill a simulation this GUI does not own.
+
+        A launch that was interrupted leaves Gazebo, the bridges and the
+        mission nodes running, and they keep publishing: stale camera topics
+        feed panels for robots that are not there any more, and `prepare`
+        refuses to start a second simulation. Nothing in the GUI can reach
+        them - they are not in our process group - so this is the blunt
+        instrument, and it is why it asks first.
+
+        Returns the number of processes it signalled.
+        """
+        patterns = [r'ign gazebo', r'gz sim', r'ruby .*ign gazebo',
+                    'ign-gazebo-server', 'ign-gazebo-gui',
+                    'cage_mission.launch.py', 'fleet_mission.launch.py',
+                    'zcam_mission.launch.py', 'parameter_bridge', 'yolo_node',
+                    'fleet_yolo_pool', 'fleet_coordinator']
+        killed = 0
+        for sig in ('-TERM', '-KILL'):
+            for pattern in patterns:
+                out = subprocess.run(['pkill', sig, '-f', pattern],
+                                     capture_output=True)
+                if out.returncode == 0:
+                    killed += 1
+            killed += self._kill_ign_ruby()
+        return killed
+
+    def _kill_ign_ruby(self):
+        """Kill Ignition's own server and GUI, found the way they really look.
+
+        `ign gazebo` is a ruby script, and on Fortress the server and the GUI
+        end up as separate ruby processes whose command lines do not reliably
+        contain the string "ign gazebo" - which is why pattern matching alone
+        left a Gazebo window that would not close and sometimes needed a
+        reboot. `forest_worlds/view.sh` has always done it this way instead,
+        and that one works: look at every ruby process and read its command
+        line. Matching on the ruby name as well as "ign" is what keeps this
+        from ever touching an unrelated ruby program.
+        """
+        killed = 0
+        try:
+            pids = subprocess.run(['pgrep', '-x', 'ruby'], capture_output=True,
+                                  text=True, timeout=5).stdout.split()
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return 0
+        for pid in pids:
+            try:
+                with open(f'/proc/{pid}/cmdline', 'rb') as fh:
+                    cmdline = fh.read().decode('utf-8', 'replace')
+            except (OSError, ValueError):
+                continue
+            if 'ign' not in cmdline and 'gz' not in cmdline:
+                continue
+            try:
+                os.kill(int(pid), signal.SIGKILL)
+                killed += 1
+            except (ProcessLookupError, PermissionError, ValueError, OSError):
+                continue
+        return killed
+
+    def topdown_running(self):
+        return self._topdown_proc is not None and self._topdown_proc.poll() is None
 
     def stop_topdown(self):
         if self._topdown_proc is not None:
@@ -708,6 +1077,11 @@ class MissionLauncher:
         """End everything: mission nodes, Nav2 and Gazebo."""
         self.stop_topdown()
         if not self.proc:
+            # Nothing of ours is running, but something of somebody's might
+            # be - an interrupted launch, or a Gazebo that outlived its
+            # group. The setup page is supposed to mean nothing is running,
+            # so sweep anyway rather than returning on a technicality.
+            self.kill_strays()
             self.state = IDLE
             return
         self.resume()
@@ -722,6 +1096,13 @@ class MissionLauncher:
             os.killpg(self.proc.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
             pass
+        # Killing the process group is not always enough. Ignition's own
+        # launcher re-parents the server and the GUI, so they survive their
+        # group and go on publishing - which is how a closed Gazebo window
+        # still fed camera feeds, and why it sometimes took a reboot. These
+        # are our own run's processes; `kill_strays` is the same thing for
+        # a run nobody owns.
+        self.kill_strays()
         self.proc = None
         self.spawned = []
         self.cleared_world = False

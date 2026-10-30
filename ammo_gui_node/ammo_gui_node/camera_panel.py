@@ -24,7 +24,17 @@ from PySide6.QtWidgets import QWidget
 from ammo_gui_node import contract as C
 from ammo_gui_node import theme
 
+# How long after the last frame a feed counts as dead. Two seconds suits a
+# robot camera at 5 Hz; it is far too short for the overhead camera, which
+# runs at 2 Hz and, under software rendering, often slower than that. A panel
+# that calls a working feed dead paints a dark wash over a perfectly good
+# picture, which is what made the overhead view look grey.
 STALE_S = 2.0
+SLOW_STALE_S = 8.0
+
+# The wash itself. It used to be two thirds opaque, which is a lot for
+# something whose only job is to say "this is not live".
+DIM_ALPHA = 110
 STRIP_H = 30
 
 
@@ -34,8 +44,16 @@ class CameraPanel(QWidget):
     boxes_toggled = Signal(bool)
 
     def __init__(self, title, topic='', dot_colour=None, parent=None,
-                 show_boxes=True, allow_expand=True):
+                 show_boxes=True, allow_expand=True, stale_s=STALE_S,
+                 overlay_button=False):
         super().__init__(parent)
+        self.stale_s = float(stale_s)
+        # The overhead camera has no detector of its own, so its corner
+        # button would toggle boxes that can never arrive. On that panel the
+        # same button toggles the world-position marks instead - the robots
+        # and the mushrooms - which is the thing worth switching on and off
+        # there.
+        self.overlay_button = bool(overlay_button)
         self.setMinimumSize(200, 150)
         self.title = title
         self.topic = topic
@@ -46,6 +64,11 @@ class CameraPanel(QWidget):
         self.last_at = 0.0
         self.detections = []
         self.det_at = 0.0
+        # Marks drawn in the source image's own pixels, scaled with it:
+        # {'u', 'v', 'r', 'colour', 'label'}. Used by the overhead view to
+        # ring the mushrooms and the robots.
+        self.overlay = []
+        self.show_overlay = False
         self.frozen = False
         self.note = ''
         self.expanded = False
@@ -76,7 +99,20 @@ class CameraPanel(QWidget):
         self.update()
 
     def toggle_boxes(self):
+        if self.overlay_button:
+            self.set_show_overlay(not self.show_overlay)
+            self.boxes_toggled.emit(self.show_overlay)
+            return
         self.set_show_boxes(not self.show_boxes)
+
+    def set_overlay(self, marks):
+        self.overlay = list(marks or [])
+        if self.show_overlay:
+            self.update()
+
+    def set_show_overlay(self, on):
+        self.show_overlay = bool(on)
+        self.update()
 
     def set_frozen(self, frozen):
         self.frozen = bool(frozen)
@@ -91,7 +127,7 @@ class CameraPanel(QWidget):
         self.update()
 
     def fresh(self):
-        return self.image is not None and time.monotonic() - self.last_at < STALE_S
+        return self.image is not None and time.monotonic() - self.last_at < self.stale_s
 
     # kept: both windows ask this when counting live feeds
     def any_fresh(self):
@@ -152,6 +188,8 @@ class CameraPanel(QWidget):
             target = self._frame(p, view, dim=not live and not self.frozen)
             if self.show_boxes:
                 self._boxes(p, target)
+            if self.show_overlay and self.overlay:
+                self._overlay(p, target)
 
         if self.note:
             p.setPen(QColor(theme.AMBER))
@@ -167,7 +205,10 @@ class CameraPanel(QWidget):
 
     def _tab(self, p, live):
         rect = self._tab_rect()
-        label = 'BOXES' if self.show_boxes else 'NO BOXES'
+        if self.overlay_button:
+            label = 'MARKS' if self.show_overlay else 'NO MARKS'
+        else:
+            label = 'BOXES' if self.show_boxes else 'NO BOXES'
         if self.frozen:
             label = 'HELD'
         elif not live:
@@ -178,7 +219,8 @@ class CameraPanel(QWidget):
         if live and not self.frozen:
             p.setPen(QPen(QColor(theme.LINE_SOFT), 1))
             p.setBrush(Qt.NoBrush)
-            width = 44 if self.show_boxes else 62
+            on = self.show_overlay if self.overlay_button else self.show_boxes
+            width = 46 if on else 64
             p.drawRoundedRect(QRectF(rect.right() - width - 4, 7, width, 16), 3, 3)
 
     def _frame(self, p, view, dim):
@@ -190,9 +232,48 @@ class CameraPanel(QWidget):
         p.drawImage(target, img)
         if dim:
             p.setPen(Qt.NoPen)
-            p.setBrush(QBrush(QColor(15, 20, 24, 170)))
+            p.setBrush(QBrush(QColor(15, 20, 24, DIM_ALPHA)))
             p.drawRect(target)
         return target
+
+    def _overlay(self, p, target):
+        """Ring things whose world position is known, in image pixels.
+
+        Scaled exactly like the detector's boxes: the marks are given in the
+        source image's own pixels, so they follow the picture wherever it is
+        letterboxed to.
+        """
+        img = self.image
+        if img is None or img.width() <= 0:
+            return
+        sx = target.width() / img.width()
+        sy = target.height() / img.height()
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
+        for mark in self.overlay:
+            try:
+                cx = target.x() + float(mark['u']) * sx
+                cy = target.y() + float(mark['v']) * sy
+                r = max(5.0, float(mark.get('r', 6.0)) * sx)
+            except (KeyError, TypeError, ValueError):
+                continue
+            colour = QColor(mark.get('colour') or theme.ACCENT)
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(colour, 1.8))
+            # Shape carries the kind and colour carries the state, so the
+            # two never have to be told apart by hue alone: a robot is a
+            # square, a mushroom is a circle, whatever colour either is.
+            if mark.get('shape') == 'box':
+                p.drawRect(QRectF(cx - r, cy - r, 2 * r, 2 * r))
+            else:
+                p.drawEllipse(QPointF(cx, cy), r, r)
+            # a cross in the middle, so a big mark still points at a spot
+            p.setPen(QPen(colour, 1.0))
+            p.drawLine(QPointF(cx - 3, cy), QPointF(cx + 3, cy))
+            p.drawLine(QPointF(cx, cy - 3), QPointF(cx, cy + 3))
+            label = str(mark.get('label') or '')
+            if label:
+                p.setPen(QPen(colour, 1.0))
+                p.drawText(QPointF(cx + r + 3, cy + 4), label)
 
     def _boxes(self, p, target):
         """Draw the detector's boxes, scaled from source pixels into the view."""

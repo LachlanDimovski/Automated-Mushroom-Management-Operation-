@@ -47,6 +47,12 @@ def yaw_of(q):
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
+# How recently a camera frame or an odometry message must have arrived for
+# that check to count as live. The slowest of them runs at a few hertz, so
+# six seconds is far longer than a healthy feed ever goes quiet, and short
+# enough that a dead one is noticed within a poll or two.
+FRESH_S = 6.0
+
 class _LinkNode(Node):
     """The actual ROS node. Everything here runs on the spin thread."""
 
@@ -55,10 +61,18 @@ class _LinkNode(Node):
         self.link = link
         self.role = role
         self._last_image = {}
-        # What has been seen at least once, for the readiness checklist. A
-        # frame or a message arriving is a much better answer to "is the
-        # camera working" than a publisher existing on the topic.
-        self.seen = set()
+        # When each thing on the readiness checklist last arrived. A frame or
+        # a message arriving is a much better answer to "is the camera
+        # working" than a publisher existing on the topic.
+        #
+        # It is a time and not a flag on purpose. "Arrived at least once" was
+        # the original test and it was wrong twice over: the set was built
+        # when this node started and never cleared, so every Prepare after
+        # the first ticked these boxes before the new simulation had produced
+        # anything at all - the checklist said a world was ready that had not
+        # even finished loading - and a camera that died mid-run went on
+        # reading as live for the rest of the session.
+        self.seen = {}
         self._tf_ok = False
 
         self.create_subscription(String, C.STATUS_TOPIC, self._on_status, LIVE_QOS)
@@ -102,6 +116,41 @@ class _LinkNode(Node):
         # has no publisher until that camera exists.
         self.create_subscription(Image, C.TOPDOWN_TOPIC, self._on_topdown, LIVE_QOS)
 
+        # Every other robot a fleet could hold. Subscribed up front rather
+        # than created once the counts are known: a subscription to a topic
+        # nobody publishes carries no traffic, and creating subscriptions
+        # while the executor is already spinning is not worth the risk.
+        latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        for i in range(2, C.MAX_QUADS + 1):
+            key = f'quad{i}'
+            self.create_subscription(
+                Image, C.quad_topic(i, 'camera/image'),
+                lambda m, k=key: self._fleet_image(m, k), LIVE_QOS)
+            self.create_subscription(
+                Odometry, C.quad_topic(i, 'odometry'),
+                lambda m, k=key: self._fleet_odom(m, k), LIVE_QOS)
+            self.create_subscription(
+                String, C.quad_state_topic(i),
+                lambda m, k=key: self._fleet_state(m, k), latched)
+        for i in range(2, C.MAX_ROVERS + 1):
+            key = f'rover{i}'
+            self.create_subscription(
+                Image, C.rover_topic(i, 'camera/image'),
+                lambda m, k=key: self._fleet_image(m, k), LIVE_QOS)
+            self.create_subscription(
+                Odometry, C.rover_topic(i, 'odometry'),
+                lambda m, k=key: self._fleet_odom(m, k), LIVE_QOS)
+
+        # Height above ground, published by the quad itself. Odometry z is
+        # height above the world origin, which is not the same thing on a
+        # heightmap world.
+        from std_msgs.msg import Float32
+        self.create_subscription(Float32, C.PARROT_AGL, self._on_agl, LIVE_QOS)
+        self.create_subscription(Bool, C.PARROT_LANDED, self._on_landed,
+                                 QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                                            durability=DurabilityPolicy.TRANSIENT_LOCAL))
+
         # The rover's map frame is the one detail that quietly breaks operator
         # goals, so the checklist waits to actually see it rather than
         # assuming Nav2 being up implies it.
@@ -118,6 +167,20 @@ class _LinkNode(Node):
         self.hold_timer = None
         self.cmd_pubs = []
         self.teleop_pub = None
+        self.quad_teleop_pub = self.mark_pub = None
+        self.fleet_teleop = {}
+        self.fleet_cmd = {}
+        self.fleet_mark = {}
+        self.standdown_timer = None
+        # How many of each robot this run has. Set from the setup page's
+        # counts at Prepare, so nothing has to be discovered.
+        self.quads, self.rovers = 1, 1
+        # Which robots the GUI is currently holding still. A set rather than a
+        # flag because Prepare holds both, hand-driving holds one, and an
+        # abort holds both again for a different reason.
+        self._standdown = set()
+        self._descending = False
+        self.agl = None
         self.nav_client = None
         self.cancel_client = None
         self._nav_handle = None
@@ -129,7 +192,33 @@ class _LinkNode(Node):
             self.waypoint_pub = self.create_publisher(PointStamped, C.CAGE_WAYPOINTS, 10)
             self.cmd_pubs = [self.create_publisher(Twist, t, 10)
                              for t in (C.HUSKY_CMD, C.HUSKY_CMD_RAW, C.PARROT_CMD)]
+            # Their stand-down heartbeats, one per robot, and the quad's
+            # "send what you can see to the rover" button.
             self.teleop_pub = self.create_publisher(Bool, C.HUSKY_TELEOP, 10)
+            self.quad_teleop_pub = self.create_publisher(Bool, C.PARROT_TELEOP, 10)
+            self.mark_pub = self.create_publisher(Bool, C.PARROT_MARK, 10)
+            # Robots 2.. of a fleet. Publishers are cheap and silent until
+            # something is published, so they are all made up front rather
+            # than created while the executor is already spinning.
+            self.fleet_teleop = {}
+            self.fleet_cmd = {}
+            self.fleet_mark = {}
+            for i in range(2, C.MAX_QUADS + 1):
+                self.fleet_teleop[f'quad{i}'] = self.create_publisher(
+                    Bool, C.quad_topic(i, 'teleop_active'), 10)
+                self.fleet_cmd[f'quad{i}'] = self.create_publisher(
+                    Twist, C.quad_topic(i, 'cmd_vel'), 10)
+                self.fleet_mark[f'quad{i}'] = self.create_publisher(
+                    Bool, C.quad_topic(i, 'teleop_mark'), 10)
+            for i in range(2, C.MAX_ROVERS + 1):
+                self.fleet_teleop[f'rover{i}'] = self.create_publisher(
+                    Bool, C.rover_topic(i, 'teleop_active'), 10)
+                self.fleet_cmd[f'rover{i}'] = self.create_publisher(
+                    Twist, C.rover_topic(i, 'cmd_vel_raw'), 10)
+            self.fleet_teleop['quad1'] = self.quad_teleop_pub
+            self.fleet_teleop['rover1'] = self.teleop_pub
+            self.fleet_mark['quad1'] = self.mark_pub
+            self.standdown_timer = self.create_timer(1.0 / C.TELEOP_HZ, self._standdown_tick)
             self.hold_timer = self.create_timer(1.0 / HOLD_HZ, self._hold_tick)
             self._setup_nav()
 
@@ -227,8 +316,16 @@ class _LinkNode(Node):
         if not self._holding:
             return
         stop = Twist()
-        for pub in self.cmd_pubs:
+        for i, pub in enumerate(self.cmd_pubs):
+            if i == 2 and self._descending:
+                continue      # the descent owns parrot1/cmd_vel while it runs
             pub.publish(stop)
+        # Robots 2.. of a fleet. VelocityControl latches for each of them
+        # separately, so each needs its own zero.
+        for key in self.robot_keys():
+            pub = self.fleet_cmd.get(key)
+            if pub is not None:
+                pub.publish(stop)
 
     # -- inbound ------------------------------------------------------------
     def _on_status(self, msg):
@@ -247,12 +344,12 @@ class _LinkNode(Node):
         self.link.pause_changed.emit(bool(msg.data))
 
     def _on_rover_odom(self, msg):
-        self.seen.add('rover_odom')
+        self.seen['rover_odom'] = time.monotonic()
         p = msg.pose.pose.position
         self.link.rover_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation))
 
     def _on_quad_odom(self, msg):
-        self.seen.add('quad_odom')
+        self.seen['quad_odom'] = time.monotonic()
         p = msg.pose.pose.position
         self.link.quad_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
 
@@ -286,7 +383,7 @@ class _LinkNode(Node):
 
     def _image(self, msg, signal, seen=None):
         if seen:
-            self.seen.add(seen)
+            self.seen[seen] = time.monotonic()
         now = time.monotonic()
         if now - self._last_image.get(id(signal), 0.0) < 1.0 / IMAGE_HZ:
             return
@@ -300,6 +397,108 @@ class _LinkNode(Node):
         if img is not None:
             self.link.topdown_frame.emit(img)
 
+    def _fleet_image(self, msg, key):
+        now = time.monotonic()
+        if now - self._last_image.get(key, 0.0) < 1.0 / IMAGE_HZ:
+            return
+        self._last_image[key] = now
+        img = qimage_from_ros(msg)
+        if img is not None:
+            self.link.fleet_frame.emit(key, img)
+
+    def _fleet_state(self, msg, key):
+        """A fleet quad's own phase, straight off its namespaced topic."""
+        try:
+            payload = json.loads(msg.data)
+        except (ValueError, TypeError):
+            return
+        if isinstance(payload, dict):
+            phase = str(payload.get('phase') or '--')
+            self.link.robot_state.emit(key, phase, C.QUAD_PHASE_DETAIL.get(phase, ''))
+
+    def _fleet_odom(self, msg, key):
+        p = msg.pose.pose.position
+        self.link.fleet_pose.emit(key, p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
+
+    def _on_agl(self, msg):
+        self.agl = float(msg.data)
+        self.link.quad_agl.emit(self.agl)
+
+    def _on_landed(self, msg):
+        if msg.data:
+            self.link.quad_landed.emit(True)
+
+    # -- holding robots still ----------------------------------------------
+    def _standdown_tick(self):
+        """Beat the stand-down heartbeats, and fly the quad down if asked.
+
+        Their nodes hold a 0.5 s timer off each heartbeat, so this has to keep
+        arriving - one message is not a stand-down, it is a blip. The descent
+        rides on the same timer because the quad only accepts someone else's
+        velocity while its own node is standing down, which is exactly the
+        state this heartbeat creates.
+        """
+        for key in list(self._standdown):
+            pub = self.fleet_teleop.get(key)
+            if pub is not None:
+                pub.publish(Bool(data=True))
+        if self._descending and self.cmd_pubs:
+            down = Twist()
+            if self.agl is None or self.agl > C.LANDED_AGL_M:
+                down.linear.z = -float(C.ABORT_DESCENT_MS)
+            self.cmd_pubs[2].publish(down)       # parrot1/cmd_vel
+
+    def set_fleet(self, quads, rovers):
+        """How many of each robot this run has."""
+        self.quads = max(1, min(int(quads), C.MAX_QUADS))
+        self.rovers = max(1, min(int(rovers), C.MAX_ROVERS))
+
+    def robot_keys(self):
+        return ([f'quad{i}' for i in range(1, self.quads + 1)]
+                + [f'rover{i}' for i in range(1, self.rovers + 1)])
+
+    def set_standdown(self, robot, on):
+        """Hold a robot's mission node down, or hand the robot back.
+
+        `robot` is 'quad'/'rover' for the first of each - the single-robot
+        case, and what every caller used before there were fleets - or an
+        explicit 'quad2'/'rover3'. 'quads'/'rovers'/'all' cover the run.
+        """
+        keys = self._expand(robot)
+        for key in keys:
+            if on:
+                self._standdown.add(key)
+            else:
+                self._standdown.discard(key)
+                pub = self.fleet_teleop.get(key)
+                if pub is not None:
+                    pub.publish(Bool(data=False))   # released, not merely unheard
+        if not on and any(k.startswith('quad') for k in keys):
+            self._descending = False
+
+    def _expand(self, robot):
+        if robot == 'all':
+            return self.robot_keys()
+        if robot in ('quads', 'quad'):
+            return [f'quad{i}' for i in range(1, self.quads + 1)] if robot == 'quads' else ['quad1']
+        if robot in ('rovers', 'rover'):
+            return [f'rover{i}' for i in range(1, self.rovers + 1)] if robot == 'rovers' else ['rover1']
+        return [robot]
+
+    def holding_robot(self, key):
+        return key in self._standdown
+
+    def set_descending(self, on):
+        self._descending = bool(on)
+
+    def publish_mark(self, quad='quad1'):
+        """Ask a quad to hand the mushroom in view to the rover."""
+        pub = self.fleet_mark.get(quad)
+        if pub is None:
+            return False
+        pub.publish(Bool(data=True))
+        return True
+
     def _on_tf(self, msg):
         if self._tf_ok:
             return
@@ -310,16 +509,29 @@ class _LinkNode(Node):
                 return
 
     # -- readiness ----------------------------------------------------------
+    def reset_readiness(self):
+        """Forget everything the checklist has seen. Called on every Prepare.
+
+        A new simulation has to prove itself from scratch, however much the
+        last one managed. Without this the second run of a session starts
+        with half the checklist already ticked by the first run's messages.
+        """
+        self.seen.clear()
+        if self._tf_ok is not None:      # None means tf2_msgs is missing
+            self._tf_ok = False
+
     def probe_readiness(self):
         """One look at everything the prepare stage is waiting for.
 
-        Cameras and odometry are judged by whether a message has actually
-        arrived; detectors by whether their topic has a publisher, because a
-        YOLO node with its weights loaded has created the publisher even
-        before anything walks into frame. Nav2 is asked directly.
+        Cameras and odometry are judged by whether a message has arrived
+        *recently* - see `FRESH_S`, and the note on `self.seen`. Detectors are
+        judged by whether their topic has a publisher, because a YOLO node
+        with its weights loaded has created the publisher even before anything
+        walks into frame. Nav2 is asked directly.
         """
-        probe = {key: (key in self.seen) for key in ('rover_odom', 'quad_odom',
-                                                     'rover_cam', 'quad_cam')}
+        now = time.monotonic()
+        probe = {key: (now - self.seen.get(key, -1e9)) < FRESH_S
+                 for key in ('rover_odom', 'quad_odom', 'rover_cam', 'quad_cam')}
         probe['sim'] = self._has_publisher(C.CLOCK_TOPIC)
         probe['rover_yolo'] = self._has_publisher(C.HUSKY_DETECTIONS)
         probe['quad_yolo'] = self._has_publisher(C.PARROT_DETECTIONS)
@@ -370,13 +582,17 @@ class _LinkNode(Node):
         same as for the PS4 controller; active=False hands it back."""
         if not self.cmd_pubs or self._holding:
             return
-        self.teleop_pub.publish(Bool(data=bool(active)))
+        # An explicit hold from the window outranks the panel being disarmed:
+        # during Prepare, a pause or an abort the rover is held for a reason
+        # the panel knows nothing about.
+        if active or 'rover1' not in self._standdown:
+            self.teleop_pub.publish(Bool(data=bool(active)))
         t = Twist()
         t.linear.x = float(vx)
         t.angular.z = float(wz)
         self.cmd_pubs[1].publish(t)   # husky1/cmd_vel_raw
 
-    def publish_quad_drive(self, vx, vy, vz, wz):
+    def publish_quad_drive(self, vx, vy, vz, wz, active=True):
         """Hand-flying the quadcopter.
 
         There is no guard in front of the quad - nothing filters its velocity
@@ -386,6 +602,11 @@ class _LinkNode(Node):
         """
         if not self.cmd_pubs or self._holding:
             return
+        # Same arrangement as the rover's: the heartbeat makes zcam_quad_node
+        # stand down while the operator flies, and it keeps reporting
+        # sightings to the rover the whole time.
+        if self.quad_teleop_pub is not None and (active or 'quad1' not in self._standdown):
+            self.quad_teleop_pub.publish(Bool(data=bool(active)))
         t = Twist()
         t.linear.x = float(vx)
         t.linear.y = float(vy)
@@ -409,6 +630,11 @@ class RosLink(QObject):
     rover_detections = Signal(list)
     quad_detections = Signal(list)
     teleop_status = Signal(str)
+    quad_agl = Signal(float)
+    quad_landed = Signal(bool)
+    fleet_frame = Signal(str, object)
+    fleet_pose = Signal(str, float, float, float, float)
+    robot_state = Signal(str, str, str)
     nav_goal_finished = Signal(bool)
     topdown_frame = Signal(object)
 
@@ -452,8 +678,26 @@ class RosLink(QObject):
     def publish_drive(self, vx, wz, active=True):
         self._node.publish_drive(vx, wz, active)
 
-    def publish_quad_drive(self, vx, vy, vz, wz):
-        self._node.publish_quad_drive(vx, vy, vz, wz)
+    def publish_quad_drive(self, vx, vy, vz, wz, active=True):
+        self._node.publish_quad_drive(vx, vy, vz, wz, active)
+
+    def set_standdown(self, robot, on):
+        self._node.set_standdown(robot, on)
+
+    def set_descending(self, on):
+        self._node.set_descending(on)
+
+    def publish_mark(self, quad='quad1'):
+        return self._node.publish_mark(quad)
+
+    def set_fleet(self, quads, rovers):
+        self._node.set_fleet(quads, rovers)
+
+    def robot_keys(self):
+        return self._node.robot_keys()
+
+    def quad_height(self):
+        return self._node.agl
 
     def cancel_all_nav(self):
         return self._node.cancel_all_nav()
@@ -463,6 +707,10 @@ class RosLink(QObject):
 
     def probe_readiness(self):
         return self._node.probe_readiness()
+
+    def reset_readiness(self):
+        """Make the next Prepare start from nothing. See the node's own."""
+        self._node.reset_readiness()
 
     def publish_stop(self):
         """One zero on cmd_vel_raw, so the guard stops replaying a stale command."""

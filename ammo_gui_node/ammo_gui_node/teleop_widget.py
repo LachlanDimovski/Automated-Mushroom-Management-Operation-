@@ -8,14 +8,21 @@ Speeds are near what the rover uses for its own approach, so driving by hand
 feels like the rover behaves on its own rather than something twitchier.
 
 The quadcopter has no guard in front of it, so its commands go straight to
-`parrot1/cmd_vel`. Nothing else may be commanding it at the same time: the
-window suspends the quad's mission node while this panel is armed, because
-two publishers on one velocity topic means the robot obeys whichever message
-arrived last.
+`parrot1/cmd_vel`. Nothing else may be commanding it at the same time,
+because two publishers on one velocity topic means the robot obeys whichever
+message arrived last.
 
-Arming the rover also sends the `husky1/teleop_active` heartbeat, so
-`rover_capture_node` stands down until the panel is disarmed, then re-plans
-from where it was left.
+Arming either panel sends that robot's `teleop_active` heartbeat -
+`husky1/teleop_active` or `parrot1/teleop_active` - which is how the PS4
+controller does it. The robot's mission node stands down while the heartbeat
+keeps arriving and re-plans from where it was left once it stops, with no
+process ever being stopped. The quad keeps reporting sightings to the rover
+throughout, so hand-flying does not cost you the search.
+
+**MARK** on the quad panel asks the quad to send the mushroom currently in
+view to the rover's queue. The quad answers with its own latest gated
+sighting, so the projection is theirs, not a guess made here. It is the
+PS4 CROSS button on a different button.
 
 The panel has to hold keyboard focus to work, and it drops every held key
 when it loses focus - otherwise clicking away mid-throttle would leave the
@@ -54,9 +61,12 @@ LAYOUTS = {
              [(Qt.Key_A, 'A'), (Qt.Key_S, 'S'), (Qt.Key_D, 'D'), (Qt.Key_F, 'F')]],
 }
 
+# Written to wrap onto two lines in a 286 px column rather than be cut off
+# at the right edge. The separator is a middle dot with spaces, so Qt has
+# somewhere to break.
 HINTS = {
-    'rover': 'W/S drive  ·  A/D turn  ·  release to stop',
-    'quad': 'W/S fly  ·  A/D turn  ·  Q/E slide  ·  R/F up and down',
+    'rover': 'W/S drive  ·  A/D turn\nrelease a key to stop',
+    'quad': 'W/S forward and back  ·  A/D turn\nQ/E slide sideways  ·  R/F up and down',
 }
 
 
@@ -90,7 +100,8 @@ class KeyCap(QWidget):
 class TeleopWidget(QWidget):
     """One panel per robot. `robot` is 'rover' or 'quad'."""
 
-    arm_changed = Signal(str, bool)      # robot, armed
+    arm_changed = Signal(str, bool)   # robot, armed
+    mark_requested = Signal()         # the quad panel's MARK button
 
     def __init__(self, link, robot='rover'):
         super().__init__()
@@ -113,6 +124,15 @@ class TeleopWidget(QWidget):
         self.armed = QCheckBox('Armed')
         self.armed.toggled.connect(self._on_armed)
         top.addWidget(self.armed)
+        self.mark_button = None
+        if robot == 'quad':
+            from PySide6.QtWidgets import QPushButton
+            self.mark_button = QPushButton('MARK')
+            self.mark_button.setObjectName('Ghost')
+            self.mark_button.setToolTip(
+                'Send the mushroom the quadcopter can see to the rover')
+            self.mark_button.clicked.connect(lambda: self.mark_requested.emit())
+            top.addWidget(self.mark_button)
         lay.addLayout(top)
 
         self.caps = {}
@@ -132,6 +152,10 @@ class TeleopWidget(QWidget):
 
         self.hint = QLabel('Click here, then tick Armed to drive.')
         self.hint.setWordWrap(True)
+        # The quad's key list is long enough to be clipped on one line in a
+        # 286 px column, so give it room to run onto a second and third.
+        self.hint.setMinimumHeight(34)
+        self.hint.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.hint.setStyleSheet(f'color: {theme.TEXT_DIM}; font-size: 12px;')
         lay.addWidget(self.hint)
 
@@ -195,6 +219,8 @@ class TeleopWidget(QWidget):
         if self.held:
             self.held.clear()
             self._sync_caps()
+            # Still armed, so the heartbeat stays: the robot is the
+            # operator's, it is simply not being asked to move.
             self._send(0.0, 0.0, 0.0, 0.0)
         self._update_hint()
         return super().focusOutEvent(event)
@@ -208,7 +234,7 @@ class TeleopWidget(QWidget):
         if self.robot == 'rover':
             self.link.publish_drive(vx, wz, active)
         else:
-            self.link.publish_quad_drive(vx, vy, vz, wz)
+            self.link.publish_quad_drive(vx, vy, vz, wz, active)
 
     def _tick(self):
         if self.blocked or not self.armed.isChecked():

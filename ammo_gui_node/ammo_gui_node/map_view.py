@@ -52,6 +52,25 @@ OBJ_STYLE = {
     'decoy': ('square', '#2E2A33', '#4A4454', 0.22),
 }
 
+# The world boundary. Near-white on purpose: it has to read on a black map
+# at a glance, and nothing else on the map is this colour.
+EDGE_COLOUR = '#C9D4DC'
+
+# Below this many pixels per metre the world is zoomed far enough out that
+# the object symbols stop being shapes and become specks. At that point they
+# are drawn at a floor size and in brighter colours, because a tree you
+# cannot see is a tree that is not telling you which way the map is facing.
+FAR_PPM = 7.0
+FAR_FILL = {
+    'tree': '#39493F',
+    'fallen_tree': '#4A4036',
+    'log': '#473D33',
+    'stump': '#453F38',
+    'rock': '#3C444A',
+    'clutter': '#373D43',
+    'decoy': '#473F50',
+}
+
 RIVER_FILL = '#14323F'
 RIVER_EDGE = '#1F4E61'
 FORD_FILL = '#2C3A33'
@@ -70,7 +89,8 @@ class MapView(QWidget):
 
     clicked = Signal(float, float)
 
-    def __init__(self, parent=None, interactive=True, compact=False, show_key=True):
+    def __init__(self, parent=None, interactive=True, compact=False, show_key=True,
+                 fit_world=False):
         super().__init__(parent)
         self.setMinimumSize(240, 200)
         self.interactive = interactive
@@ -80,10 +100,17 @@ class MapView(QWidget):
             self.setCursor(Qt.CrossCursor)
 
         self.range_m = 12.0
-        self.rover = None        # (x, y, yaw)
-        self.quad = None         # (x, y, yaw, alt)
+        self.rover = None        # (x, y, yaw)        - the first rover
+        self.quad = None         # (x, y, yaw, alt)   - the first quad
         self.rover_trail = deque(maxlen=TRAIL_LEN)
         self.quad_trail = deque(maxlen=TRAIL_LEN)
+        # Every robot beyond the first, keyed 'quad2', 'rover3' and so on.
+        # The first of each keeps its own attribute because the route line,
+        # the goal arrow and the trails were all written around there being
+        # one - and with one robot, which is still the usual case, nothing
+        # here is used at all.
+        self.fleet = {}          # key -> (x, y, yaw, alt or None)
+        self.fleet_trails = {}   # key -> deque
         self.mushrooms = []      # dicts from the status message
         self.trunks = []         # [(x, y), ...] fallback when there is no meta
         self.goal = None         # (x, y) operator goal
@@ -97,13 +124,20 @@ class MapView(QWidget):
         self.fords = []
         self.lanes = []
         self.hedge_half = None
+        self.playable_half = None   # the area the quad searches and Nav2 plans in
         self.clearing = None
+        # The big clickable map fits the whole playable area, so you can see
+        # where you may click; the compact minimaps keep auto-fitting to the
+        # robots, where the detail is.
+        self.fit_world = bool(fit_world)
+        self.spawns = []            # [(x, y, label)] where each robot starts
 
         # everything the mission reported
         self.markers = []        # {kind, x, y}
         self.natives = []        # [[x, y], ...]
         self.route = None        # {'sx','sy','gx','gy','vias'}
         self.planned = []        # [[x, y], ...] mushrooms a run would spawn
+        self.search_path = []    # [(x, y), ...] the legs the quad will fly
 
     # -- inputs -------------------------------------------------------------
     def set_frozen(self, frozen):
@@ -141,7 +175,16 @@ class MapView(QWidget):
         self.fords = meta.get('fords') or []
         self.lanes = meta.get('lanes') or []
         self.hedge_half = (meta.get('hedge') or {}).get('half_size')
+        # `playable_size_m` is the side of the square the world generator
+        # scatters into and the quad sweeps - 60 m on both forest worlds. The
+        # hedge at 41 m is the physical wall well outside it. The playable
+        # square is the honest answer to "where may I click": a Nav2 goal
+        # outside it is rejected, which from the operator's side looks like
+        # the rover ignoring the click.
+        size = (meta.get('world') or {}).get('playable_size_m')
+        self.playable_half = float(size) / 2.0 if size else None
         self.clearing = meta.get('spawn_clearing') or None
+        self._apply_fit()
 
         # Deliberately not growing to the hedge: the playable area is 60 m
         # across while the robots and the mushrooms live inside about 15 m of
@@ -167,6 +210,53 @@ class MapView(QWidget):
         self._grow(x, y)
         self.update()
 
+    def set_fit_world(self, on):
+        """Whole world, or in close on the robots.
+
+        Whole world is the default because it is the only way to see where
+        you may click - but it makes a 60 m world's trees very small, so
+        this is a button rather than a decision taken once.
+        """
+        self.fit_world = bool(on)
+        if not self.fit_world:
+            # Shrink back to what is actually out there. `_grow` only ever
+            # grows, so the range has to be rebuilt from scratch.
+            self.range_m = MIN_RANGE_M
+            for pose in [self.rover, self.quad] + list(self.fleet.values()):
+                if pose:
+                    self._grow(pose[0], pose[1])
+            for obj in self.world_mushrooms:
+                self._grow(_x(obj), _y(obj))
+            for x, y in self.planned:
+                self._grow(x, y)
+            for m in self.mushrooms:
+                self._grow(m.get('x', 0.0), m.get('y', 0.0))
+        self._apply_fit()
+        self.update()
+
+    def _apply_fit(self):
+        if self.fit_world and self.playable_half:
+            self._grow(self.playable_half, self.playable_half)
+
+    def set_robot(self, key, x, y, yaw, alt=None):
+        """Place any robot by its key: 'quad1', 'rover2', ...
+
+        Before this, a fleet's extra robots were fed into `set_quad` and
+        `set_rover`, which hold one of each - so four quadcopters drew as one
+        marker jumping between four places.
+        """
+        if key in ('rover1', 'rover'):
+            return self.set_rover(x, y, yaw)
+        if key in ('quad1', 'quad'):
+            return self.set_quad(x, y, yaw, alt or 0.0)
+        if self.frozen:
+            return
+        self.fleet[key] = (x, y, yaw, alt)
+        trail = self.fleet_trails.setdefault(key, deque(maxlen=TRAIL_LEN))
+        self._push(trail, x, y)
+        self._grow(x, y)
+        self.update()
+
     def set_mushrooms(self, mushrooms):
         self.mushrooms = list(mushrooms or [])
         for m in self.mushrooms:
@@ -185,6 +275,16 @@ class MapView(QWidget):
 
     def set_route(self, route):
         self.route = dict(route) if route else None
+        self.update()
+
+    def set_search_path(self, points):
+        """The quad's planned legs, for the setup page's preview.
+
+        Drawn under everything else and in a colour nothing else uses, so it
+        reads as a plan rather than as something that has happened.
+        """
+        self.search_path = [(float(p[0]), float(p[1])) for p in (points or [])
+                            if p is not None and len(p) >= 2]
         self.update()
 
     def set_planned(self, points):
@@ -209,6 +309,8 @@ class MapView(QWidget):
         self.rover = self.quad = self.goal = None
         self.rover_trail.clear()
         self.quad_trail.clear()
+        self.fleet.clear()
+        self.fleet_trails.clear()
         self.mushrooms = []
         self.markers = []
         self.natives = []
@@ -265,18 +367,35 @@ class MapView(QWidget):
         self._lanes(p)
         self._objects(p)
         self._world_mushrooms(p)
+        self._spawn_marks(p)
         self._trail(p, self.rover_trail, QColor(theme.ACCENT))
         self._trail(p, self.quad_trail, QColor(theme.TEXT))
+        for key, trail in self.fleet_trails.items():
+            self._trail(p, trail, QColor(theme.TEXT if key.startswith('quad')
+                                         else theme.ACCENT))
         self._route(p)
         self._markers(p)
         self._natives(p)
+        self._search_path(p)
         self._planned(p)
         self._mushrooms(p)
         self._goal(p)
         if self.rover:
             self._rover_glyph(p, *self.rover)
+            if self.fleet:
+                self._robot_label(p, self.rover[0], self.rover[1], 'S1')
         if self.quad:
             self._quad_glyph(p, *self.quad)
+            if self.fleet:
+                self._robot_label(p, self.quad[0], self.quad[1], 'Q1')
+        for key, pose in self.fleet.items():
+            x, y, yaw, alt = pose
+            if key.startswith('quad'):
+                self._quad_glyph(p, x, y, yaw, alt or 0.0)
+                self._robot_label(p, x, y, 'Q' + key[4:])
+            else:
+                self._rover_glyph(p, x, y, yaw)
+                self._robot_label(p, x, y, 'S' + key[5:])
         if self.show_key:
             self._legend(p)
         p.end()
@@ -305,8 +424,62 @@ class MapView(QWidget):
         p.drawText(QPointF(self.width() - 70, self.height() - 8),
                    f'{self.range_m:.0f} m')
 
+    def in_bounds(self, wx, wy):
+        """Is this point somewhere a goal could actually be driven to?
+
+        Without a meta there is nothing to go on, so everything is allowed
+        rather than nothing - `simple_trees` has no world file to ask.
+        """
+        if not self.playable_half:
+            return True
+        return max(abs(wx), abs(wy)) <= self.playable_half
+
+    def set_spawns(self, spawns):
+        self.spawns = [(float(x), float(y), str(label)) for x, y, label in (spawns or [])]
+        self.update()
+
+    def _playable(self, p):
+        """The edge of the world, so a click never lands outside it blind.
+
+        Drawn in a near-white, because on a black map a dim blue dash is
+        invisible - which is exactly what happened the first time.
+        """
+        if not self.playable_half:
+            return
+        h = self.playable_half
+        pen = QPen(QColor(EDGE_COLOUR), 1.6)
+        pen.setDashPattern([7, 5])
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(QRectF(self.to_px(-h, h), self.to_px(h, -h)))
+        corner = self.to_px(-h, h)
+        p.setPen(QColor(EDGE_COLOUR))
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
+        p.drawText(QPointF(corner.x() + 5, corner.y() + 12),
+                   f'world edge  {2 * h:.0f} x {2 * h:.0f} m')
+
+    def _spawn_marks(self, p):
+        """Where each robot starts, for the ready page's placement view."""
+        if not self.spawns:
+            return
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
+        for x, y, label in self.spawns:
+            at = self.to_px(x, y)
+            quad = label.upper().startswith('Q')
+            colour = QColor(theme.TEXT if quad else theme.ACCENT)
+            pen = QPen(colour, 1.4)
+            pen.setDashPattern([2, 2])
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(at, 7.0, 7.0)
+            p.setPen(QPen(colour, 1.4))
+            p.drawLine(QPointF(at.x() - 3, at.y()), QPointF(at.x() + 3, at.y()))
+            p.drawLine(QPointF(at.x(), at.y() - 3), QPointF(at.x(), at.y() + 3))
+            p.drawText(QPointF(at.x() + 9, at.y() + 3), label)
+
     def _boundary(self, p):
         """The hedge square the search stays inside, and the spawn clearing."""
+        self._playable(p)
         if self.hedge_half:
             h = float(self.hedge_half)
             p.setPen(QPen(QColor(HEDGE_EDGE), 2.0))
@@ -403,11 +576,14 @@ class MapView(QWidget):
         ppm = self.ppm()
         order = [k for k in C.OBJ_ORDER if k in self.objects and k != 'mushroom']
         order += [k for k in self.objects if k not in C.OBJ_ORDER]
+        far = ppm < FAR_PPM
         for kind in order:
             style = OBJ_STYLE.get(kind)
             if style is None:
                 continue
             shape, fill, edge, fallback_r = style
+            if far:
+                fill = FAR_FILL.get(kind, fill)
             p.setPen(QPen(QColor(edge), 1.0))
             p.setBrush(QBrush(QColor(fill)))
             for obj in self.objects[kind]:
@@ -435,12 +611,13 @@ class MapView(QWidget):
             p.drawLine(self.to_px(x - dx, y - dy), self.to_px(x + dx, y + dy))
             p.restore()
             return
+        floor = 2.6 if ppm < FAR_PPM else 2.0
         if shape == 'square':
-            s = max(2.0, r * ppm)
+            s = max(floor, r * ppm)
             pt = self.to_px(x, y)
             p.drawRect(QRectF(pt.x() - s, pt.y() - s, 2 * s, 2 * s))
             return
-        rad = max(1.6, r * ppm)
+        rad = max(floor, r * ppm)
         p.drawEllipse(self.to_px(x, y), rad, rad)
 
     def _world_mushrooms(self, p):
@@ -459,6 +636,13 @@ class MapView(QWidget):
             p.setPen(pen)
             p.setBrush(Qt.NoBrush)
             p.drawEllipse(pt, r, r)
+
+    def _robot_label(self, p, x, y, label):
+        """Which robot this is. Only drawn when there is more than one."""
+        at = self.to_px(x, y)
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
+        p.setPen(QColor(theme.TEXT))
+        p.drawText(QPointF(at.x() + 11, at.y() - 7), label)
 
     def _trail(self, p, trail, colour):
         pts = list(trail)
@@ -542,6 +726,31 @@ class MapView(QWidget):
             p.setPen(QPen(QColor(theme.TEAL), 1.3))
             p.setBrush(Qt.NoBrush)
             p.drawEllipse(pt, r + 3.5, r + 3.5)
+
+    def _search_path(self, p):
+        """The quad's legs: a dashed line with the start marked.
+
+        Direction matters more than the shape here - both patterns cover the
+        same square, and what distinguishes them is the order. So the first
+        leg gets a dot and the line fades from bright at the start to dim at
+        the end, which reads as "it goes this way" without arrowheads
+        cluttering a 240 px preview.
+        """
+        if len(self.search_path) < 2:
+            return
+        pts = [self.to_px(x, y) for x, y in self.search_path]
+        pen = QPen(QColor(theme.VIOLET), 1.4)
+        pen.setStyle(Qt.DashLine)
+        n = len(pts) - 1
+        for i, (a, b) in enumerate(zip(pts, pts[1:])):
+            p.setOpacity(0.85 - 0.55 * (i / n if n else 0))
+            p.setPen(pen)
+            p.drawLine(a, b)
+        p.setOpacity(1.0)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.VIOLET))
+        p.drawEllipse(pts[0], 3.0, 3.0)
+        p.setBrush(Qt.NoBrush)
 
     def _planned(self, p):
         """What pressing Launch would put in the world."""

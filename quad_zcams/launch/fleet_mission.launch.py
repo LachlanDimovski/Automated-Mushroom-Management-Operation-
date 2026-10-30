@@ -35,7 +35,11 @@ MAX_ROVERS = 5
 SPAWNS = [(2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0)]  # inside the 4 m spawn clearing, clear of the rover
 ROVER_SPAWNS = [(0.0, 0.0), (2.5, -2.5), (-2.5, -2.5), (2.5, 2.5), (-2.5, 2.5)]  # off the quads' axes
 QUAD_TOPICS = ['cmd_vel', 'odometry', 'scan', 'detections', 'camera/depth/image', 'down_depth/image', 'up_depth/image',
-               'teleop_active', 'teleop_mark', 'landed', 'agl', 'ground_obstacles']
+               'teleop_active', 'teleop_mark', 'landed', 'agl', 'ground_obstacles',
+               # FleetQuad inherits ZCamQuad's state publisher; without this every
+               # quad publishes to parrot1/quad_state and the GUI shows one state
+               # flickering between them
+               'quad_state']
 FLEET_TOPICS = [('husky1/cage/waypoints', 'fleet/reports'), ('husky1/cage/done', 'fleet/done'),
                 ('husky1/cage/missed', 'fleet/missed')]
 

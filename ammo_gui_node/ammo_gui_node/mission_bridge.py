@@ -52,6 +52,8 @@ LATCHED_QOS = QoSProfile(depth=1,
 ROSOUT_QOS = QoSProfile(depth=200, reliability=ReliabilityPolicy.RELIABLE)
 
 STALE_S = 2.0
+# A ground map older than this is from a simulation that is not running.
+GROUND_MAP_STALE_S = 30.0
 STATE_TOPIC_STALE_S = 5.0   # longer than STALE_S: states change rarely
 HOLD_WINDOW_S = 6.0         # a sighting this recent means the quad is holding
 CONF_WINDOW_S = 4.0         # detections this recent belong to the next sighting
@@ -186,6 +188,12 @@ class MissionBridge(Node):
         # instead of drawing an empty timeline.
         self.phase = 'idle'
         self.paused = False
+        # Abort has two moments, and the timeline needs both: the press, and
+        # the point where everything has actually come to rest. The clock
+        # keeps running between them - that stretch is the stopping, and it
+        # is the thing worth seeing - and stops when the robots do.
+        self.aborting = False
+        self.abort_done = False
         self.mode = 'autonomous'
         self.world = ''
         self.layout = ''
@@ -202,6 +210,8 @@ class MissionBridge(Node):
         self.route = None          # the rover's current Nav2 leg, for the map
         self.river = None          # {'blocked_m2', 'fords'} once the rover says so
         self.coverage = None       # fraction of the search area the quad has seen
+        self.placed = []           # where the GUI put the mushrooms, if it said
+        self.quads = self.rovers = 1
         self.natives = []          # [[x, y], ...] native mushrooms left in place
         self.detector_classes = []  # what the loaded weights can actually detect
 
@@ -211,7 +221,8 @@ class MissionBridge(Node):
         self.parrot_odom = None
         self.quad = {}             # the quad's own state payload
         self.seen = {'rover': 0.0, 'quad': 0.0,
-                     'rover_state': -1e9, 'quad_state': -1e9}
+                     'rover_state': -1e9, 'quad_state': -1e9,
+                     'ground_map': -1e9}
 
         self._last_sighting_at = -1e9
         self._last_conf = None
@@ -259,6 +270,7 @@ class MissionBridge(Node):
             self.running = False
             self.phase = 'ready'
             self.paused = False
+            self.aborting = self.abort_done = False
             self._paused_at = None
             self._set_state(C.IDLE)
 
@@ -273,9 +285,12 @@ class MissionBridge(Node):
             ok = cmd.get('ok', True)
             if self.operator_goal is not None:
                 if ok is False:
+                    gx, gy = self.operator_goal
                     self._emit(C.EV_GOAL_FAILED,
-                               text=cmd.get('why') or 'Nav2 could not get the skidsteer to '
-                                                      'your goal - back on the mushroom queue')
+                               x=round(gx, 2), y=round(gy, 2),
+                               text=cmd.get('why') or
+                               f'Nav2 refused or gave up on ({gx:.1f}, {gy:.1f}) - '
+                               'outside the world, or no route to it. Back on the queue.')
                 elif ok is None:
                     self._emit(C.EV_NOTE,
                                text='Operator goal cleared - back on the mushroom queue')
@@ -284,6 +299,42 @@ class MissionBridge(Node):
                                text='Skidsteer reached the goal - back on the mushroom queue')
             self.operator_goal = None
 
+        elif kind == 'abort':
+            if self.running and not self.aborting:
+                self.aborting, self.abort_done = True, False
+                x, y = (self.rover_odom.pose.pose.position.x,
+                        self.rover_odom.pose.pose.position.y) if self.rover_odom else (0.0, 0.0)
+                self._add_marker(C.MK_ABORT, x, y)
+                self.operator_goal = None
+                self._emit(C.EV_ABORT, x=round(x, 2), y=round(y, 2),
+                           text='EMERGENCY STOP - rover halted, quadcopter landing')
+                self._set_state(C.ABORT)
+
+        elif kind == 'abort_done':
+            if self.aborting and not self.abort_done:
+                self.abort_done = True
+                # Now the clock stops. Everything between the press and here
+                # was the robots still moving, which belongs on the timeline.
+                if self._paused_at is None:
+                    self._paused_at = time.monotonic()
+                self._emit(C.EV_ABORT_DONE,
+                           text=str(cmd.get('text')
+                                    or 'All robots stopped - the quadcopter is on the ground'))
+
+        elif kind == 'abort_clear':
+            if self.aborting:
+                if self._paused_at is not None:
+                    self._paused_total += time.monotonic() - self._paused_at
+                self._paused_at = None
+                self.aborting = self.abort_done = False
+                self._emit(C.EV_RESUME, text='Resumed after the emergency stop')
+
+        elif kind == 'marked':
+            x, y = float(cmd.get('x', 0.0)), float(cmd.get('y', 0.0))
+            self._emit(C.EV_MARKED, x=round(x, 2), y=round(y, 2),
+                       text=str(cmd.get('text')
+                                or 'Operator sent the mushroom in view to the rover'))
+
         elif kind == 'note':
             self._emit(C.EV_NOTE, text=str(cmd.get('text', ''))[:200])
 
@@ -291,10 +342,20 @@ class MissionBridge(Node):
         self.running = True
         self.phase = 'running'
         self.paused = False
+        self.aborting = self.abort_done = False
         self.mode = cmd.get('mode', 'autonomous')
         self.world = cmd.get('world', '')
         self.layout = cmd.get('layout', '')
         self.total = int(cmd.get('total', 0) or 0)
+        self.placed = [[float(p[0]), float(p[1])] for p in (cmd.get('placed') or [])
+                       if p is not None and len(p) >= 2]
+        self.quads = int(cmd.get('quads', 1) or 1)
+        self.rovers = int(cmd.get('rovers', 1) or 1)
+        # A new mission's coverage starts unknown. Without this it carried the
+        # last run's number - and with a latched grid from a simulation that
+        # had already been killed, it sat there forever looking live.
+        self.coverage = None
+        self.seen['ground_map'] = -1e9
         self.mushrooms = []
         self.queue_len = 0
         self.operator_goal = None
@@ -369,6 +430,7 @@ class MissionBridge(Node):
             return
         before = self.coverage
         self.coverage = frac
+        self.seen['ground_map'] = time.monotonic()
         # worth an event every 10 points, so the feed shows progress without
         # a line every second
         if before is None or int(frac * 10) != int(before * 10):
@@ -665,6 +727,10 @@ class MissionBridge(Node):
         return C.QUAD_WAITING
 
     def _mission_state(self):
+        # Abort outranks even pause: whatever else is true, the operator hit
+        # the stop and that is what the band should say.
+        if self.aborting:
+            return C.ABORT
         if self.paused:
             return C.PAUSED
         if not self.running:
@@ -740,6 +806,8 @@ class MissionBridge(Node):
             'running': self.running,
             'phase': self.phase,
             'paused': self.paused,
+            'aborting': self.aborting,
+            'abort_done': self.abort_done,
             'mode': self.mode,
             'world': self.world,
             'layout': self.layout,
@@ -753,7 +821,16 @@ class MissionBridge(Node):
             'total': self.total,
             'queue': self.queue_len,
             'retrying': self.retrying,
-            'coverage': None if self.coverage is None else round(self.coverage, 3),
+            # A grid whose publisher has gone stops being an answer. The
+            # topic is transient-local, so a dead simulation's last map hangs
+            # around and would otherwise read as a live number that never
+            # moves.
+            'coverage': (None if self.coverage is None
+                         or not self._fresh('ground_map', GROUND_MAP_STALE_S)
+                         else round(self.coverage, 3)),
+            'placed': self.placed,
+            'quads': self.quads,
+            'rovers': self.rovers,
             'natives': self.natives,
             'detector_classes': self.detector_classes,
             'river': self.river,

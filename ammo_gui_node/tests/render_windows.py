@@ -35,6 +35,11 @@ class FakeLink(QObject):
     teleop_status = Signal(str)
     nav_goal_finished = Signal(bool)
     topdown_frame = Signal(object)
+    quad_agl = Signal(float)
+    quad_landed = Signal(bool)
+    fleet_frame = Signal(str, object)
+    fleet_pose = Signal(str, float, float, float, float)
+    robot_state = Signal(str, str, str)
 
     def __init__(self):
         super().__init__()
@@ -42,7 +47,16 @@ class FakeLink(QObject):
         self.pauses = []
         self.drives = []
         self.quad_drives = []
+        self.quad_active = []
         self.holding = False
+        # Which robots the window is holding still, and how it was asked.
+        self.standdown = set()
+        self.standdown_log = []
+        self.descending = False
+        self.marks = []
+        self.waypoints = []
+        self.quads, self.rovers = 1, 1
+        self.agl = None
         self.hold_log = []
         self.goals = []
         self.started = False
@@ -55,6 +69,13 @@ class FakeLink(QObject):
     def probe_readiness(self):
         return dict(self.probe)
 
+    def reset_readiness(self):
+        """Only counted here. `probe` on this fake is what the simulation is
+        reporting right now, which a reset does not change; what the real one
+        clears is the record of what arrived earlier, and that is tested
+        against the real node."""
+        self.readiness_resets = getattr(self, 'readiness_resets', 0) + 1
+
     def publish_command(self, payload):
         self.commands.append(payload)
 
@@ -64,8 +85,9 @@ class FakeLink(QObject):
     def publish_drive(self, vx, wz, active=True):
         self.drives.append((vx, wz))
 
-    def publish_quad_drive(self, vx, vy, vz, wz):
+    def publish_quad_drive(self, vx, vy, vz, wz, active=True):
         self.quad_drives.append((vx, vy, vz, wz))
+        self.quad_active.append(bool(active))
 
     def set_holding(self, holding):
         self.holding = bool(holding)
@@ -79,7 +101,45 @@ class FakeLink(QObject):
         return True
 
     def publish_waypoint(self, x, y):
-        pass
+        self.waypoints.append((x, y))
+
+    # -- the stand-down, as the real link exposes it ------------------------
+    def set_fleet(self, quads, rovers):
+        self.quads, self.rovers = int(quads), int(rovers)
+
+    def robot_keys(self):
+        return ([f'quad{i}' for i in range(1, self.quads + 1)]
+                + [f'rover{i}' for i in range(1, self.rovers + 1)])
+
+    def _expand(self, robot):
+        if robot == 'all':
+            return self.robot_keys()
+        if robot == 'quads':
+            return [f'quad{i}' for i in range(1, self.quads + 1)]
+        if robot == 'rovers':
+            return [f'rover{i}' for i in range(1, self.rovers + 1)]
+        if robot == 'quad':
+            return ['quad1']
+        if robot == 'rover':
+            return ['rover1']
+        return [robot]
+
+    def set_standdown(self, robot, on):
+        self.standdown_log.append((robot, bool(on)))
+        for key in self._expand(robot):
+            self.standdown.add(key) if on else self.standdown.discard(key)
+        if not on and any(k.startswith('quad') for k in self._expand(robot)):
+            self.descending = False
+
+    def set_descending(self, on):
+        self.descending = bool(on)
+
+    def publish_mark(self, quad='quad1'):
+        self.marks.append(quad)
+        return True
+
+    def quad_height(self):
+        return self.agl
 
     def publish_stop(self):
         self.drives.append((0.0, 0.0))
@@ -218,6 +278,43 @@ def render(widget, path, size=(1500, 980)):
 _KEEP = []
 
 
+def render_operator():
+    """The mission page: the camera grid, the overhead feed and an abort."""
+    from ammo_gui_node.operator_page import OperatorPage
+
+    link = FakeLink()
+    page = OperatorPage(link)
+    page.start_mission({'world': 'forest_random', 'layout': "World's own 5",
+                        'mode': 'manual', 'points': [], 'total': 5,
+                        'quads': 2, 'rovers': 1})
+    page.on_rover_frame(fake_camera(tint=(34, 54, 40), boxes=False))
+    page.on_quad_frame(fake_camera(tint=(40, 62, 46), boxes=False))
+    page.on_fleet_frame('quad2', fake_camera(tint=(38, 58, 44), boxes=False))
+    page.on_topdown_frame(fake_camera(w=520, h=520, tint=(44, 58, 44), boxes=False))
+    link.rover_detections.emit(DETECTIONS)
+    link.quad_detections.emit(DETECTIONS)
+    for ev in mission_events():
+        page.apply_event(ev)
+    for i in range(70):
+        page.on_rover_pose(2.4 - i * 0.06, 1.1 + i * 0.03, 0.8)
+        page.on_quad_pose(-4.2 + i * 0.09, 7.8 - i * 0.05, 0.8, 1.04)
+    page.apply_status(mission_status())
+    app.processEvents()
+    render(page, _paths.out_dir() + '/operator_page.png', size=(1500, 950))
+
+    # Re-emit, or the first two panels read as stale by the time the second
+    # picture is taken and the render shows NO SIGNAL for no real reason.
+    page.on_rover_frame(fake_camera(tint=(34, 54, 40), boxes=False))
+    page.on_quad_frame(fake_camera(tint=(40, 62, 46), boxes=False))
+    page.on_fleet_frame('quad2', fake_camera(tint=(38, 58, 44), boxes=False))
+    page.on_topdown_frame(fake_camera(w=520, h=520, tint=(44, 58, 44), boxes=False))
+    page.set_aborting(True)
+    page.set_abort_done('All robots stopped - quadcopter down')
+    app.processEvents()
+    render(page, _paths.out_dir() + '/operator_page_abort.png', size=(1500, 950))
+    _KEEP.append(page)
+
+
 def render_setup_and_ready():
     """The two pages a run now starts on, so a layout change is visible."""
     from ammo_gui_node import mission_launcher as ml
@@ -264,6 +361,7 @@ if __name__ == '__main__':
     from ammo_gui_node.debug_window import DebugWindow
 
     render_setup_and_ready()
+    render_operator()
 
     link = FakeLink()
     win = DebugWindow(link)
@@ -282,6 +380,42 @@ if __name__ == '__main__':
     render(win, _paths.out_dir() + '/debug_ui.png')
     print('feed rows:', win.feed.row_count())
     print('timeline rows:', win.timeline.row_count())
+
+    aborted = DebugWindow(FakeLink())
+    aborted.link.rover_frame.emit(fake_camera(tint=(34, 54, 40), boxes=False))
+    aborted.link.quad_frame.emit(fake_camera(tint=(40, 62, 46), boxes=False))
+    aborted.link.topdown_frame.emit(fake_camera(w=520, h=520, tint=(44, 58, 44),
+                                                boxes=False))
+    for ev in mission_events()[:10] + [
+            {'t': 300.0, 'kind': C.EV_ABORT, 'x': 2.0, 'y': -3.0,
+             'text': 'EMERGENCY STOP - rover halted, quadcopter landing'},
+            {'t': 300.0, 'kind': C.EV_STATE, 'state': C.ABORT},
+            {'t': 311.0, 'kind': C.EV_ABORT_DONE,
+             'text': 'All robots stopped - the quadcopter is on the ground'}]:
+        aborted.link.event_received.emit(ev)
+    aborted.link.status_updated.emit(mission_status(elapsed=311.0, state=C.ABORT,
+                                                    aborting=True, abort_done=True))
+    aborted._tick()
+    app.processEvents()
+    render(aborted, _paths.out_dir() + '/debug_ui_abort.png')
+
+    # the report the Debug UI keeps when a run ends
+    done = DebugWindow(FakeLink())
+    done.link.topdown_frame.emit(fake_camera(w=560, h=560, tint=(46, 60, 46),
+                                             boxes=False))
+    for ev in mission_events():
+        done.link.event_received.emit(ev)
+    done.link.status_updated.emit(mission_status())
+    done._tick()
+    # after the events, or MISSION_START clears it the way a real new run does
+    done.link.topdown_frame.emit(fake_camera(w=560, h=560, tint=(46, 60, 46),
+                                             boxes=False))
+    done.link.status_updated.emit(mission_status(running=False, phase='ready',
+                                                 placed=[[6.1, -4.9], [-5.2, -5.4],
+                                                         [9.0, -4.0], [-3.0, 6.0],
+                                                         [12.0, 2.0]]))
+    app.processEvents()
+    render(done, _paths.out_dir() + '/debug_ui_report.png')
 
     held = DebugWindow(FakeLink())
     held.link.rover_frame.emit(fake_camera(tint=(34, 54, 40), boxes=False))
