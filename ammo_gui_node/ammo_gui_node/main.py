@@ -62,6 +62,11 @@ ABORT_WATCH_MS = 250   # how often an abort checks whether everything stopped
 # what the prepare stage has to get inside.
 PROBE_MS = 500
 PHOTO_WAIT_S = 15.0   # per attempt; software rendering is slow
+
+# Above this the quadcopter counts as off the ground. Their own landing test
+# is tighter (`LANDED_AGL_M`); this is the other direction - high enough that
+# ground noise in the odometry altitude cannot read as a take-off.
+AIRBORNE_M = 0.6
 PHOTO_TRIES = 4       # ...so keep waiting a full minute before calling it
 
 
@@ -88,6 +93,8 @@ class OperatorApp:
         self.active_goal = None
         self.mission_running = False
         self.flown_by_hand = set()
+        self._airborne_said = False   # said the quad left the ground, once per run
+        self._touchdown_said = False  # said it came back down, once per abort
         self.rover_at = None          # last rover pose, for aiming operator goals
         self._prepare_t0 = 0.0
         self._photo_wait = False
@@ -159,6 +166,35 @@ class OperatorApp:
 
     def _note_status(self, status):
         self.status = status
+        self._watch_takeoff()
+
+    def _watch_takeoff(self):
+        """Say, once, when the quadcopter has actually left the ground.
+
+        "Launch pressed" and "the mission is under way" are not the same
+        moment and the gap between them is confusing: the quad is released
+        and then spends the better part of a minute climbing to cruise
+        height before it flies its first leg, which from the mission page
+        looks exactly like nothing happening. So this calls it out, and the
+        same line doubles as proof the stand-down was released - a quad that
+        never leaves the ground is a quad still being held.
+        """
+        if not self.mission_running or self.aborting or self._airborne_said:
+            return
+        agl = self.link.quad_height()
+        if agl is None:
+            agl = (self.status.get('quad') or {}).get('alt')
+        try:
+            agl = float(agl)
+        except (TypeError, ValueError):
+            return
+        if agl < AIRBORNE_M:
+            return
+        self._airborne_said = True
+        self.link.publish_command(
+            {'cmd': 'note',
+             'text': f'Quadcopter airborne at {agl:.1f} m - climbing to cruise '
+                     f'height before its first leg'})
 
     def _check_health(self):
         warning = self.launcher.health_warning()
@@ -426,7 +462,14 @@ class OperatorApp:
         })
         self.phase = 'running'
         self.mission_running = True
+        self._airborne_said = False
         self.flown_by_hand.clear()
+        # The robots were released a few lines above. Saying so in the feed
+        # separates "Launch did nothing" from "Launch worked and the quad is
+        # still climbing", which from the mission page look identical.
+        self.link.publish_command(
+            {'cmd': 'note',
+             'text': 'Mission started - every robot released from the hold'})
         config['quads'] = self.launcher.quads
         config['rovers'] = self.launcher.rovers
         self.operator.set_topdown_visible(self.launcher.topdown_running())
@@ -485,6 +528,7 @@ class OperatorApp:
         self.aborting, self.abort_done = True, False
         self._abort_t0 = time.monotonic()
         self._still_since = None
+        self._touchdown_said = False
         self.link.cancel_all_nav()
         self.link.set_holding(True)        # zeros to everything
         self.link.set_standdown('all', True)
@@ -508,6 +552,16 @@ class OperatorApp:
         if agl is None:
             agl = float((self.status.get('quad') or {}).get('alt', 0.0) or 0.0)
         quad_down = agl <= C.LANDED_AGL_M
+        if quad_down and not self._touchdown_said:
+            # The settle confirmation below waits for the rover too and for
+            # ABORT_SETTLE_S on top, so without this the moment the quad
+            # actually reaches the ground is never reported - which is the
+            # one thing you want confirmed after an emergency stop.
+            self._touchdown_said = True
+            self.link.publish_command(
+                {'cmd': 'note',
+                 'text': f'Quadcopter has touched down at {agl:.2f} m above '
+                         f'ground after {elapsed:.0f} s'})
         if rover_still and quad_down:
             if self._still_since is None:
                 self._still_since = time.monotonic()
@@ -559,6 +613,25 @@ class OperatorApp:
             return
         if not self.link.publish_mark():
             self._log('could not reach the quadcopter to mark a mushroom')
+            return
+        # Their quad only keeps a gated sighting once it has taken off
+        # (`if msg.detections and self.taken_off` in `_det_cb`), so a mark
+        # sent from the ground is answered with nothing at all. A box drawn
+        # on the camera feed is not the same thing as a sighting the quad is
+        # willing to hand over, and that difference is invisible from here.
+        agl = self.link.quad_height()
+        if agl is None:
+            agl = (self.status.get('quad') or {}).get('alt')
+        try:
+            grounded = float(agl) < AIRBORNE_M
+        except (TypeError, ValueError):
+            grounded = False
+        if grounded:
+            self.link.publish_command(
+                {'cmd': 'note',
+                 'text': 'Marked, but the quadcopter is on the ground - it only '
+                         'keeps a sighting it can hand over once it has taken '
+                         'off, so nothing will reach the skidsteer. Fly up first.'})
             return
         self.link.publish_command(
             {'cmd': 'marked',

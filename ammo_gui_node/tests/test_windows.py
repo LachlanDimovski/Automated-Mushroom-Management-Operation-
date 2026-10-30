@@ -715,6 +715,77 @@ calls.clear()
 check('a second clear does nothing', placer.clear_world_mushrooms() is True
       and not calls)
 
+# ------------------------------------------------------- the search path ---
+section('the path the quadcopter will fly')
+
+from ammo_gui_node import search_preview as sp                      # noqa: E402
+
+rows = sp.search_path('rows', half=30.0, spacing=6.0)
+loops = sp.search_path('center_out', half=30.0, spacing=6.0)
+check('a lawnmower is a zig-zag of full-width rows', len(rows) >= 8 and
+      all(abs(abs(x) - 30.0) < 1e-6 for x, _y in rows), rows[:4])
+check('and its rows alternate direction',
+      rows[0][0] == -30.0 and rows[1][0] == 30.0 and rows[2][0] == 30.0,
+      rows[:3])
+check('square loops grow outward from the spawn',
+      [round(max(abs(x), abs(y)), 2) for x, y in loops[::5]]
+      == sorted({round(max(abs(x), abs(y)), 2) for x, y in loops}),
+      [round(max(abs(x), abs(y)), 2) for x, y in loops[::5]])
+check('each loop is closed - it ends where it began',
+      all(loops[i] == loops[i + 4] for i in range(0, len(loops) - 4, 5)))
+check('and the outermost stays a metre inside the edge',
+      max(max(abs(x), abs(y)) for x, y in loops) == 29.0,
+      max(max(abs(x), abs(y)) for x, y in loops))
+check('a pattern we do not know draws nothing rather than something wrong',
+      sp.search_path('spiral', 30.0, 6.0) == [])
+check('and neither does a world with no size', sp.search_path('rows', 0, 6.0) == [])
+check('the length is the flying, not the corner count',
+      abs(sp.path_length_m([(0, 0), (3, 4), (3, 4)]) - 5.0) < 1e-9)
+
+# The sweep is not the whole map: their launch pulls it in from the playable
+# size, and falls back to a small square on a world with no meta at all.
+check('a 60 m world sweeps 25.5 m either side, as their launch sizes it',
+      sp.search_half({'world': {'playable_size_m': 60}}) == 25.5,
+      sp.search_half({'world': {'playable_size_m': 60}}))
+check('and a world with no meta still gets their default',
+      sp.search_half(None) == sp.DEFAULT_HALF_M == 6.5)
+check('so even simple_trees, which ships no meta, draws a path',
+      len(sp.search_path('rows', sp.search_half(ml.world_meta_full('simple_trees')),
+                         3.0)) > 2)
+
+# The preview is only worth drawing if it is their route, so compare against
+# the real function rather than against our idea of it. Their file is read and
+# the one pure function lifted out of it, since importing the module would
+# need ROS.
+import ast                                                           # noqa: E402
+_their_file = os.path.join(_paths.REPO, 'ammo_mission_control',
+                           'ammo_mission_control', 'quad_search_node.py')
+if os.path.exists(_their_file):
+    _tree = ast.parse(open(_their_file).read())
+    _fn = next((n for n in _tree.body if isinstance(n, ast.FunctionDef)
+                and n.name == 'build_lawnmower_waypoints'), None)
+    check('their lawnmower builder is still there to compare against', _fn is not None)
+    if _fn is not None:
+        # their defaults name module constants we are not importing; every
+        # argument is passed explicitly below, so drop them
+        _fn.args.defaults = []
+        _ns = {}
+        exec(compile(ast.Module(body=[_fn], type_ignores=[]), '<theirs>', 'exec'), _ns)
+        theirs = _ns['build_lawnmower_waypoints'](-30.0, 30.0, -30.0, 30.0, 6.0)
+        check('and our preview draws exactly the route they fly',
+              [tuple(w) for w in theirs] == [tuple(w) for w in rows],
+              f'{theirs[:3]} vs {rows[:3]}')
+
+path_map = MapView(interactive=False, compact=True)
+path_map.set_world(ml.world_meta_full('forest_random'))
+path_map.set_search_path(loops)
+check('the map takes the path', len(path_map.search_path) == len(loops))
+path_map.resize(420, 320)
+path_map.render(QImage(420, 320, QImage.Format_RGB32))
+check('and it draws without falling over', True)
+path_map.set_search_path([])
+check('clearing it is allowed too', path_map.search_path == [])
+
 # ------------------------------------------------------------ the meshes ---
 section('a mushroom with nothing to draw')
 
@@ -1203,6 +1274,32 @@ check('launching anyway still spawns the mushrooms first',
 check('but does not stop to take a photo it has no time to show',
       'photo' not in second.calls, second.calls)
 check('the mission is running', app_under_test.phase == 'running')
+check('and the feed says so, so a slow start is not mistaken for a dead button',
+      any('Mission started' in str(c.get('text', ''))
+          for c in app_under_test.link.commands),
+      [c.get('text') for c in app_under_test.link.commands][-3:])
+
+# "Launch pressed" and "the quad is flying" are a minute apart - it climbs to
+# cruise height first, which from the mission page looks like nothing
+# happening at all.
+app_under_test.mission_running = True
+app_under_test._airborne_said = False
+app_under_test.link.agl = 0.1
+app_under_test._note_status({'quad': {'alt': 0.1}})
+check('a quad still on the ground is not called airborne',
+      not any('airborne' in str(c.get('text', ''))
+              for c in app_under_test.link.commands))
+app_under_test.link.agl = 1.4
+app_under_test._note_status({'quad': {'alt': 1.4}})
+check('once it is up, the feed says so',
+      any('airborne' in str(c.get('text', ''))
+          for c in app_under_test.link.commands))
+_air = sum(1 for c in app_under_test.link.commands
+           if 'airborne' in str(c.get('text', '')))
+app_under_test._note_status({'quad': {'alt': 2.0}})
+check('and says it once, not on every status message',
+      sum(1 for c in app_under_test.link.commands
+          if 'airborne' in str(c.get('text', ''))) == _air)
 
 # ------------------------------------------------- the detector's classes --
 section("the detector's own class names")
@@ -1311,6 +1408,15 @@ ab_link.agl = 0.02
 app_under_test.status = {'rover': {'speed': 0.0}, 'quad': {'alt': 0.02}}
 app_under_test._abort_tick()
 check('nor is one that only just stopped', app_under_test.abort_done is False)
+check('touchdown is reported the moment it reaches the ground, not when '
+      'everything else has also settled',
+      any('touched down' in str(c.get('text', '')) for c in ab_link.commands),
+      [c.get('text') for c in ab_link.commands][-3:])
+_touch = sum(1 for c in ab_link.commands if 'touched down' in str(c.get('text', '')))
+app_under_test._abort_tick()
+check('and only once, however long it sits there',
+      sum(1 for c in ab_link.commands
+          if 'touched down' in str(c.get('text', ''))) == _touch)
 app_under_test._still_since -= C.ABORT_SETTLE_S + 0.1
 app_under_test._abort_tick()
 check('but a settled one is', app_under_test.abort_done is True)
@@ -1328,9 +1434,25 @@ check('and the button goes back to ABORT',
 # ------------------------------------------------------- manual capture ----
 section('marking a mushroom by hand')
 
+# On the ground their quad keeps no gated sighting at all - `_det_cb` only
+# stores one `if msg.detections and self.taken_off` - so a mark sent from
+# there is answered with nothing, however many boxes the camera feed is
+# drawing. That difference is invisible from the GUI, so it is spelled out.
+ab_link.agl = 0.0
+ab_link.commands.clear()
+app_under_test.mark_for_capture()
+check('a mark from the ground still asks the quad', ab_link.marks[-1] == 'quad1')
+check('but it is not reported as a mushroom handed over',
+      not any(c.get('cmd') == 'marked' for c in ab_link.commands))
+check('and the feed says why nothing will reach the skidsteer',
+      any('on the ground' in str(c.get('text', '')) for c in ab_link.commands),
+      ab_link.commands)
+
+ab_link.agl = 4.0
+ab_link.commands.clear()
 app_under_test.mark_for_capture()
 check('marking asks the quad, not the GUI\'s own maths',
-      ab_link.marks == ['quad1'], ab_link.marks)
+      ab_link.marks[-1] == 'quad1', ab_link.marks)
 check('and it is announced', any(c.get('cmd') == 'marked' for c in ab_link.commands))
 app_under_test.queue_waypoint(4.0, -2.0)
 check('a map click queues a point for the rover',

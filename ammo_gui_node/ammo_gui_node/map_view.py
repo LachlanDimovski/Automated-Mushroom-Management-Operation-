@@ -137,6 +137,7 @@ class MapView(QWidget):
         self.natives = []        # [[x, y], ...]
         self.route = None        # {'sx','sy','gx','gy','vias'}
         self.planned = []        # [[x, y], ...] mushrooms a run would spawn
+        self.search_path = []    # [(x, y), ...] the legs the quad will fly
 
     # -- inputs -------------------------------------------------------------
     def set_frozen(self, frozen):
@@ -276,6 +277,16 @@ class MapView(QWidget):
         self.route = dict(route) if route else None
         self.update()
 
+    def set_search_path(self, points):
+        """The quad's planned legs, for the setup page's preview.
+
+        Drawn under everything else and in a colour nothing else uses, so it
+        reads as a plan rather than as something that has happened.
+        """
+        self.search_path = [(float(p[0]), float(p[1])) for p in (points or [])
+                            if p is not None and len(p) >= 2]
+        self.update()
+
     def set_planned(self, points):
         """Mushrooms a run would spawn - the setup page's preview."""
         self.planned = [[float(p[0]), float(p[1])] for p in (points or [])
@@ -365,6 +376,7 @@ class MapView(QWidget):
         self._route(p)
         self._markers(p)
         self._natives(p)
+        self._search_path(p)
         self._planned(p)
         self._mushrooms(p)
         self._goal(p)
@@ -714,6 +726,31 @@ class MapView(QWidget):
             p.setPen(QPen(QColor(theme.TEAL), 1.3))
             p.setBrush(Qt.NoBrush)
             p.drawEllipse(pt, r + 3.5, r + 3.5)
+
+    def _search_path(self, p):
+        """The quad's legs: a dashed line with the start marked.
+
+        Direction matters more than the shape here - both patterns cover the
+        same square, and what distinguishes them is the order. So the first
+        leg gets a dot and the line fades from bright at the start to dim at
+        the end, which reads as "it goes this way" without arrowheads
+        cluttering a 240 px preview.
+        """
+        if len(self.search_path) < 2:
+            return
+        pts = [self.to_px(x, y) for x, y in self.search_path]
+        pen = QPen(QColor(theme.VIOLET), 1.4)
+        pen.setStyle(Qt.DashLine)
+        n = len(pts) - 1
+        for i, (a, b) in enumerate(zip(pts, pts[1:])):
+            p.setOpacity(0.85 - 0.55 * (i / n if n else 0))
+            p.setPen(pen)
+            p.drawLine(a, b)
+        p.setOpacity(1.0)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.VIOLET))
+        p.drawEllipse(pts[0], 3.0, 3.0)
+        p.setBrush(Qt.NoBrush)
 
     def _planned(self, p):
         """What pressing Launch would put in the world."""

@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBo
 from ammo_gui_node import cards, theme
 from ammo_gui_node.map_view import MapView
 from ammo_gui_node.contract import MAX_QUADS, MAX_ROVERS
+from ammo_gui_node.search_preview import (path_length_m, search_half,
+                                          search_path)
 from ammo_gui_node.mission_launcher import (PATTERNS, SEARCH_DEFAULTS, WORLDS,
                                             shuffle_mushrooms, world_available,
                                             world_meta_full, world_mushroom_names,
@@ -443,6 +445,9 @@ class HomePage(QWidget):
         self.preview = MapView(interactive=False, compact=True, show_key=True)
         self.preview.setMinimumHeight(240)
         lay.addWidget(self.preview, 1)
+        self.search_note = cards.label('', 'Faint')
+        self.search_note.setWordWrap(True)
+        lay.addWidget(self.search_note)
         return panel
 
     def _pattern_card(self):
@@ -477,6 +482,7 @@ class HomePage(QWidget):
             text.setWordWrap(True)
             blay.addWidget(text)
             self._style_option(box, radio.isChecked())
+            radio.toggled.connect(lambda on: on and self._refresh_search_path())
             lay.addWidget(box)
             self.pattern_radios[key] = radio
 
@@ -501,6 +507,8 @@ class HomePage(QWidget):
             row.addWidget(spin, 0)
             dlay.addLayout(row)
             self.spins[key] = spin
+            if key == 'row_spacing':
+                spin.valueChanged.connect(lambda _v: self._refresh_search_path())
 
         self.strafe_check = QCheckBox('Keep moving through corners')
         self.strafe_check.setChecked(bool(SEARCH_DEFAULTS['strafe']))
@@ -603,6 +611,30 @@ class HomePage(QWidget):
         self.preview_note.setText(
             'from the world file' if meta else 'no world file - showing the spawn points only')
         self._apply_layout()
+        self._refresh_search_path()
+
+    def _refresh_search_path(self):
+        """Draw the legs the quadcopter will actually fly.
+
+        Built from the same arithmetic as their node, so this is the route,
+        not an illustration of the idea - see `search_preview.py`. Both
+        patterns cover the same square, so what the picture is really for is
+        the order they cover it in: the loops reach the middle first and work
+        outward, the rows start at one edge and sweep across.
+        """
+        meta = world_meta_full(self.world_box.currentText()) or {}
+        half = search_half(meta)
+        pattern = 'center_out' if self.pattern_radios['center_out'].isChecked() else 'rows'
+        spacing = float(self.spins['row_spacing'].value())
+        path = search_path(pattern, half, spacing)
+        self.preview.set_search_path(path)
+        if path:
+            self.search_note.setText(
+                'Dashed line: the quadcopter\'s legs, brightest where it starts. '
+                '%d corners, about %.0f m of flying per pass at %.1f m spacing.'
+                % (len(path), path_length_m(path), spacing))
+        else:
+            self.search_note.setText('')
 
     def _apply_layout(self):
         idx = max(0, self.layout_box.currentIndex())

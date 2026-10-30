@@ -334,6 +334,25 @@ and the bridge falls back to reading `/rosout` if they are ever removed.
 odometry and `parrot1/detections`, into `ammo/mission/status` and
 `ammo/mission/events`. Both windows read only those two topics.
 
+### The search path, before you commit to it
+
+The setup page draws the legs the quadcopter will fly, dashed, brightest at
+the start and fading along the route, with a dot on the first corner. Both
+patterns cover the same square, so the thing worth seeing is the *order*:
+**square loops** work outward from the spawn in closed squares, so the first
+mushrooms found are the rover's nearest, while **lawnmower rows** start at
+one edge and sweep across. The note under the preview gives the corner count
+and the metres flown per pass, which are not the same for the two patterns.
+
+It is their route, not an illustration of it. `search_preview.py` copies the
+arithmetic out of `quad_search_node.build_lawnmower_waypoints` and
+`zcam_quad_node._center_out`, including the outermost loop sitting a metre
+inside the sweep, and sizes the square the way `zcam_mission.launch.py` does
+- the playable half-size less 4.5 m, or 6.5 m on a world with no meta, which
+is why `simple_trees` draws one too. A test reads their launch file, lifts
+the real lawnmower function out of it and compares corner for corner, so the
+preview cannot quietly drift away from what the quad does.
+
 ## The map
 
 Press **M** over either window, or click **MARKS** in the corner of the
@@ -466,6 +485,27 @@ with `Unable to find uri[model://mushroom_amanita]` before it finishes.
   and grows to keep them on screen. It deliberately does not fit the hedge
   boundary, which would shrink everything that matters to a few pixels.
 
+### Three things the feed now says out loud
+
+**"Mission started - every robot released from the hold"**, the moment Launch
+takes effect. Then **"Quadcopter airborne at N m"**, once, when it actually
+leaves the ground. Those are a minute apart, because the quad climbs to
+cruise height before flying its first leg, and from the mission page that gap
+looks exactly like Launch having done nothing.
+
+**Marking from the ground is refused, with the reason.** Their quad only
+keeps a sighting it can hand over once it has taken off -
+`if msg.detections and self.taken_off` in `_det_cb` - so pressing MARK while
+hovering at ground level sends a message nothing answers, however many boxes
+the camera feed is drawing. A detection box and a sighting the quad will give
+the rover are not the same thing, and that difference is invisible from here,
+so the GUI says it.
+
+**Touchdown during an abort**, the moment the quad reaches the ground, rather
+than only at the end when the rover has also settled and the settle timer has
+run. After an emergency stop, "it is down" is the one thing worth confirming
+on its own.
+
 ## Testing
 
 ```bash
@@ -473,7 +513,7 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-589 checks, a few seconds, no ROS, no simulation, no display and no built
+614 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and
