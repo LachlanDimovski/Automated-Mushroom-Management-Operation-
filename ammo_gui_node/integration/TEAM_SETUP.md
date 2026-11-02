@@ -34,11 +34,32 @@ About **1.3 MB** is right. **130 bytes** means LFS has not run.
 ## 2. The rest of the dependencies
 
 ```bash
-sudo apt install -y libxcb-cursor0     # Qt 6.5+ needs this for the xcb plugin
+sudo apt install -y libxcb-cursor0 python3-scipy python3-pil
 pip3 install PySide6
+pip3 install "numpy<2"                 # see below - do this LAST, after ultralytics
+pip3 install ultralytics
+pip3 install torch --index-url https://download.pytorch.org/whl/cpu
+pip3 install openvino                  # only needed to run a fleet
 ```
 
-That is the whole list for the GUI. No OpenCV.
+**Pin numpy below 2, and do it after anything that might pull numpy in.**
+`cv_bridge` and the torch wheels for Humble are C extensions built against
+the numpy 1.x ABI. `pip install ultralytics` cheerfully installs numpy 2.x on
+top of them, and the result does not complain about versions - it fails with
+an `ImportError` deep inside `cv_bridge` that never mentions numpy, or torch
+prints a wall of text about a module compiled with NumPy 1.x. The detectors
+then never start, so `*/detections` has no publisher, the readiness checklist
+never ticks them, and nothing is ever detected.
+
+Nothing in the repo declares any of this. `perception/package.xml` lists
+rclpy, sensor_msgs, vision_msgs and cv_bridge, while `perception/perception/
+yolo_node.py` imports torch, cv2 and ultralytics - so `rosdep install` cannot
+produce a working machine, and everyone has pip-installed by hand on a
+different day. That is why a run that works for one of us fails for the next
+with no visible difference. The checker in step 4 is the missing declaration.
+
+The GUI itself needs only PySide6 and numpy - it converts ROS images to Qt
+images directly and never touches OpenCV.
 
 ## 3. Build - after the LFS pull, not before
 
@@ -57,7 +78,24 @@ Order matters: the build copies `41068_ignition_bringup/models` into
 installed copy however good the source tree looks. If you built first, just
 build again.
 
-## 4. Check it without starting a simulation
+## 4. Check the machine, then the code
+
+**Run this first, and run it any time something behaves oddly:**
+
+```bash
+python3 src/RS1_Team5_/ammo_gui_node/tests/check_env.py
+```
+
+It checks every one of the above - python, numpy's version against what
+cv_bridge and torch can take, ROS and the workspace, torch, ultralytics,
+cv2, openvino, PySide6 and whether Qt can actually start, Gazebo on the
+PATH, git-lfs, and whether the mushroom mesh, the terrain heightmaps and the
+YOLO weights are real files or LFS pointers, in both the source tree and the
+built `install/` copy. Each line says what it found and the one command that
+fixes it, and it ends with a list of what will stop you running. No ROS, no
+simulation and no display needed.
+
+Then the code's own tests:
 
 ```bash
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
@@ -111,6 +149,8 @@ were trained against.
 | `PackageNotFoundError: ammo-gui-node` | Built with `--symlink-install` at some point. `rm -rf build/ammo_gui_node install/ammo_gui_node src/RS1_Team5_/ammo_gui_node/*.egg-info`, rebuild plain, new terminal |
 | Gazebo will not close | `for p in $(pgrep -x ruby); do grep -qa ign /proc/$p/cmdline && kill -9 "$p"; done` |
 | River world missing from the dropdown | `forest_worlds/setup.sh` has not been run on this machine |
+| Detectors never tick on the checklist | numpy 2.x on top of cv_bridge/torch. `pip3 install "numpy<2"` |
+| `ImportError` in cv_bridge mentioning nothing useful | Same - it is the numpy ABI, not a missing package |
 | Ticked the Gazebo window, got no window | More than one robot of either kind runs headless on purpose. The checkbox greys itself out and says so |
 
 The GUI's own event log names most of these as they happen, including the
