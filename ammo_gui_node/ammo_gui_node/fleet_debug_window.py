@@ -133,7 +133,8 @@ class FleetDebugWindow(DebugWindow):
         self.fleet_mushrooms = None
         # the base window's single rover/quad glyphs and feeds; the grid shows every robot instead
         for sig in (link.rover_pose, link.quad_pose, link.rover_frame, link.quad_frame,
-                    link.rover_detections, link.quad_detections):
+                    link.rover_detections, link.quad_detections, link.fleet_frame, link.fleet_pose,
+                    link.topdown_frame):
             sig.disconnect()
 
     def _panel(self, robot):
@@ -250,6 +251,8 @@ class FleetDebugWindow(DebugWindow):
         if self.fleet_mushrooms is not None:
             self.map.set_mushrooms(self.fleet_mushrooms)
         self.native_card.set(str(len(status.get('natives') or [])), 'identified and left in place')
+        for p in self.panels.values():
+            p.set_frozen(status.get('paused', False))
         live = sum(p.fresh() for p in self.panels.values())
         self.feeds.setText(f'{live} / {len(self.panels)} cameras live')
 
@@ -257,6 +260,9 @@ class FleetDebugWindow(DebugWindow):
         super()._tick()
         for p in self.panels.values():
             p.update()
+
+    def toggle_overhead_overlay(self):
+        return False
 
 def main(args=None):
     rclpy.init(args=args)
