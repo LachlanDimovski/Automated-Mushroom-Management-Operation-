@@ -112,7 +112,7 @@ scp runs/detect/mushroom/weights/best.pt <user>@<laptop>:~/
 On the laptop, drop it in and rebuild:
 
 ```bash
-cp ~/best.pt ~/41068_ws/src/RS1_Team5_/skidsteer_perception/models/amanita_muscaria_yolo11n.pt
+cp ~/best.pt ~/41068_ws/src/AMMO-Mushroom-Fleet/skidsteer_perception/models/amanita_muscaria_yolo11n.pt
 cd ~/41068_ws && colcon build --packages-select skidsteer_perception perception
 ```
 

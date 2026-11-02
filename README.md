@@ -1,53 +1,112 @@
-# RS1_Team5_
-Robotics Studio 1. Master Repository for Team 5. 
+# AMMO: Automated Mushroom Management Operations
 
+41068 Robotics Studio 1, Team 5, Spring 2026.
 
-AMMO -> Automated Mushroom Management Operations 
+<img width="300" alt="AMMO logo" src="https://github.com/user-attachments/assets/64d25d77-6fab-4a71-aa8a-e338860c7090" />
 
+A fleet of Parrot quadcopters searches a simulated Australian river forest for invasive fly agaric
+(*Amanita muscaria*) with YOLO and projects each sighting to a ground point. A coordinator assigns
+each mushroom to a Husky rover, which drives there with Nav2, aligns on its own camera and collects
+it with a front gripper. Native mushrooms are detected, logged and left in place. Everything runs in
+Ignition Gazebo Fortress on ROS 2 Humble, with an operator GUI, a debug window and PS4 teleop.
 
-<img width="1254" height="1254" alt="Adobe Express - file" src="https://github.com/user-attachments/assets/64d25d77-6fab-4a71-aa8a-e338860c7090" />
+## Team
 
-A Parrot quadcopter searches a forest for invasive fly agaric mushrooms with
-YOLO, projects each sighting to a ground point, and hands it to a Husky
-skid-steer, which drives there with Nav2 and collects it with a front gripper.
-Native (non-invasive) mushrooms are detected too, logged and left in place.
-Everything runs in Gazebo (Ignition) on ROS 2 Humble.
+| Member | GitHub |
+|---|---|
+| Lachlan Dimovski | `LachlanDimovski` |
+| Darcy Moyes | `Darb05` |
+| Danil Vasiliev | `danilvasiliev` |
+| `hpdsalter` | `hpdsalter` |
+
+## Setup
+
+Tested on Ubuntu 22.04 with ROS 2 Humble and Ignition Gazebo Fortress.
+
+```bash
+sudo apt install -y git-lfs libxcb-cursor0 ros-humble-navigation2 ros-humble-nav2-bringup \
+    ros-humble-ros-gz ros-humble-robot-localization ros-humble-xacro ros-humble-joy \
+    ros-humble-vision-msgs ros-humble-cv-bridge
+pip3 install ultralytics openvino PySide6 scipy "numpy<2"
+
+mkdir -p ~/41068_ws/src && cd ~/41068_ws/src
+git lfs install
+git clone https://github.com/LachlanDimovski/AMMO-Mushroom-Fleet.git
+cd ~/41068_ws && colcon build --symlink-install && source install/setup.bash
+bash src/AMMO-Mushroom-Fleet/demo/get_world.sh      # demo river worlds, about 130 MB (needs `gh auth login`)
+```
+
+- **Git LFS is required.** Meshes and textures are stored in LFS. Without it the clone holds
+  130-byte pointer files and the mushrooms spawn with no geometry. Run `git lfs pull` and rebuild if
+  `41068_ignition_bringup/models/mushroom_amanita/meshes/amanita_muscaria.glb` is not about 9 MB.
+- **The river worlds are not in git.** `demo/get_world.sh` downloads them from the v1.0 release
+  (or pass it a copy of `ammo_river_worlds.tar.gz` downloaded from the Releases page). They can
+  also be built from source with `forest_worlds/setup.sh` (internet and Blender 4.2 or later).
+- Tested Python versions: ultralytics 8.4.66, openvino 2024.6.0, PySide6 6.10.2, numpy 1.26.4.
+- Build with or without `--symlink-install`, but do not switch between the two in one workspace.
+- Headless GUI and bridge checks (no ROS or Gazebo needed):
+  `python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py`.
+
+## Running the demo
+
+Two parts. Run `bash demo/stop_sim.sh` between them and wait for `CLEAN`: two simulations at once
+starve the CPU and the robots stall. Set `powerprofilesctl set performance` first, and start with the
+CPU below 70 °C.
+
+**Part 1: fleet run (2 quads, 1 rover, 12 invasive and 6 native mushrooms).**
+
+```bash
+bash demo/part1_fleet.sh      # headless Gazebo + the AMMO Fleet Debug window
+bash demo/part1_timer.sh      # optional, second terminal: wall time to 12/12
+```
+
+All 12 are collected in about 9 to 12 minutes from sim start. The quads search in square loops and
+hold over each find, the coordinator sends each mushroom to the rover, natives appear as blue N markers
+and are never collected, and the rover crosses the river only at the fords. Once every mushroom is
+known the second quad stands down and lands. `HEADLESS=false` adds the Gazebo window (much slower).
+
+**Part 2: operator GUI and PS4 controller (1 quad, 1 rover).**
+
+```bash
+bash demo/part2_gui.sh
+```
+
+Pick `river_moderate_aus` on the setup page and press **Prepare**; the robots stay frozen while the
+checklist fills in. Press **Launch** when it shows READY. Pause and Resume, then hold **R1** to drive the
+rover or **L1** to fly the quad (see [PS4 teleop](#ps4-teleop)); release and the robot resumes its
+mission. End the mission from the GUI, then run `bash demo/stop_sim.sh`.
+
+Logs from both parts are in `~/.ros/ammo_demo/`. `quad_showcase/` holds an extra display of the quad's
+state machine and depth mapping that runs beside a Part 2 mission (see its README).
 
 ## Packages
 
 | Package | What it holds |
 |---|---|
-| `41068_ignition_bringup` | Worlds (`simple_trees`, generated `forest_flat` / `forest_random`), models (mushroom, decoys, trees, walking person), robot URDFs, Nav2 config, sim launch files, `scripts/generate_forest_world.py`, `scripts/ps4_drone_test.py` |
-| `ammo_mission_control` | The mission: `quad_search_node`, `cage_capture_node`, `truth_localizer`, `ground_projection`, and `cage_mission.launch.py` |
-| `skidsteer_controller` | `collision_guard_node` (C++): lidar and depth safety gate for the Husky |
+| `demo` | The demo scripts above, and `pack_world.sh` / `get_world.sh` for the river world bundle |
+| `41068_ignition_bringup` | Worlds (`simple_trees`, generated `forest_flat` / `forest_random`), models (mushrooms, decoys, trees, walking person), robot URDFs, Nav2 config, sim launch files, `scripts/generate_forest_world.py`, `scripts/ps4_drone_test.py` |
+| `forest_worlds` | River world generators (`setup.sh`, `build_world.py`, `make_demo_world.py`, `shuffle_mushrooms.py`); the generated worlds and models are not in git |
+| `ammo_mission_control` | Single-quad mission: `quad_search_node`, `cage_capture_node`, `truth_localizer`, `ground_projection`, `cage_mission.launch.py` (also `ammo_main.launch.py`) |
+| `quad_zcams` | The z-camera quad (`zcam_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`, `quad_standdown`), `rover_capture_node` and PS4 teleop |
 | `perception` | `yolo_node` (one copy per camera), `hazard_brake` (person stop), `combined_view`, trained weights in `models/` |
-| `skidsteer_perception` | Dataset capture and training scripts (`scripts/`, see `TRAINING_PC.md`) |
+| `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge`, headless tests |
+| `skidsteer_controller`, `skid_cbf_guard` | `collision_guard_node` (C++): lidar and depth safety gate for the Husky |
+| `skidsteer_perception` | Dataset capture and YOLO training scripts (`scripts/`, see `TRAINING_PC.md`) |
 | `ammo_dashboard` | OpenCV HUD: both YOLO feeds, speed, altitude, minimap |
-| `quad_zcams` | The z-camera quad (`zcam_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`) and PS4 teleop |
-| `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge` |
-| `forest_worlds` | Generated river worlds (`river_moderate_aus`, ...) and their models |
-| `quad_mission`, `quad_mission_interfaces` | Quad mission state machine (C++): take-off, search, return, land, abort services. Not part of `cage_mission.launch.py`, see below |
+| `quad_mission`, `quad_mission_interfaces` | Quad mission state machine (C++): take-off, search, return, land, abort services. Not part of the demo launches |
+| `quad_showcase` | Quad state machine and mapping display (run by path, not a ROS package) |
+| `tools/ipad_teleop` | iPad teleop and camera viewer page |
 
-Build from the workspace root:
+## Running the mission by hand
 
-    cd ~/41068_ws && colcon build --symlink-install && source install/setup.bash
+The demo scripts wrap these launches. Source the workspace first; for a `forest_worlds` world, also
+put its models on Gazebo's path (`source demo/env.sh` does both), or Gazebo cannot find them
+(`Unable to find uri[model://gum_05]`), the robots never spawn and the sim looks frozen.
 
-Rebuild after every pull, not only after C++ changes: `--symlink-install` links the Python files,
-but new files (launch files, `ammo_gui_node/config/fastdds_udp_only.xml`, new nodes) are only
-installed by a build.
-
-## Running the mission
-
-One launch runs everything - Gazebo, Nav2, the ground-truth localiser, the
-collision guard, the rover's capture node and (with `parrot:=true`, the
-default) the quad's search flight and detector:
-(`ammo_main.launch.py` runs `cage_mission.launch.py` with the same arguments; either name works.)
-
-    ros2 launch ammo_mission_control ammo_main.launch.py world:=simple_trees headless:=true \
+    ros2 launch ammo_mission_control cage_mission.launch.py world:=simple_trees headless:=true \
         mushrooms:=6,-5,-5,-5.5,-2,6.5          # demo mushrooms; the quad has to find them
-    ros2 launch ammo_mission_control ammo_main.launch.py world:=forest_flat headless:=true meta_goals:=false
-    ros2 launch ammo_mission_control ammo_main.launch.py parrot:=false count:=4   # rover-only test
-    ros2 launch ammo_mission_control ammo_main.launch.py hazard:=true              # + person stop on the rover
+    ros2 launch ammo_mission_control cage_mission.launch.py parrot:=false count:=4   # rover-only test
+    ros2 launch ammo_mission_control cage_mission.launch.py hazard:=true              # + person stop on the rover
 
 Launch arguments:
 
@@ -66,23 +125,14 @@ Launch arguments:
 | `hazard` | `false` | COCO person detector + `hazard_brake` on the rover |
 | `tool` | `gripper` | `cage` selects the older boom cage (also needs `cage:=true` in `husky.urdf.xacro`) |
 
-## Running the fleet (2 quads + 1 rover) with the Fleet Debug UI
+## Running the fleet by hand
 
-The operator GUI's Prepare button only starts `cage_mission.launch.py` (one quad).
-For the fleet, start the sim headless in one terminal:
+`demo/part1_fleet.sh` is the tested configuration. By hand, with `source demo/env.sh` done:
 
-    F=~/41068_ws/src/RS1_Team5_/forest_worlds
-    export IGN_GAZEBO_RESOURCE_PATH="$(ls -d $F/models/* $F/world_assets | tr '\n' ':')$IGN_GAZEBO_RESOURCE_PATH"
     ros2 launch quad_zcams fleet_mission.launch.py world:=$F/worlds/river_moderate_aus \
         meta_goals:=false quads:=2 rovers:=1 headless:=true rviz:=false
+    ros2 launch ammo_gui_node fleet_debug.launch.py     # second terminal
 
-and the Fleet Debug UI in a second:
-
-    ros2 launch ammo_gui_node fleet_debug.launch.py
-
-- The `export` is required for the `forest_worlds` worlds. Without it Gazebo cannot find the
-  tree, rock and terrain models (`Unable to find uri[model://gum_05]`), the robots never spawn
-  and the sim appears frozen.
 - `fleet_debug.launch.py` also starts `mission_bridge`, which publishes the
   `ammo/mission/status` and `ammo/mission/events` topics the timeline and state cards read.
   Running `ros2 run ammo_gui_node fleet_debug` on its own shows the cameras and map, but the
@@ -189,7 +239,7 @@ when a person fills more than 120 px of the rover camera (about 3 m).
 Cheap, no Gazebo GUI: `ros2 run ammo_dashboard dashboard` - one OpenCV HUD with
 both YOLO feeds, speed/altitude and a minimap (`-p window:=false` to publish it
 for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
-`python3 ipad_teleop_server.py`, then `http://<pc>:8000/` (see `ipad_teleop.html`).
+`python3 tools/ipad_teleop/ipad_teleop_server.py`, then `http://<pc>:8000/` (see `tools/ipad_teleop/ipad_teleop.html`).
 
 ## Other pieces
 
@@ -217,7 +267,7 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   simplification that does not transfer to hardware.
 - The quad projects a sighting with its depth image when it has a fresh frame,
   and otherwise assumes flat ground at the spawn clearing's height, so uneven
-  terrain (`forest_random`) can add metres of error. Demo on `forest_flat`.
+  terrain (`forest_random`) can add metres of error.
 - Detection is reliable to about 3.5 m, hence the 2 m cruise and 3 m rows.
 - Native detection is trained on the sim's blue caps only (`river_v6`: blue caps at 1-5 m,
   river banks included). With the second-sighting rule, fleet runs on `river_moderate_aus`
@@ -226,7 +276,8 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   read as a cap; it is logged only, never collected.
   The training data and scripts are in `~/mushroom_river` (`train_v6.sh`) on the capture PC,
   captured with `skidsteer_perception/scripts/run_capture.sh --hover 1.0 [--spots banks.json]`.
-- The rover does not re-check a target with its own camera before gripping,
-  so a look-alike that passes the quad's checks gets collected.
+- The rover's camera steers the final alignment when it has a fresh sighting, and an empty grab sends
+  the rover back once to where its camera saw the mushroom, but the camera cannot veto a target: a
+  look-alike that passes the quad's checks gets collected.
 - "Collected" is a sim stand-in: any mushroom within 0.6 m of the gripper
   centre is removed from Gazebo.

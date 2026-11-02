@@ -39,7 +39,8 @@ done
 OUT=${OUT:-$HOME/${TARGET}_${PLATFORM}_$(date +%m%d_%H%M)}
 
 WS="$HOME/41068_ws"
-S="$WS/src/RS1_Team5_/skidsteer_perception/scripts"
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+S="$REPO/skidsteer_perception/scripts"
 LOG=/tmp/ammo_capture
 mkdir -p "$LOG"
 
@@ -48,10 +49,10 @@ mkdir -p "$LOG"
 set +u; source "$WS/install/setup.bash"; set -u
 
 # forest_worlds worlds need their own models on the Gazebo path
-F="$WS/src/RS1_Team5_/forest_worlds"
+F="$REPO/forest_worlds"
 export IGN_GAZEBO_RESOURCE_PATH="$(ls -d "$F"/models/* "$F"/world_assets 2>/dev/null | tr '\n' ':')${IGN_GAZEBO_RESOURCE_PATH:-}"
 
-FW="$WS/src/RS1_Team5_/forest_worlds/worlds/$WORLD.sdf"
+FW="$REPO/forest_worlds/worlds/$WORLD.sdf"
 LAUNCH_WORLD=$WORLD; [ -f "$FW" ] && LAUNCH_WORLD=${FW%.sdf}
 
 cleanup() { pkill -f "ign gazebo"; pkill -f parameter_bridge; pkill -f ruby; }

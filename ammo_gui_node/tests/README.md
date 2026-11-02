@@ -4,8 +4,8 @@ Headless checks for the GUI, the Debug UI and the status bridge. No ROS, no
 simulation, no display, no built workspace.
 
 ```bash
-python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
-python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
+python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py
+python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py --render
 ```
 
 `stubs/` holds a small stand-in for `rclpy` and the message types: nodes

@@ -6,7 +6,7 @@ One page. Five minutes, plus the world build if you want the river world.
 
 ```bash
 sudo apt install -y git-lfs
-cd ~/41068_ws/src/RS1_Team5_
+cd ~/41068_ws/src/AMMO-Mushroom-Fleet
 git lfs install
 git lfs pull
 ```
@@ -60,7 +60,7 @@ build again.
 ## 4. Check it without starting a simulation
 
 ```bash
-python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
+python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py
 ```
 
 A few seconds, no ROS, no Gazebo, no display. It prints two blocks (107 and
@@ -93,7 +93,7 @@ excludes the built worlds, models and textures.
 ```bash
 sudo snap install blender --classic
 sudo apt install -y python3-numpy python3-pil
-cd ~/41068_ws/src/RS1_Team5_/forest_worlds && bash setup.sh
+cd ~/41068_ws/src/AMMO-Mushroom-Fleet/forest_worlds && bash setup.sh
 ./view.sh moderate_aus          # check it opens on its own first
 ```
 
@@ -108,7 +108,7 @@ were trained against.
 |---|---|
 | Mushrooms never appear, counts stay zero | Git LFS not pulled, or built before pulling |
 | Gazebo black screen, no camera or odometry ever arrives | Same - the terrain heightmap is a pointer. Also untick **Show the Gazebo window** |
-| `PackageNotFoundError: ammo-gui-node` | Built with `--symlink-install` at some point. `rm -rf build/ammo_gui_node install/ammo_gui_node src/RS1_Team5_/ammo_gui_node/*.egg-info`, rebuild plain, new terminal |
+| `PackageNotFoundError: ammo-gui-node` | Built with `--symlink-install` at some point. `rm -rf build/ammo_gui_node install/ammo_gui_node src/AMMO-Mushroom-Fleet/ammo_gui_node/*.egg-info`, rebuild plain, new terminal |
 | Gazebo will not close | `for p in $(pgrep -x ruby); do grep -qa ign /proc/$p/cmdline && kill -9 "$p"; done` |
 | River world missing from the dropdown | `forest_worlds/setup.sh` has not been run on this machine |
 | Ticked the Gazebo window, got no window | More than one robot of either kind runs headless on purpose. The checkbox greys itself out and says so |

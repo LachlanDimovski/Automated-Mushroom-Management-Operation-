@@ -36,7 +36,7 @@ Counts are tuned for **Intel integrated graphics**. On a real GPU, push
 
 ```bash
 # 1. generate (from the source tree)
-python3 src/RS1_Team5_/41068_ignition_bringup/scripts/generate_forest_world.py --seed 7 --preset moderate
+python3 src/AMMO-Mushroom-Fleet/41068_ignition_bringup/scripts/generate_forest_world.py --seed 7 --preset moderate
 
 # 2. build  (first time, and any time --name adds a new terrain model dir;
 #            regenerating an existing name just rewrites symlinked files)

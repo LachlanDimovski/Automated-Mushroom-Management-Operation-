@@ -10,7 +10,7 @@ HUD) - nothing here touches it, and both can run at the same time.
 sudo apt install -y git-lfs libxcb-cursor0
 pip3 install PySide6
 
-cd ~/41068_ws/src/RS1_Team5_
+cd ~/41068_ws/src/AMMO-Mushroom-Fleet
 git lfs install && git lfs pull                 # see below - this is not optional
 cd ~/41068_ws && colcon build                   # AFTER the lfs pull, not before
 ```
@@ -150,7 +150,7 @@ native mushrooms can be detected at all. It is the world
 scripts only. Each machine builds its own copy once:
 
 ```bash
-cd src/RS1_Team5_/forest_worlds && bash setup.sh      # internet, Blender >= 4.2
+cd src/AMMO-Mushroom-Fleet/forest_worlds && bash setup.sh      # internet, Blender >= 4.2
 ./view.sh moderate                                    # check it opens
 ```
 
@@ -460,7 +460,7 @@ The fix is on the machine, not in the code:
 
 ```bash
 sudo apt install -y git-lfs
-cd ~/41068_ws/src/RS1_Team5_ && git lfs install && git lfs pull
+cd ~/41068_ws/src/AMMO-Mushroom-Fleet && git lfs install && git lfs pull
 ```
 
 `mesh_problem()` now checks the model file's mesh before spawning - absent,
@@ -518,8 +518,8 @@ on its own.
 ## Testing
 
 ```bash
-python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
-python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
+python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py
+python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py --render
 ```
 
 618 checks, a few seconds, no ROS, no simulation, no display and no built

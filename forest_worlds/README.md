@@ -25,7 +25,7 @@ You need about 2.5 GB of free disk and an internet connection for the first buil
 3. Get the code and build the worlds (about 5 minutes; downloads about 1.2 GB of free CC0 assets):
 
    ```bash
-   cd ~/41068_ws/src/RS1_Team5_        # wherever the repo is cloned
+   cd ~/41068_ws/src/AMMO-Mushroom-Fleet        # wherever the repo is cloned
    git fetch
    git checkout mushroom-cage
    git pull

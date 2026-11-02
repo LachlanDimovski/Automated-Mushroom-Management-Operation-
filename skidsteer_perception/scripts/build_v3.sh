@@ -13,7 +13,8 @@ FRAMES=600
 [ "${1:-}" = "--frames" ] && FRAMES=$2
 
 WS="$HOME/41068_ws"
-S="$WS/src/RS1_Team5_/skidsteer_perception/scripts"
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+S="$REPO/skidsteer_perception/scripts"
 # Overridable so the pipeline can be rehearsed on scratch paths without
 # touching the real datasets or the bundle.
 NEW="${NEW:-$HOME/mushroom_sim_near}"

@@ -1,6 +1,6 @@
 """Run every check, headless.
 
-    python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
+    python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py
 
 No ROS, no simulation, no display and no built workspace: the stubs in
 `stubs/` stand in for rclpy and the message types. Takes a few seconds.

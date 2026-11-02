@@ -14,6 +14,7 @@ set -uo pipefail
 FRAMES=${1:-800}
 HOVER=${2:-3.0}
 WS="$HOME/41068_ws"
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 LOGS="/tmp/ammo_capture"
 
 mkdir -p "$LOGS"
@@ -93,5 +94,5 @@ trap - EXIT
 cleanup
 echo
 echo "done. verify both before training:"
-echo "    python3 $WS/src/RS1_Team5_/skidsteer_perception/scripts/annotate_dataset.py ~/mushroom_sim_dataset"
-echo "    python3 $WS/src/RS1_Team5_/skidsteer_perception/scripts/annotate_dataset.py ~/mushroom_sim_dataset_air"
+echo "    python3 $REPO/skidsteer_perception/scripts/annotate_dataset.py ~/mushroom_sim_dataset"
+echo "    python3 $REPO/skidsteer_perception/scripts/annotate_dataset.py ~/mushroom_sim_dataset_air"
