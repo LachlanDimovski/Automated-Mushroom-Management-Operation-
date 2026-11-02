@@ -106,6 +106,29 @@ for mod, fix, needed in (
     note = '' if not err else (fix if needed else fix + '   (only needed for a fleet)')
     report(level, mod, v or err, note)
 
+# The pair that fight each other. opencv-python 5.x requires numpy >= 2,
+# cv_bridge and the Humble torch wheels require numpy < 2, and ultralytics
+# pulls whatever opencv pip offers it - which is now 5.x. Pinning only numpy
+# leaves pip warning about an unsatisfied opencv, and pinning only opencv
+# leaves numpy 2 in place. Both or neither.
+cv_version, _cv_err = version_of('cv2')
+if cv_version and numpy_version and not numpy_error:
+    try:
+        cv_major = int(str(cv_version).split('.')[0])
+        np_major = int(str(numpy_version).split('.')[0])
+    except ValueError:
+        cv_major = np_major = 0
+    if cv_major >= 5 and np_major < 2:
+        report(BAD, 'opencv vs numpy', f'opencv-python {cv_version} needs numpy >= 2, '
+               f'but numpy is {numpy_version}',
+               'pip3 install "opencv-python<5" "numpy<2"   (both at once)')
+    elif cv_major >= 5 and np_major >= 2:
+        report(WARN, 'opencv vs numpy', f'opencv {cv_version} with numpy {numpy_version}',
+               'numpy 2 will break cv_bridge and torch. '
+               'pip3 install "opencv-python<5" "numpy<2"')
+    else:
+        report(OK, 'opencv vs numpy', f'opencv {cv_version}, numpy {numpy_version}')
+
 # -------------------------------------------------------------- the GUI ----
 section('the GUI')
 v, err = version_of('PySide6')

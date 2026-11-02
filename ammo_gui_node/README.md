@@ -10,7 +10,7 @@ HUD) - nothing here touches it, and both can run at the same time.
 sudo apt install -y git-lfs libxcb-cursor0 python3-scipy python3-pil
 pip3 install PySide6 ultralytics
 pip3 install torch --index-url https://download.pytorch.org/whl/cpu
-pip3 install "numpy<2"                 # last: ultralytics pulls numpy 2 otherwise
+pip3 install "opencv-python<5" "numpy<2"   # last, and both at once
 
 cd ~/41068_ws/src/RS1_Team5_
 git lfs install && git lfs pull                 # see below - this is not optional

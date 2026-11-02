@@ -36,8 +36,8 @@ About **1.3 MB** is right. **130 bytes** means LFS has not run.
 ```bash
 sudo apt install -y libxcb-cursor0 python3-scipy python3-pil
 pip3 install PySide6
-pip3 install "numpy<2"                 # see below - do this LAST, after ultralytics
 pip3 install ultralytics
+pip3 install "opencv-python<5" "numpy<2"   # see below - LAST, and both together
 pip3 install torch --index-url https://download.pytorch.org/whl/cpu
 pip3 install openvino                  # only needed to run a fleet
 ```
@@ -50,6 +50,13 @@ an `ImportError` deep inside `cv_bridge` that never mentions numpy, or torch
 prints a wall of text about a module compiled with NumPy 1.x. The detectors
 then never start, so `*/detections` has no publisher, the readiness checklist
 never ticks them, and nothing is ever detected.
+
+**Pin opencv in the same breath.** `ultralytics` installs whatever
+`opencv-python` pip offers it, and that is now 5.x, which *requires* numpy
+>= 2. So pinning numpy alone leaves pip announcing a conflict it cannot
+resolve, and pinning opencv alone leaves numpy 2 in place. Pin both, in one
+command, so pip settles them together. opencv 4.x is what ultralytics has
+always run against.
 
 Nothing in the repo declares any of this. `perception/package.xml` lists
 rclpy, sensor_msgs, vision_msgs and cv_bridge, while `perception/perception/
@@ -151,6 +158,7 @@ were trained against.
 | River world missing from the dropdown | `forest_worlds/setup.sh` has not been run on this machine |
 | Detectors never tick on the checklist | numpy 2.x on top of cv_bridge/torch. `pip3 install "numpy<2"` |
 | `ImportError` in cv_bridge mentioning nothing useful | Same - it is the numpy ABI, not a missing package |
+| pip says opencv-python requires numpy>=2 | Pin both: `pip3 install "opencv-python<5" "numpy<2"` |
 | Ticked the Gazebo window, got no window | More than one robot of either kind runs headless on purpose. The checkbox greys itself out and says so |
 
 The GUI's own event log names most of these as they happen, including the
