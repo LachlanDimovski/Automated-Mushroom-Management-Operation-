@@ -223,6 +223,13 @@ class MissionBridge(Node):
         self.seen = {'rover': 0.0, 'quad': 0.0,
                      'rover_state': -1e9, 'quad_state': -1e9,
                      'ground_map': -1e9}
+        # (x, y, t) per robot, for working out a speed when the odometry
+        # twist is empty
+        self._last_pose = {}
+        # when the quad started holding on a mushroom, and what it was
+        self._hold_since = None
+        self._hold_at = None
+        self._dispatched = 0
 
         self._last_sighting_at = -1e9
         self._last_conf = None
@@ -356,6 +363,9 @@ class MissionBridge(Node):
         # had already been killed, it sat there forever looking live.
         self.coverage = None
         self.seen['ground_map'] = -1e9
+        self._hold_at = self._hold_since = None
+        self._dispatched = 0
+        self._last_pose = {}
         self.mushrooms = []
         self.queue_len = 0
         self.operator_goal = None
@@ -409,6 +419,51 @@ class MissionBridge(Node):
         self.quad = payload
         for point in payload.get('natives') or []:
             self._note_native(point)
+        self._watch_hold(payload)
+
+    def _watch_hold(self, payload):
+        """Say when the quadcopter holds on a mushroom, and how it ended.
+
+        This is the gap that made a run look broken with nothing in any log
+        to explain it. A mushroom only counts as found, and the skidsteer
+        only learns where to go, when the quad publishes to
+        `husky1/cage/waypoints` - and it will not do that until it has held
+        over the mushroom and confirmed the same ground point several times
+        (`DISPATCH_PUBLISHES = 3` in `quad_search_node`). So a quad that sees
+        mushrooms, holds on each one and never confirms produces exactly what
+        we saw: detector boxes on the camera, phases moving on the timeline,
+        a found count stuck at zero, and a skidsteer with nothing to do.
+
+        None of that is visible from the counts alone, so the holds are
+        reported as they happen and, more usefully, when one ends without a
+        handover.
+        """
+        if not self.running:
+            return
+        target = payload.get('hold_target')
+        dispatched = int(payload.get('dispatched') or 0)
+        now = time.monotonic()
+        if target and self._hold_at is None:
+            self._hold_at, self._hold_since = list(target), now
+            self._emit(C.EV_NOTE,
+                       text=f'Quadcopter holding over ({target[0]:.1f}, '
+                            f'{target[1]:.1f}) to confirm it')
+        elif not target and self._hold_at is not None:
+            held = now - (self._hold_since or now)
+            where = self._hold_at
+            self._hold_at, self._hold_since = None, None
+            if dispatched > self._dispatched:
+                self._emit(C.EV_NOTE,
+                           text=f'Quadcopter handed ({where[0]:.1f}, '
+                                f'{where[1]:.1f}) to the skidsteer after '
+                                f'{held:.0f} s')
+            else:
+                self._emit(C.EV_NOTE,
+                           text=f'Quadcopter gave up the hold on ({where[0]:.1f}, '
+                                f'{where[1]:.1f}) after {held:.0f} s without '
+                                f'confirming it - nothing was sent to the '
+                                f'skidsteer, so this one will not be collected')
+        self._dispatched = dispatched
 
     def _note_native(self, point):
         try:
@@ -773,11 +828,29 @@ class MissionBridge(Node):
             return {'fresh': False}
         p = odom.pose.pose.position
         v = odom.twist.twist.linear
+        vx, vy = v.x, v.y
+        # Not every odometry publisher fills the twist. The quadcopter's
+        # arrives with a zero twist and a moving pose, which read as a
+        # stationary robot flying across the map - so when the twist says
+        # nothing, differentiate the pose instead and say so.
+        derived = False
+        if abs(vx) < 1e-6 and abs(vy) < 1e-6:
+            last = self._last_pose.get(key)
+            now = time.monotonic()
+            if last is not None:
+                dt = now - last[2]
+                if 0.02 < dt < 2.0:
+                    moved = math.hypot(p.x - last[0], p.y - last[1])
+                    if moved > 1e-4:
+                        vx, vy = (p.x - last[0]) / dt, (p.y - last[1]) / dt
+                        derived = True
+            self._last_pose[key] = (p.x, p.y, now)
         block = {'fresh': self._fresh(key),
                  'x': round(p.x, 2), 'y': round(p.y, 2),
                  'yaw': round(yaw_of(odom.pose.pose.orientation), 3),
-                 'speed': round(math.hypot(v.x, v.y), 2),
-                 'vx': round(v.x, 2), 'vy': round(v.y, 2),
+                 'speed': round(math.hypot(vx, vy), 2),
+                 'speed_derived': derived,
+                 'vx': round(vx, 2), 'vy': round(vy, 2),
                  'wz': round(odom.twist.twist.angular.z, 2)}
         if air:
             block['alt'] = round(p.z, 2)
@@ -801,6 +874,8 @@ class MissionBridge(Node):
                     'hold_target', 'planner', 'counters'):
             if key in self.quad:
                 quad[key] = self.quad[key]
+        if self._hold_since is not None:
+            quad['holding_for'] = round(time.monotonic() - self._hold_since, 1)
 
         status = {
             'running': self.running,

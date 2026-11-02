@@ -538,7 +538,7 @@ python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py
 python3 src/RS1_Team5_/ammo_gui_node/tests/run_tests.py --render
 ```
 
-618 checks, a few seconds, no ROS, no simulation, no display and no built
+628 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and

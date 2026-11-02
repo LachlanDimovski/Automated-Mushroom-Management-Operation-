@@ -424,6 +424,14 @@ class OperatorPage(QWidget):
         self.big_cam.topic = panel.topic
         self.big_cam.dot_colour = panel.dot_colour
         self.big_cam.set_show_boxes(panel.show_boxes)
+        # Carry the overlay across too. Full-screening the overhead view used
+        # to drop the marks, which is backwards: the bigger the picture, the
+        # more use they are.
+        self.big_cam.overlay_button = panel.overlay_button
+        self.big_cam.set_overlay(list(panel.overlay))
+        self.big_cam.set_overlay_mode(panel.overlay_mode)
+        self.big_cam.stale_s = panel.stale_s
+        self.big_cam.note = panel.note
         self.big_cam.image = panel.image
         self.big_cam.last_at = panel.last_at
         self.big_cam.detections = list(panel.detections)
@@ -436,6 +444,16 @@ class OperatorPage(QWidget):
         self.big_which = None
         self.stack.setCurrentIndex(0)
 
+    def _armed_teleop(self):
+        """The panel currently driving a robot, if any."""
+        for panel in (self.quad_teleop, self.rover_teleop):
+            try:
+                if panel.armed.isChecked():
+                    return panel
+            except AttributeError:
+                continue
+        return None
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape and self.stack.currentIndex() == 1:
             self._collapse()
@@ -443,7 +461,22 @@ class OperatorPage(QWidget):
         if event.key() == Qt.Key_M:
             self.toggle_overhead_overlay()
             return
+        # Full-screening a camera or a map takes focus away from the teleop
+        # panel, which used to mean the robot you were flying simply stopped
+        # answering - exactly when you had enlarged the view to fly it more
+        # carefully. An armed panel keeps its keys wherever focus went.
+        panel = self._armed_teleop()
+        if panel is not None and event.key() in panel.keys:
+            panel.keyPressEvent(event)
+            return
         return super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        panel = self._armed_teleop()
+        if panel is not None and event.key() in panel.keys:
+            panel.keyReleaseEvent(event)
+            return
+        return super().keyReleaseEvent(event)
 
     # -- mission lifecycle --------------------------------------------------
     def start_mission(self, config):
@@ -586,18 +619,24 @@ class OperatorPage(QWidget):
         """Ring the mushrooms and the robots on the overhead picture."""
         if not self.topdown_cam.show_overlay:
             return
+        # (the expanded copy is fed at the end, so full-screening keeps them)
+        # (x, y, yaw) - the heading is what lets the symbol mode draw a
+        # rover that is visibly facing the wrong way.
         robots = {}
         if self.map.rover:
-            robots['rover1'] = (self.map.rover[0], self.map.rover[1])
+            robots['rover1'] = tuple(self.map.rover[:3])
         if self.map.quad:
-            robots['quad1'] = (self.map.quad[0], self.map.quad[1])
+            robots['quad1'] = tuple(self.map.quad[:3])
         for key, pose in self.map.fleet.items():
-            robots[key] = (pose[0], pose[1])
-        self.topdown_cam.set_overlay(overhead_marks(
+            robots[key] = tuple(pose[:3])
+        marks = overhead_marks(
             status.get('world') or self.world or 'simple_trees',
             status.get('placed') or [],
             status.get('mushrooms') or [],
-            robots))
+            robots)
+        self.topdown_cam.set_overlay(marks)
+        if self.big_which == 'topdown':
+            self.big_cam.set_overlay(marks)
 
     def _overhead_marks_toggled(self, on):
         """The panel's own MARKS button was clicked."""

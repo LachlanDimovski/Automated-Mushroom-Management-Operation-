@@ -33,7 +33,7 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QPainter, QPainterPath, QPen,
 from PySide6.QtWidgets import QWidget
 
 from ammo_gui_node import contract as C
-from ammo_gui_node import theme
+from ammo_gui_node import glyphs, theme
 
 TRAIL_LEN = 240          # ~12 s of odometry at 20 Hz
 MIN_RANGE_M = 8.0
@@ -763,16 +763,9 @@ class MapView(QWidget):
             p.drawText(QPointF(pt.x() + r + 3, pt.y() + 3), str(i))
 
     def _mushroom_glyph(self, p, pt, r, colour):
-        """A little cap-and-stem, the same shape the dashboard draws."""
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(QColor(theme.TEXT)))
-        p.drawRoundedRect(QRectF(pt.x() - r * 0.28, pt.y(), r * 0.56, r * 0.95), 1.5, 1.5)
-        path = QPainterPath()
-        path.moveTo(pt.x() - r, pt.y())
-        path.arcTo(QRectF(pt.x() - r, pt.y() - r * 0.78, 2 * r, r * 1.56), 180, -180)
-        path.closeSubpath()
-        p.setBrush(QBrush(colour))
-        p.drawPath(path)
+        """A little cap-and-stem. Shared with the camera overlay - see
+        `glyphs.py`, which exists so the two cannot drift apart."""
+        glyphs.mushroom(p, pt, r, colour)
 
     def _mushrooms(self, p):
         r = 5.0 if self.compact else 7.0
@@ -823,41 +816,11 @@ class MapView(QWidget):
             p.drawText(QPointF(pt.x() + 17, pt.y() + 4), 'GOAL')
 
     def _rover_glyph(self, p, x, y, yaw):
-        pt = self.to_px(x, y)
-        colour = QColor(theme.ACCENT)
-        p.setPen(QPen(colour, 2, Qt.SolidLine, Qt.RoundCap))
-        p.drawLine(pt, QPointF(pt.x() + 22 * math.cos(yaw), pt.y() - 22 * math.sin(yaw)))
-
-        p.save()
-        p.translate(pt)
-        p.rotate(-math.degrees(yaw))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(colour))
-        p.drawRoundedRect(QRectF(-9, -6, 18, 12), 2.5, 2.5)
-        p.setBrush(QBrush(QColor(theme.TEXT)))
-        for dx in (-5.5, 5.5):
-            p.drawRoundedRect(QRectF(dx - 2.4, -8.2, 4.8, 2.6), 1.0, 1.0)
-            p.drawRoundedRect(QRectF(dx - 2.4, 5.6, 4.8, 2.6), 1.0, 1.0)
-        p.restore()
+        glyphs.rover(p, self.to_px(x, y), yaw)
 
     def _quad_glyph(self, p, x, y, yaw, alt):
         pt = self.to_px(x, y)
-        colour = QColor(theme.TEXT)
-        p.setPen(QPen(colour, 1.6, Qt.SolidLine, Qt.RoundCap))
-        p.drawLine(pt, QPointF(pt.x() + 20 * math.cos(yaw), pt.y() - 20 * math.sin(yaw)))
-
-        p.save()
-        p.translate(pt)
-        p.rotate(-math.degrees(yaw))
-        p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(colour, 1.4))
-        for dx, dy in ((-6, -6), (6, -6), (-6, 6), (6, 6)):
-            p.drawEllipse(QPointF(dx, dy), 4.0, 4.0)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(colour))
-        p.drawRoundedRect(QRectF(-3.4, -3.4, 6.8, 6.8), 1.6, 1.6)
-        p.restore()
-
+        glyphs.quad(p, pt, yaw)
         p.setPen(QColor(theme.TEXT))
         p.setFont(QFont(theme.MONO_FAMILIES[0], 8))
         p.drawText(QPointF(pt.x() + 15, pt.y() + 20), f'{alt:.1f} m')

@@ -76,6 +76,14 @@ colcon build
 source install/setup.bash
 ```
 
+**Build everything, not just the package you are working on.** `colcon build`
+copies `41068_ignition_bringup/models` into `install/`, and that copy is what
+Gazebo's resource path points at. Rebuilding only `ammo_gui_node` for weeks
+leaves an installed model set from whenever you last built bringup - and a
+model added since then is missing, so the world fails to load with
+`Unable to find uri[model://...]` and the server exits, which looks exactly
+like Gazebo opening black and closing on its own.
+
 Plain `colcon build`, **never `--symlink-install`** - this workspace was built
 without it and mixing the two gives
 `PackageNotFoundError: No package metadata was found for ammo-gui-node`.
@@ -156,6 +164,7 @@ were trained against.
 | `PackageNotFoundError: ammo-gui-node` | Built with `--symlink-install` at some point. `rm -rf build/ammo_gui_node install/ammo_gui_node src/RS1_Team5_/ammo_gui_node/*.egg-info`, rebuild plain, new terminal |
 | Gazebo will not close | `for p in $(pgrep -x ruby); do grep -qa ign /proc/$p/cmdline && kill -9 "$p"; done` |
 | River world missing from the dropdown | `forest_worlds/setup.sh` has not been run on this machine |
+| `Unable to find uri[model://...]`, Gazebo opens black then closes | A stale `install/`. `colcon build --packages-select 41068_ignition_bringup` - the resource path points at the built copy, not your source tree |
 | Detectors never tick on the checklist | numpy 2.x on top of cv_bridge/torch. `pip3 install "numpy<2"` |
 | `ImportError` in cv_bridge mentioning nothing useful | Same - it is the numpy ABI, not a missing package |
 | pip says opencv-python requires numpy>=2 | Pin both: `pip3 install "opencv-python<5" "numpy<2"` |

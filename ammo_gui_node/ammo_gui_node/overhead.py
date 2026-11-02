@@ -132,7 +132,7 @@ def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
         near = min((math.hypot(x - fx, y - fy), st) for fx, fy, st in found) if found else None
         state = near[1] if near and near[0] < MARK_NEAR_M else None
         marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': True,
-                      'shape': 'circle', 'state': state,
+                      'kind': 'mushroom', 'shape': 'circle', 'state': state,
                       'r': max(7.0, metres_to_px(0.9, height, px, hfov)),
                       'colour': MARK_COLOURS.get(state, MARK_UNFOUND),
                       'label': f'M{i}'})
@@ -141,12 +141,19 @@ def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
             x, y = float(pos[0]), float(pos[1])
         except (TypeError, ValueError, IndexError):
             continue
+        # (x, y) or (x, y, yaw) - the heading is only needed by the symbol
+        # drawing, so callers that have it pass it and the rest do not.
+        try:
+            yaw = float(pos[2])
+        except (TypeError, ValueError, IndexError):
+            yaw = 0.0
         at = project(x, y, height, px, hfov=hfov)
         if at is None:
             continue
         quad = str(key).startswith('quad')
         label = ('Q' + str(key)[4:]) if quad else ('S' + str(key)[5:])
         marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': False,
+                      'kind': 'quad' if quad else 'rover', 'yaw': yaw,
                       'shape': 'box',
                       'r': max(9.0, metres_to_px(1.2, height, px, hfov)),
                       'colour': QUAD_COLOUR if quad else ROVER_COLOUR,

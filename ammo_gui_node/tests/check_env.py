@@ -218,6 +218,26 @@ else:
     report(WARN, 'installed models', 'not found - workspace not built or not sourced',
            'cd ~/41068_ws && colcon build')
 
+# A stale install is its own failure mode and looks like nothing else: the
+# source tree is perfect, the model is right there, and Gazebo says it cannot
+# find it - because `colcon build` copies models into install/ and the
+# resource path points at the copy. A model added after your last build of
+# that package simply is not there, and the world dies with
+# "Unable to find uri[model://...]" taking the whole server with it.
+section('installed models vs the source tree')
+src_models = os.path.join(REPO, '41068_ignition_bringup', 'models')
+if installed and os.path.isdir(src_models):
+    inst_models = os.path.join(installed, 'models')
+    have = set(os.listdir(inst_models)) if os.path.isdir(inst_models) else set()
+    want = {d for d in os.listdir(src_models)
+            if os.path.isdir(os.path.join(src_models, d))}
+    missing = sorted(want - have)
+    report(OK if not missing else BAD, 'every model is installed',
+           'all ' + str(len(want)) if not missing else 'missing: ' + ', '.join(missing),
+           'cd ~/41068_ws && colcon build --packages-select 41068_ignition_bringup')
+elif not installed:
+    report(WARN, 'every model is installed', 'workspace not built or not sourced')
+
 # --------------------------------------------------------- the weights -----
 section('detector weights')
 for prefix in prefixes.split(':'):
