@@ -44,12 +44,13 @@ That is the whole list for the GUI. No OpenCV.
 
 ```bash
 cd ~/41068_ws
-colcon build
+colcon build --symlink-install
 source install/setup.bash
 ```
 
-Plain `colcon build`, **never `--symlink-install`** - this workspace was built
-without it and mixing the two gives
+Use one build style for the life of a workspace. A new workspace builds with
+`--symlink-install`, as the top-level README does; a workspace first built
+without it must stay plain. Mixing the two gives
 `PackageNotFoundError: No package metadata was found for ammo-gui-node`.
 
 Order matters: the build copies `41068_ignition_bringup/models` into
@@ -82,13 +83,20 @@ cd ~/41068_ws && source /opt/ros/humble/setup.bash && source install/setup.bash 
 ```
 
 There is no third terminal for the simulation. The GUI starts Gazebo itself
-and refuses to start a second one.
+and refuses to start a second one. For the demo, `bash demo/part2_gui.sh` does
+terminal 1 in one step (see the top-level README).
 
 ## 6. The river world, if you want it
 
-`simple_trees` works out of the box. `river_moderate_aus` is **generated per
-machine** - it is not in git and cannot be, since `forest_worlds/.gitignore`
-excludes the built worlds, models and textures.
+`simple_trees` works out of the box. `river_moderate_aus` is not in git
+(`forest_worlds/.gitignore` excludes the built worlds, models and textures).
+Download the built worlds from the repo's v1.0 release:
+
+```bash
+bash ~/41068_ws/src/AMMO-Mushroom-Fleet/demo/get_world.sh
+```
+
+Or build them yourself:
 
 ```bash
 sudo snap install blender --classic
@@ -108,9 +116,9 @@ were trained against.
 |---|---|
 | Mushrooms never appear, counts stay zero | Git LFS not pulled, or built before pulling |
 | Gazebo black screen, no camera or odometry ever arrives | Same - the terrain heightmap is a pointer. Also untick **Show the Gazebo window** |
-| `PackageNotFoundError: ammo-gui-node` | Built with `--symlink-install` at some point. `rm -rf build/ammo_gui_node install/ammo_gui_node src/AMMO-Mushroom-Fleet/ammo_gui_node/*.egg-info`, rebuild plain, new terminal |
+| `PackageNotFoundError: ammo-gui-node` | The workspace mixes plain and `--symlink-install` builds. `rm -rf build/ammo_gui_node install/ammo_gui_node src/AMMO-Mushroom-Fleet/ammo_gui_node/*.egg-info`, rebuild plain, new terminal |
 | Gazebo will not close | `for p in $(pgrep -x ruby); do grep -qa ign /proc/$p/cmdline && kill -9 "$p"; done` |
-| River world missing from the dropdown | `forest_worlds/setup.sh` has not been run on this machine |
+| River world missing from the dropdown | Run `bash demo/get_world.sh` (or `forest_worlds/setup.sh`) |
 | Ticked the Gazebo window, got no window | More than one robot of either kind runs headless on purpose. The checkbox greys itself out and says so |
 
 The GUI's own event log names most of these as they happen, including the

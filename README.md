@@ -19,6 +19,41 @@ Ignition Gazebo Fortress on ROS 2 Humble, with an operator GUI, a debug window a
 | Danil Vasiliev | `danilvasiliev` |
 | `hpdsalter` | `hpdsalter` |
 
+## Names used in this project
+
+The code grew over a semester, so each robot has a few names. They all mean the same thing:
+
+| In this README | Also appears as | What it is |
+|---|---|---|
+| **quad** | `parrot1`, `parrot2`, ... (ROS namespaces), quadcopter, Parrot, `zcam` (the quad with up and down depth cameras) | The searching drone |
+| **rover** | `husky1` (rover 1), `r2/husky1` (rover 2), Husky, skidsteer (in the GUI) | The ground robot that collects |
+| **gripper** | `cage` in older file, node and topic names (`cage_mission`, `cage_capture`, `husky1/cage/waypoints`) | The rover's front claw. An earlier design used a cage; the names stayed |
+| **invasive mushroom** | `amanita_muscaria_red`, fly agaric, red mushroom | Collected |
+| **native mushroom** | `native_mushroom`, blue cap | Logged and left in place |
+| **coordinator** | `fleet_coordinator` | Assigns each found mushroom to one rover in a fleet run |
+| **bridge** | `mission_bridge` | Turns logs and topics into `ammo/mission/status` and `ammo/mission/events` for the windows |
+
+Main topics (rover 1 and quad 1 shown; quad N uses `parrotN/`, rover N uses `rN/husky1/`):
+
+| Topic | Meaning |
+|---|---|
+| `parrot1/camera/image`, `husky1/camera/image` | Camera feeds (`.../detections/image` with YOLO boxes) |
+| `husky1/cage/waypoints` | A mushroom position sent to the rover |
+| `husky1/cage/done`, `husky1/cage/missed` | The rover collected it, or found nothing there |
+| `fleet/reports`, `fleet/status` | Quad sightings to the coordinator, and its summary |
+| `parrot1/ground_obstacles` | The quad's occupancy grid, used by the rover to pick a clear approach |
+| `ammo/mission/status`, `ammo/mission/events`, `ammo/mission/command`, `ammo/mission/pause` | GUI and bridge topics |
+
+Which launch to use:
+
+| To run | Use |
+|---|---|
+| The fleet demo (Part 1) | `bash demo/part1_fleet.sh` (runs `quad_zcams fleet_bench.launch.py`, the fleet launch with lighter sim options) |
+| The operator GUI (Part 2) | `bash demo/part2_gui.sh` (its Prepare button runs `ammo_mission_control cage_mission.launch.py`) |
+| One quad and one rover without the GUI | `ros2 launch ammo_mission_control ammo_main.launch.py` (same as `cage_mission.launch.py`) |
+| Any number of quads and rovers | `ros2 launch quad_zcams fleet_mission.launch.py quads:=N rovers:=M` |
+| The course starter simulation | `41068_ignition_bringup/launch/41068_*.launch.py` (see that package's README) |
+
 ## Setup
 
 Tested on Ubuntu 22.04 with ROS 2 Humble and Ignition Gazebo Fortress.
@@ -81,21 +116,23 @@ state machine and depth mapping that runs beside a Part 2 mission (see its READM
 
 ## Packages
 
-| Package | What it holds |
-|---|---|
-| `demo` | The demo scripts above, and `pack_world.sh` / `get_world.sh` for the river world bundle |
-| `41068_ignition_bringup` | Worlds (`simple_trees`, generated `forest_flat` / `forest_random`), models (mushrooms, decoys, trees, walking person), robot URDFs, Nav2 config, sim launch files, `scripts/generate_forest_world.py`, `scripts/ps4_drone_test.py` |
-| `forest_worlds` | River world generators (`setup.sh`, `build_world.py`, `make_demo_world.py`, `shuffle_mushrooms.py`); the generated worlds and models are not in git |
-| `ammo_mission_control` | Single-quad mission: `quad_search_node`, `cage_capture_node`, `truth_localizer`, `ground_projection`, `cage_mission.launch.py` (also `ammo_main.launch.py`) |
-| `quad_zcams` | The z-camera quad (`zcam_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`, `quad_standdown`), `rover_capture_node` and PS4 teleop |
-| `perception` | `yolo_node` (one copy per camera), `hazard_brake` (person stop), `combined_view`, trained weights in `models/` |
-| `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge`, headless tests |
-| `skidsteer_controller` | `collision_guard_node` (C++): lidar and depth safety gate for the Husky |
-| `skidsteer_perception` | Dataset capture and YOLO training scripts (`scripts/`, see `TRAINING_PC.md`) |
-| `ammo_dashboard` | OpenCV HUD: both YOLO feeds, speed, altitude, minimap |
-| `quad_mission`, `quad_mission_interfaces` | Quad mission state machine (C++): take-off, search, return, land, abort services. Not part of the demo launches |
-| `quad_showcase` | Quad state machine and mapping display (run by path, not a ROS package) |
-| `tools/ipad_teleop` | iPad teleop and camera viewer page |
+Grouped by role. "Demo" marks what the two-part demo runs.
+
+| Role | Package | What it holds | Demo |
+|---|---|---|---|
+| Demo scripts | `demo` | `part1_fleet.sh`, `part2_gui.sh`, `stop_sim.sh`, `env.sh`, and `get_world.sh` / `pack_world.sh` for the river world bundle | yes |
+| Simulation | `41068_ignition_bringup` | The course starter package, extended: robot URDFs, Nav2 config, models (mushrooms, trees, walking person), `simple_trees` and generated `forest_flat` / `forest_random` worlds | yes |
+| Simulation | `forest_worlds` | River world generators (`setup.sh`, `build_world.py`, `make_demo_world.py`, `shuffle_mushrooms.py`); the generated worlds come from the release | yes |
+| Fleet and robots | `quad_zcams` | The zcam quad (`zcam_quad_node`, `fleet_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`, `quad_standdown`), the rover's capture node (`rover_capture_node`) and PS4 teleop (`ps4_teleop`) | yes |
+| Fleet and robots | `ammo_mission_control` | The one-quad, one-rover launch (`cage_mission.launch.py`, alias `ammo_main.launch.py`), `truth_localizer`, `ground_projection`, and the earlier `quad_search_node` / `cage_capture_node` (`quad:=stock`) | yes |
+| Perception | `perception` | `yolo_node` (one per camera), `hazard_brake` (stops the rover for a person), `combined_view`, trained YOLO weights in `models/` | yes |
+| Perception | `skidsteer_perception` | Dataset capture in Gazebo and YOLO training scripts (`scripts/`, see `TRAINING_PC.md`) | no |
+| Rover safety | `skidsteer_controller` | `collision_guard_node` (C++): lidar and depth safety gate on every rover velocity command | yes |
+| Operator interface | `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge`, headless tests | yes |
+| Operator interface | `quad_showcase` | Display of the quad's state machine and depth mapping (run by path, not a ROS package) | optional |
+| Operator interface | `ammo_dashboard` | OpenCV HUD: both YOLO feeds, speed, altitude, minimap | no |
+| Operator interface | `tools/ipad_teleop` | iPad teleop and camera viewer page | no |
+| Earlier work | `quad_mission`, `quad_mission_interfaces` | Quad mission state machine (C++): take-off, search, return, land and abort services | no |
 
 ## Running the mission by hand
 
