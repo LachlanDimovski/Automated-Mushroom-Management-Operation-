@@ -90,7 +90,7 @@ state machine and depth mapping that runs beside a Part 2 mission (see its READM
 | `quad_zcams` | The z-camera quad (`zcam_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`, `quad_standdown`), `rover_capture_node` and PS4 teleop |
 | `perception` | `yolo_node` (one copy per camera), `hazard_brake` (person stop), `combined_view`, trained weights in `models/` |
 | `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge`, headless tests |
-| `skidsteer_controller`, `skid_cbf_guard` | `collision_guard_node` (C++): lidar and depth safety gate for the Husky |
+| `skidsteer_controller` | `collision_guard_node` (C++): lidar and depth safety gate for the Husky |
 | `skidsteer_perception` | Dataset capture and YOLO training scripts (`scripts/`, see `TRAINING_PC.md`) |
 | `ammo_dashboard` | OpenCV HUD: both YOLO feeds, speed, altitude, minimap |
 | `quad_mission`, `quad_mission_interfaces` | Quad mission state machine (C++): take-off, search, return, land, abort services. Not part of the demo launches |
