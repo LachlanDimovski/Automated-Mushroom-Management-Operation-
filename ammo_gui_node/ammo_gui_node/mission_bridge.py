@@ -54,6 +54,12 @@ ROSOUT_QOS = QoSProfile(depth=200, reliability=ReliabilityPolicy.RELIABLE)
 STALE_S = 2.0
 # A ground map older than this is from a simulation that is not running.
 GROUND_MAP_STALE_S = 30.0
+
+# How far away their detector reliably sees a mushroom - `quad_search_node`
+# puts it at about 3.5 m, which is why cruise altitude was tuned down to 2 m.
+# A quad that covers more than this between detector frames can fly straight
+# over a mushroom without one frame landing on it.
+DETECT_WINDOW_M = 3.5
 STATE_TOPIC_STALE_S = 5.0   # longer than STALE_S: states change rarely
 HOLD_WINDOW_S = 6.0         # a sighting this recent means the quad is holding
 CONF_WINDOW_S = 4.0         # detections this recent belong to the next sighting
@@ -921,6 +927,29 @@ class MissionBridge(Node):
             bits.append(f'quadcopter at {float(agl):.1f} m, phase '
                         f'{quad.get("phase", "?")}')
         bits.append(f'detector seeing {rate:.1f} frames/s with something in them')
+        # The gates downstream assume roughly 1.5 Hz. Below that the quad
+        # covers more ground between frames than a mushroom is visible for,
+        # so it flies over one without a single frame landing on it - which
+        # looks exactly like the detector not working when it is only slow.
+        try:
+            speed = float((self.parrot_odom.twist.twist.linear.x ** 2
+                           + self.parrot_odom.twist.twist.linear.y ** 2) ** 0.5)
+        except AttributeError:
+            speed = 0.0
+        if speed < 0.05:
+            # the quad's odometry twist is often empty; its own state payload
+            # carries a usable speed when it is
+            try:
+                speed = float(quad.get('speed') or 0.0)
+            except (TypeError, ValueError):
+                speed = 0.0
+        if rate > 0.0 and speed > 0.1:
+            gap = speed / rate
+            if gap > DETECT_WINDOW_M:
+                bits.append(f'{gap:.1f} m of flying between detector frames, '
+                            f'more than the ~{DETECT_WINDOW_M:.0f} m a mushroom '
+                            f'stays in view - slow the quadcopter down on the '
+                            f'setup page, or the detector will keep missing them')
         target = quad.get('hold_target')
         if target:
             bits.append(f'holding over ({target[0]:.1f}, {target[1]:.1f})')
