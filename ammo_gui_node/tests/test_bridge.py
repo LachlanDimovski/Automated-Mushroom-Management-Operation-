@@ -420,6 +420,51 @@ check('a mark reaches the event feed', len(marked) == 1, marked)
 check('with the point on it',
       marked and marked[0].get('x') == 3.0 and marked[0].get('y') == -4.0, marked)
 
+print('\nsaying which link of the chain is broken')
+
+# A mushroom reaches the skidsteer through four steps and a break in any one
+# of them looks the same from the mission page: a found count that stays at
+# zero. Rather than make somebody read four topics, the bridge says which.
+b = fresh()
+b._why_said = 0.0
+b.quad = {'agl': 0.2, 'phase': 'SEARCH'}
+b._publish_status()
+note = next((e for e in events(b, C.EV_NOTE)
+             if 'Nothing handed to the skidsteer' in e.get('text', '')), None)
+check('it says nothing has been handed over', note is not None)
+check('and names the quadcopter being on the ground',
+      'on the ground' in (note or {}).get('text', ''), (note or {}).get('text'))
+
+b2 = fresh()
+b2._why_said = 0.0
+b2.quad = {'agl': 4.2, 'phase': 'HOLD', 'hold_target': [3.0, -4.0]}
+b2._publish_status()
+note2 = next((e for e in events(b2, C.EV_NOTE)
+              if 'Nothing handed to the skidsteer' in e.get('text', '')), None)
+check('a flying quad is described differently',
+      'on the ground' not in (note2 or {}).get('text', ''))
+check('and the hold it is in is named',
+      'holding over (3.0, -4.0)' in (note2 or {}).get('text', ''),
+      (note2 or {}).get('text'))
+check('with the detection rate, so a silent detector is visible',
+      'frames/s' in (note2 or {}).get('text', ''))
+
+before = len(events(b2, C.EV_NOTE))
+b2._publish_status()
+check('it does not repeat every status message',
+      len(events(b2, C.EV_NOTE)) == before)
+
+# and it goes quiet the moment something is actually found
+b3 = fresh()
+b3._why_said = 0.0
+b3.feed(C.CAGE_WAYPOINTS, point(3.0, 4.0))
+b3._publish_status()
+check('a run that is working never sees the diagnostic',
+      not any('Nothing handed to the skidsteer' in e.get('text', '')
+              for e in events(b3, C.EV_NOTE)),
+      [e.get('text') for e in events(b3, C.EV_NOTE)])
+
+
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('failing:')

@@ -231,6 +231,9 @@ class MissionBridge(Node):
         self._hold_at = None
         self._dispatched = 0
 
+        self._ground_warned = False  # said the ground map has two publishers
+        self._det_times = []       # when the quad's detector last saw anything
+        self._why_said = 0.0       # last time the chain was explained
         self._last_sighting_at = -1e9
         self._last_conf = None
         self._last_conf_at = -1e9
@@ -366,6 +369,9 @@ class MissionBridge(Node):
         self._hold_at = self._hold_since = None
         self._dispatched = 0
         self._last_pose = {}
+        self._det_times = []
+        self._why_said = 0.0
+        self._ground_warned = False
         self.mushrooms = []
         self.queue_len = 0
         self.operator_goal = None
@@ -483,6 +489,21 @@ class MissionBridge(Node):
         frac = known_fraction(msg)
         if frac is None:
             return
+        # Two publishers on this topic make the number jump between two
+        # different maps - one climbing, one frozen at whatever a dead run
+        # left behind - which reads as a coverage figure that cannot make up
+        # its mind. Worth saying once rather than leaving it a mystery.
+        if not self._ground_warned:
+            try:
+                n = self.count_publishers(C.QUAD_GROUND_MAP)
+            except Exception:                  # noqa: BLE001
+                n = 1
+            if n > 1:
+                self._ground_warned = True
+                self._emit(C.EV_NOTE,
+                           text=f'{n} publishers on {C.QUAD_GROUND_MAP} - the '
+                                f'area-mapped figure will jump between them. '
+                                f'Something from an earlier run is still alive.')
         before = self.coverage
         self.coverage = frac
         self.seen['ground_map'] = time.monotonic()
@@ -659,6 +680,9 @@ class MissionBridge(Node):
     # -- sightings and outcomes ---------------------------------------------
     def _on_detections(self, msg):
         """Keep the strongest recent score so a sighting can be labelled."""
+        if msg.detections:
+            self._det_times.append(time.monotonic())
+            del self._det_times[:-200]
         best = None
         for det in msg.detections:
             for res in det.results:
@@ -857,7 +881,58 @@ class MissionBridge(Node):
             block['climb'] = round(v.z, 2)
         return block
 
+    def _why_nothing_found(self):
+        """Every few seconds, say which link of the chain is not working.
+
+        A mushroom reaches the skidsteer through four steps, and a failure in
+        any one of them looks identical from the mission page - a found count
+        that stays at zero:
+
+          1. the quadcopter leaves the ground (it keeps no sighting it can
+             hand over until `taken_off`),
+          2. its detector sees something at all,
+          3. it holds over the mushroom to confirm the ground point,
+          4. it publishes to `husky1/cage/waypoints`, which is both what the
+             skidsteer listens to and what this counts as "found".
+
+        Rather than make somebody read four topics to find out which one
+        stopped, this says so in the feed. It only speaks while a mission is
+        running and nothing has been found yet, so a healthy run never sees
+        it.
+        """
+        now = time.monotonic()
+        if not self.running or self.mushrooms or now - self._why_said < 20.0:
+            return
+        self._why_said = now
+        quad = self.quad or {}
+        agl = quad.get('agl')
+        rate = sum(1 for t in self._det_times if now - t < 10.0) / 10.0
+        try:
+            publishers = self.count_publishers(C.CAGE_WAYPOINTS)
+        except Exception:                      # noqa: BLE001
+            publishers = None
+        bits = []
+        if agl is None:
+            bits.append('no altitude from the quadcopter')
+        elif float(agl) < 0.6:
+            bits.append(f'quadcopter still on the ground ({float(agl):.2f} m) - '
+                        'it keeps no sighting until it has taken off')
+        else:
+            bits.append(f'quadcopter at {float(agl):.1f} m, phase '
+                        f'{quad.get("phase", "?")}')
+        bits.append(f'detector seeing {rate:.1f} frames/s with something in them')
+        target = quad.get('hold_target')
+        if target:
+            bits.append(f'holding over ({target[0]:.1f}, {target[1]:.1f})')
+        else:
+            bits.append('not holding over anything')
+        if publishers is not None:
+            bits.append(f'{publishers} publisher(s) on {C.CAGE_WAYPOINTS}')
+        self._emit(C.EV_NOTE,
+                   text='Nothing handed to the skidsteer yet - ' + '; '.join(bits))
+
     def _publish_status(self):
+        self._why_nothing_found()
         self._set_state(self._mission_state())
 
         rover = self._robot_block(self.rover_odom, 'rover')
