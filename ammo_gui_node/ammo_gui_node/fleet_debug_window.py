@@ -23,7 +23,7 @@ from PySide6.QtGui import QColor, QFont, QPainter
 from std_msgs.msg import String
 
 from ammo_gui_node import cards, theme
-from ammo_gui_node.camera_panel import STALE_S, CameraPanel
+from ammo_gui_node.camera_panel import SLOW_STALE_S, STALE_S, CameraPanel
 from ammo_gui_node.debug_window import DebugWindow
 from ammo_gui_node.event_feed import EventFeed
 from ammo_gui_node.fleet_viewer import _FleetLink, _FleetNode, _order, _title
@@ -123,16 +123,18 @@ class FleetDebugWindow(DebugWindow):
     def __init__(self, link, fleet):
         self.panels = {}
         self.yolo_at = {}
+        self.seen = {'parrot1', 'husky1'}
         super().__init__(link)
         self.setWindowTitle('AMMO Fleet Debug')
         fleet.robots_changed.connect(self._layout)
-        fleet.frame.connect(self._fleet_frame)
+        fleet.frame.connect(self._fleet_cam_frame)
         fleet.fleet_status.connect(self._fleet_status)
         fleet.pose.connect(self.map.set_robot)
         self.fleet_mushrooms = None
         # the base window's single rover/quad glyphs and feeds; the grid shows every robot instead
         for sig in (link.rover_pose, link.quad_pose, link.rover_frame, link.quad_frame,
-                    link.rover_detections, link.quad_detections):
+                    link.rover_detections, link.quad_detections, link.fleet_frame, link.fleet_pose,
+                    link.topdown_frame):
             sig.disconnect()
 
     def _panel(self, robot):
@@ -140,7 +142,8 @@ class FleetDebugWindow(DebugWindow):
             return super()._panel(robot)
         if robot not in self.panels:
             colour = theme.ACCENT if 'husky' in robot else theme.TEXT
-            self.panels[robot] = CameraPanel(_title(robot), f'/{robot}/camera/image', colour)
+            self.panels[robot] = CameraPanel(_title(robot), f'/{robot}/camera/image', colour,
+                                              stale_s=SLOW_STALE_S)
         return self.panels[robot]
 
     def _main_page(self):
@@ -210,7 +213,8 @@ class FleetDebugWindow(DebugWindow):
         return panel
 
     def _layout(self, robots):
-        robots = sorted(set(robots) | set(self.panels), key=_order)
+        # bridges exist for robots that were never spawned, so only tile cameras that have sent a frame
+        robots = sorted(self.seen, key=_order)
         for robot in robots:
             self._panel(robot)
         while self.grid.count():
@@ -219,7 +223,10 @@ class FleetDebugWindow(DebugWindow):
         for i, robot in enumerate(robots):
             self.grid.addWidget(self.panels[robot], i // cols, i % cols)
 
-    def _fleet_frame(self, robot, yolo, img):
+    def _fleet_cam_frame(self, robot, yolo, img):
+        if robot not in self.seen:
+            self.seen.add(robot)
+            self._layout([])
         panel = self.panels.get(robot)
         if panel is None:
             return
@@ -244,6 +251,8 @@ class FleetDebugWindow(DebugWindow):
         if self.fleet_mushrooms is not None:
             self.map.set_mushrooms(self.fleet_mushrooms)
         self.native_card.set(str(len(status.get('natives') or [])), 'identified and left in place')
+        for p in self.panels.values():
+            p.set_frozen(status.get('paused', False))
         live = sum(p.fresh() for p in self.panels.values())
         self.feeds.setText(f'{live} / {len(self.panels)} cameras live')
 
@@ -251,6 +260,9 @@ class FleetDebugWindow(DebugWindow):
         super()._tick()
         for p in self.panels.values():
             p.update()
+
+    def toggle_overhead_overlay(self):
+        return False
 
 def main(args=None):
     rclpy.init(args=args)

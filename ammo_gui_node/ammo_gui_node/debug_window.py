@@ -503,7 +503,8 @@ class DebugWindow(QWidget):
 
     def _refresh_overhead(self, status):
         """Ring the mushrooms and the robots on the overhead picture."""
-        if not self.topdown_cam.show_overlay:
+        # the fleet window has no overhead panel
+        if not getattr(self, 'topdown_cam', None) or not self.topdown_cam.show_overlay:
             return
         robots = {}
         if self.map.rover:
