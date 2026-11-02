@@ -256,7 +256,7 @@ class Hud(QtWidgets.QWidget):
         else:
             ok = v >= 1.5
             self.text(p, x0 + 14, y0 + h - 30, f'headroom  {v:.2f} m' if math.isfinite(v) else 'headroom  clear', 15, 'good' if ok else 'bad', True)
-            self.text(p, x0 + 14, y0 + h - 12, 'never climbs with less than 1.5 m overhead (stays under the canopy)', 10, 'muted')
+            self.text(p, x0 + 14, y0 + h - 12, 'never climbs with under 1.5 m overhead', 10, 'muted')
         live = time.time() - t < 2.0
         self.text(p, x0 + w - 12, y0 + 20, 'LIVE' if live else 'STALE', 10, 'good' if live else 'bad', True, align='r')
         self.text(p, x0 + w - 12, y0 + h - 12, 'red = near, blue = far', 9, 'muted', align='r')
@@ -290,7 +290,7 @@ class Hud(QtWidgets.QWidget):
         if self.m.rover:
             self.marker(p, px(self.m.rover[0], self.m.rover[1]), self.m.rover[2], 'rover')
         self.text(p, x0 + 12, y0 + h - 24, foot(a), 10, 'muted')
-        self.text(p, x0 + 12, y0 + h - 9, f'{a.shape[1] * res:.0f} m x {a.shape[0] * res:.0f} m, {res} m cells, +x up, +y left', 9, 'muted')
+        self.text(p, x0 + 12, y0 + h - 9, f'{a.shape[1] * res:.0f} m x {a.shape[0] * res:.0f} m, {res:.2g} m cells, +x up, +y left', 9, 'muted')
 
     def marker(self, p, c, yaw, who):
         p.setBrush(C[who])
