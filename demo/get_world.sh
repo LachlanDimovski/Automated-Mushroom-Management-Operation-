@@ -9,8 +9,9 @@ NAME=ammo_river_worlds.tar.gz
 if [ -n "$1" ]; then
     T=$1
 else
-    T=$(mktemp -d)/$NAME
-    gh release download --repo "${AMMO_REPO:-LachlanDimovski/AMMO-Mushroom-Fleet}" --pattern $NAME --output "$T"
+    D=$(mktemp -d)
+    gh release download --repo "${AMMO_REPO:-LachlanDimovski/AMMO-Mushroom-Fleet}" --pattern $NAME --dir "$D"
+    T=$D/$NAME
 fi
 tar xzf "$T" -C "$F"
 ls "$F"/worlds/river_moderate_aus*.sdf
