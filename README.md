@@ -41,12 +41,13 @@ installed by a build.
 One launch runs everything - Gazebo, Nav2, the ground-truth localiser, the
 collision guard, the rover's capture node and (with `parrot:=true`, the
 default) the quad's search flight and detector:
+(`ammo_main.launch.py` runs `cage_mission.launch.py` with the same arguments; either name works.)
 
-    ros2 launch ammo_mission_control cage_mission.launch.py world:=simple_trees headless:=true \
+    ros2 launch ammo_mission_control ammo_main.launch.py world:=simple_trees headless:=true \
         mushrooms:=6,-5,-5,-5.5,-2,6.5          # demo mushrooms; the quad has to find them
-    ros2 launch ammo_mission_control cage_mission.launch.py world:=forest_flat headless:=true meta_goals:=false
-    ros2 launch ammo_mission_control cage_mission.launch.py parrot:=false count:=4   # rover-only test
-    ros2 launch ammo_mission_control cage_mission.launch.py hazard:=true              # + person stop on the rover
+    ros2 launch ammo_mission_control ammo_main.launch.py world:=forest_flat headless:=true meta_goals:=false
+    ros2 launch ammo_mission_control ammo_main.launch.py parrot:=false count:=4   # rover-only test
+    ros2 launch ammo_mission_control ammo_main.launch.py hazard:=true              # + person stop on the rover
 
 Launch arguments:
 
