@@ -3,9 +3,11 @@
 This is the display for the Quadcopter's occupancy maps and depth cameras to show off the mapping done. It will also show the complete quadcopter path and identified objects.
 To run it, have the GUI up. This is done with:
 
-`cd ~/41068_ws && source /opt/ros/humble/setup.bash && source install/setup.bash \
+`
+cd ~/41068_ws && source /opt/ros/humble/setup.bash && source install/setup.bash \
 && export QT_QPA_PLATFORM=xcb && export LIBGL_ALWAYS_SOFTWARE=1 \
-&& ros2 launch ammo_gui_node gui.launch.py`
+&& ros2 launch ammo_gui_node gui.launch.py
+`
 
 Then in a seperate terminal:
 `ros2 launch ~/41068_ws/src/RS1_Team5_/quad_showcase/quad_showcase.launch.py`
