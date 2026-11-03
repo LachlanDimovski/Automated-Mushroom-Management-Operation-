@@ -308,12 +308,17 @@ class CameraPanel(QWidget):
         """
         kind = mark.get('kind') or ('mushroom' if mark.get('mushroom') else 'robot')
         yaw = float(mark.get('yaw') or 0.0)
+        # The mark carries the heading already converted to this picture's
+        # own geometry; without it a robot symbol faces the way it would on
+        # the map, which here is simply wrong.
+        angle = mark.get('angle_deg')
+        scale = max(0.6, r / 11.0)
         if kind == 'mushroom':
             glyphs.mushroom(p, QPointF(pt.x(), pt.y() - r * 0.4), max(5.0, r), colour)
         elif kind == 'quad':
-            glyphs.quad(p, pt, yaw, scale=max(0.6, r / 11.0), colour=colour)
+            glyphs.quad(p, pt, yaw, scale=scale, colour=colour, angle_deg=angle)
         else:
-            glyphs.rover(p, pt, yaw, scale=max(0.6, r / 11.0), colour=colour)
+            glyphs.rover(p, pt, yaw, scale=scale, colour=colour, angle_deg=angle)
 
     def _boxes(self, p, target):
         """Draw the detector's boxes, scaled from source pixels into the view."""

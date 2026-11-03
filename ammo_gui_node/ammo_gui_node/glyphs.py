@@ -32,16 +32,30 @@ def mushroom(p, pt, r, colour):
     p.drawPath(path)
 
 
-def rover(p, pt, yaw, scale=1.0, colour=None, heading=True):
+def screen_degrees(yaw, angle_deg=None):
+    """Where a world heading points on screen, clockwise from the +u axis.
+
+    The map draws +x right and +y up, so a world yaw is simply negated. The
+    overhead camera does not: its picture runs -y across and -x down, so the
+    same yaw lands somewhere else entirely and a robot symbol drawn with the
+    map's rule faces the wrong way. Callers that are not the map work their
+    own angle out and pass it as `angle_deg`.
+    """
+    return -math.degrees(yaw) if angle_deg is None else float(angle_deg)
+
+
+def rover(p, pt, yaw, scale=1.0, colour=None, heading=True, angle_deg=None):
     """Body, four wheels and a heading line."""
     colour = QColor(colour or theme.ACCENT)
+    a = screen_degrees(yaw, angle_deg)
     if heading:
+        r = math.radians(a)
         p.setPen(QPen(colour, 2 * scale, Qt.SolidLine, Qt.RoundCap))
-        p.drawLine(pt, QPointF(pt.x() + 22 * scale * math.cos(yaw),
-                               pt.y() - 22 * scale * math.sin(yaw)))
+        p.drawLine(pt, QPointF(pt.x() + 22 * scale * math.cos(r),
+                               pt.y() + 22 * scale * math.sin(r)))
     p.save()
     p.translate(pt)
-    p.rotate(-math.degrees(yaw))
+    p.rotate(a)
     p.scale(scale, scale)
     p.setPen(Qt.NoPen)
     p.setBrush(QBrush(colour))
@@ -53,16 +67,18 @@ def rover(p, pt, yaw, scale=1.0, colour=None, heading=True):
     p.restore()
 
 
-def quad(p, pt, yaw, scale=1.0, colour=None, heading=True):
+def quad(p, pt, yaw, scale=1.0, colour=None, heading=True, angle_deg=None):
     """Four rotors round a body, with a heading line."""
     colour = QColor(colour or theme.TEXT)
+    a = screen_degrees(yaw, angle_deg)
     if heading:
+        r = math.radians(a)
         p.setPen(QPen(colour, 1.6 * scale, Qt.SolidLine, Qt.RoundCap))
-        p.drawLine(pt, QPointF(pt.x() + 20 * scale * math.cos(yaw),
-                               pt.y() - 20 * scale * math.sin(yaw)))
+        p.drawLine(pt, QPointF(pt.x() + 20 * scale * math.cos(r),
+                               pt.y() + 20 * scale * math.sin(r)))
     p.save()
     p.translate(pt)
-    p.rotate(-math.degrees(yaw))
+    p.rotate(a)
     p.scale(scale, scale)
     p.setBrush(Qt.NoBrush)
     p.setPen(QPen(colour, 1.4))

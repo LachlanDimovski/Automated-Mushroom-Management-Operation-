@@ -37,6 +37,9 @@ from ammo_gui_node.overhead import overhead_marks as _overhead_marks
 from ammo_gui_node.mission_launcher import world_meta_full
 from ammo_gui_node.timeline import Timeline, format_clock
 
+# How long the mapped fraction may sit unchanged before the card says so.
+COVERAGE_STILL_S = 90.0
+
 LEGEND = [C.SEARCH, C.FOUND, C.TRANSIT, C.FORD, C.ALIGN, C.CAPTURE, C.STUCK,
           C.OPERATOR, C.PAUSED, C.ABORT]
 
@@ -483,8 +486,17 @@ class DebugWindow(QWidget):
             self.coverage_value.setText(f'{coverage * 100:.0f} %')
             self.coverage_bar.setValue(int(coverage * 100))
             river = status.get('river') or {}
-            self.coverage_sub.setText(
-                f"{river['fords']} ford(s) open" if river.get('fords') else 'by the quadcopter')
+            still = status.get('coverage_still_s')
+            if still is not None and still > COVERAGE_STILL_S:
+                # A number that has not moved in minutes is not progress.
+                # Saying so is the difference between "the quadcopter is
+                # mapping slowly" and "this figure is stuck".
+                self.coverage_sub.setText(f'no change for {still / 60.0:.0f} min - '
+                                          f'the quadcopter is not adding to its map')
+            elif river.get('fords'):
+                self.coverage_sub.setText(f"{river['fords']} ford(s) open")
+            else:
+                self.coverage_sub.setText('by the quadcopter')
 
         paused = status.get('paused', False)
         self.map.set_frozen(paused)
