@@ -54,6 +54,23 @@ ROSOUT_QOS = QoSProfile(depth=200, reliability=ReliabilityPolicy.RELIABLE)
 STALE_S = 2.0
 # A ground map older than this is from a simulation that is not running.
 GROUND_MAP_STALE_S = 30.0
+
+# How far away their detector reliably sees a mushroom - `quad_search_node`
+# puts it at about 3.5 m, which is why cruise altitude was tuned down to 2 m.
+# A quad that covers more than this between detector frames can fly straight
+# over a mushroom without one frame landing on it.
+DETECT_WINDOW_M = 3.5
+
+# `quad_search_node.MIN_CONF`. The detector publishes from 0.25 and the GUI
+# draws everything it publishes, so boxes between the two are visible and
+# ignored. Kept here rather than imported because the GUI does not depend on
+# their package; if they retune it, this follows.
+QUAD_MIN_CONF = 0.5
+
+# The phases their `_phase()` reports while a hold is actually live. Anything
+# else means `hold_target` is a leftover from a hold that has already ended.
+HOLD_PHASES = (C.QUAD_APPROACH, C.QUAD_HOLDING, C.QUAD_RETRY_VIEW,
+               C.QUAD_DISPATCH)
 STATE_TOPIC_STALE_S = 5.0   # longer than STALE_S: states change rarely
 HOLD_WINDOW_S = 6.0         # a sighting this recent means the quad is holding
 CONF_WINDOW_S = 4.0         # detections this recent belong to the next sighting
@@ -156,6 +173,10 @@ class MissionBridge(Node):
         # Off by default: with the GUI launching every run, an auto-start only
         # produces a phantom mission with a zero total and a clock from nowhere.
         self.declare_parameter('autostart', False)
+        # The detection-chain diagnostic. Useful when nothing is being found
+        # and noise the rest of the time, so it is opt-in.
+        self.declare_parameter('diagnose', False)
+        self._diagnose = bool(self.get_parameter('diagnose').value)
 
         self.status_pub = self.create_publisher(String, C.STATUS_TOPIC, LIVE_QOS)
         self.event_pub = self.create_publisher(String, C.EVENTS_TOPIC, EVENT_QOS)
@@ -223,7 +244,19 @@ class MissionBridge(Node):
         self.seen = {'rover': 0.0, 'quad': 0.0,
                      'rover_state': -1e9, 'quad_state': -1e9,
                      'ground_map': -1e9}
+        # (x, y, t) per robot, for working out a speed when the odometry
+        # twist is empty
+        self._last_pose = {}
+        # when the quad started holding on a mushroom, and what it was
+        self._hold_since = None
+        self._hold_at = None
+        self._dispatched = 0
 
+        self._coverage_moved = 0.0   # when the mapped fraction last changed
+        self._ground_warned = False  # said the ground map has two publishers
+        self._best_scores = []     # (t, score) of the best box in recent frames
+        self._det_times = []       # when the quad's detector last saw anything
+        self._why_said = 0.0       # last time the chain was explained
         self._last_sighting_at = -1e9
         self._last_conf = None
         self._last_conf_at = -1e9
@@ -356,6 +389,14 @@ class MissionBridge(Node):
         # had already been killed, it sat there forever looking live.
         self.coverage = None
         self.seen['ground_map'] = -1e9
+        self._hold_at = self._hold_since = None
+        self._dispatched = 0
+        self._last_pose = {}
+        self._det_times = []
+        self._best_scores = []
+        self._why_said = 0.0
+        self._coverage_moved = 0.0
+        self._ground_warned = False
         self.mushrooms = []
         self.queue_len = 0
         self.operator_goal = None
@@ -409,6 +450,51 @@ class MissionBridge(Node):
         self.quad = payload
         for point in payload.get('natives') or []:
             self._note_native(point)
+        self._watch_hold(payload)
+
+    def _watch_hold(self, payload):
+        """Say when the quadcopter holds on a mushroom, and how it ended.
+
+        This is the gap that made a run look broken with nothing in any log
+        to explain it. A mushroom only counts as found, and the skidsteer
+        only learns where to go, when the quad publishes to
+        `husky1/cage/waypoints` - and it will not do that until it has held
+        over the mushroom and confirmed the same ground point several times
+        (`DISPATCH_PUBLISHES = 3` in `quad_search_node`). So a quad that sees
+        mushrooms, holds on each one and never confirms produces exactly what
+        we saw: detector boxes on the camera, phases moving on the timeline,
+        a found count stuck at zero, and a skidsteer with nothing to do.
+
+        None of that is visible from the counts alone, so the holds are
+        reported as they happen and, more usefully, when one ends without a
+        handover.
+        """
+        if not self.running:
+            return
+        target = payload.get('hold_target')
+        dispatched = int(payload.get('dispatched') or 0)
+        now = time.monotonic()
+        if target and self._hold_at is None:
+            self._hold_at, self._hold_since = list(target), now
+            self._emit(C.EV_NOTE,
+                       text=f'Quadcopter holding over ({target[0]:.1f}, '
+                            f'{target[1]:.1f}) to confirm it')
+        elif not target and self._hold_at is not None:
+            held = now - (self._hold_since or now)
+            where = self._hold_at
+            self._hold_at, self._hold_since = None, None
+            if dispatched > self._dispatched:
+                self._emit(C.EV_NOTE,
+                           text=f'Quadcopter handed ({where[0]:.1f}, '
+                                f'{where[1]:.1f}) to the skidsteer after '
+                                f'{held:.0f} s')
+            else:
+                self._emit(C.EV_NOTE,
+                           text=f'Quadcopter gave up the hold on ({where[0]:.1f}, '
+                                f'{where[1]:.1f}) after {held:.0f} s without '
+                                f'confirming it - nothing was sent to the '
+                                f'skidsteer, so this one will not be collected')
+        self._dispatched = dispatched
 
     def _note_native(self, point):
         try:
@@ -428,7 +514,24 @@ class MissionBridge(Node):
         frac = known_fraction(msg)
         if frac is None:
             return
+        # Two publishers on this topic make the number jump between two
+        # different maps - one climbing, one frozen at whatever a dead run
+        # left behind - which reads as a coverage figure that cannot make up
+        # its mind. Worth saying once rather than leaving it a mystery.
+        if not self._ground_warned:
+            try:
+                n = self.count_publishers(C.QUAD_GROUND_MAP)
+            except Exception:                  # noqa: BLE001
+                n = 1
+            if n > 1:
+                self._ground_warned = True
+                self._emit(C.EV_NOTE,
+                           text=f'{n} publishers on {C.QUAD_GROUND_MAP} - the '
+                                f'area-mapped figure will jump between them. '
+                                f'Something from an earlier run is still alive.')
         before = self.coverage
+        if before is None or abs(frac - before) > 1e-4:
+            self._coverage_moved = time.monotonic()
         self.coverage = frac
         self.seen['ground_map'] = time.monotonic()
         # worth an event every 10 points, so the feed shows progress without
@@ -604,6 +707,9 @@ class MissionBridge(Node):
     # -- sightings and outcomes ---------------------------------------------
     def _on_detections(self, msg):
         """Keep the strongest recent score so a sighting can be labelled."""
+        if msg.detections:
+            self._det_times.append(time.monotonic())
+            del self._det_times[:-200]
         best = None
         for det in msg.detections:
             for res in det.results:
@@ -613,6 +719,8 @@ class MissionBridge(Node):
         if best is not None:
             self._last_conf = round(best, 2)
             self._last_conf_at = time.monotonic()
+            self._best_scores.append((time.monotonic(), float(best)))
+            del self._best_scores[:-200]
 
     def _on_waypoint(self, msg):
         """A sighting from the quadcopter - the 'found' half of the tally."""
@@ -773,18 +881,151 @@ class MissionBridge(Node):
             return {'fresh': False}
         p = odom.pose.pose.position
         v = odom.twist.twist.linear
+        vx, vy = v.x, v.y
+        # Not every odometry publisher fills the twist. The quadcopter's
+        # arrives with a zero twist and a moving pose, which read as a
+        # stationary robot flying across the map - so when the twist says
+        # nothing, differentiate the pose instead and say so.
+        derived = False
+        if abs(vx) < 1e-6 and abs(vy) < 1e-6:
+            last = self._last_pose.get(key)
+            now = time.monotonic()
+            if last is not None:
+                dt = now - last[2]
+                if 0.02 < dt < 2.0:
+                    moved = math.hypot(p.x - last[0], p.y - last[1])
+                    if moved > 1e-4:
+                        vx, vy = (p.x - last[0]) / dt, (p.y - last[1]) / dt
+                        derived = True
+            self._last_pose[key] = (p.x, p.y, now)
         block = {'fresh': self._fresh(key),
                  'x': round(p.x, 2), 'y': round(p.y, 2),
                  'yaw': round(yaw_of(odom.pose.pose.orientation), 3),
-                 'speed': round(math.hypot(v.x, v.y), 2),
-                 'vx': round(v.x, 2), 'vy': round(v.y, 2),
+                 'speed': round(math.hypot(vx, vy), 2),
+                 'speed_derived': derived,
+                 'vx': round(vx, 2), 'vy': round(vy, 2),
                  'wz': round(odom.twist.twist.angular.z, 2)}
         if air:
             block['alt'] = round(p.z, 2)
             block['climb'] = round(v.z, 2)
         return block
 
+    def _why_nothing_found(self):
+        """Every few seconds, say which link of the chain is not working.
+
+        A mushroom reaches the skidsteer through four steps, and a failure in
+        any one of them looks identical from the mission page - a found count
+        that stays at zero:
+
+          1. the quadcopter leaves the ground (it keeps no sighting it can
+             hand over until `taken_off`),
+          2. its detector sees something at all,
+          3. it holds over the mushroom to confirm the ground point,
+          4. it publishes to `husky1/cage/waypoints`, which is both what the
+             skidsteer listens to and what this counts as "found".
+
+        Rather than make somebody read four topics to find out which one
+        stopped, this says so in the feed. It only speaks while a mission is
+        running and nothing has been found yet, so a healthy run never sees
+        it.
+
+        **Off by default.** It is a debugging aid, and a run being shown to
+        anyone does not want a paragraph of internals in the event feed every
+        twenty seconds. Turn it on with `diagnose:=true` when a run is not
+        finding mushrooms and you want to know which link is at fault.
+        """
+        if not self._diagnose:
+            return
+        now = time.monotonic()
+        if not self.running or self.mushrooms or now - self._why_said < 20.0:
+            return
+        self._why_said = now
+        quad = self.quad or {}
+        agl = quad.get('agl')
+        # Counted over a minute, not a rate over ten seconds. At the frame
+        # rates this actually runs at, a mushroom is in view for less than one
+        # ten-second window, so a rate reads 0.0 while boxes are plainly being
+        # drawn on screen - which is exactly how this measurement misled us.
+        seen = [t for t in self._det_times if now - t < 60.0]
+        since = (now - self._det_times[-1]) if self._det_times else None
+        try:
+            publishers = self.count_publishers(C.CAGE_WAYPOINTS)
+        except Exception:                      # noqa: BLE001
+            publishers = None
+        bits = []
+        if agl is None:
+            bits.append('no altitude from the quadcopter')
+        elif float(agl) < 0.6:
+            bits.append(f'quadcopter still on the ground ({float(agl):.2f} m) - '
+                        'it keeps no sighting until it has taken off')
+        else:
+            bits.append(f'quadcopter at {float(agl):.1f} m, phase '
+                        f'{quad.get("phase", "?")}')
+        if not self._det_times:
+            bits.append('the detector has not put a box on anything all mission')
+        else:
+            bits.append(f'{len(seen)} frame(s) with a box in the last minute, '
+                        f'last one {since:.0f} s ago')
+        # The gates downstream assume roughly 1.5 Hz. Below that the quad
+        # covers more ground between frames than a mushroom is visible for,
+        # so it flies over one without a single frame landing on it - which
+        # looks exactly like the detector not working when it is only slow.
+        try:
+            speed = float((self.parrot_odom.twist.twist.linear.x ** 2
+                           + self.parrot_odom.twist.twist.linear.y ** 2) ** 0.5)
+        except AttributeError:
+            speed = 0.0
+        if speed < 0.05:
+            # the quad's odometry twist is often empty; its own state payload
+            # carries a usable speed when it is
+            try:
+                speed = float(quad.get('speed') or 0.0)
+            except (TypeError, ValueError):
+                speed = 0.0
+        rate = len(seen) / 60.0
+        if rate > 0.0 and speed > 0.1:
+            gap = speed / rate
+            if gap > DETECT_WINDOW_M:
+                bits.append(f'{gap:.1f} m of flying between detector frames, '
+                            f'more than the ~{DETECT_WINDOW_M:.0f} m a mushroom '
+                            f'stays in view - slow the quadcopter down on the '
+                            f'setup page, or the detector will keep missing them')
+        # The gap that makes this invisible: the detector publishes every box
+        # scoring >= 0.25 and the GUI draws all of them, while the quad throws
+        # away anything under MIN_CONF. So a weak box is on screen, labelled
+        # with its score, and silently ignored - which reads as the detector
+        # working and the quad not caring.
+        # The best score of the whole mission, not of the last minute: a
+        # mushroom seen two minutes ago and thrown away for being under the
+        # threshold is still the thing worth knowing about.
+        if self._best_scores:
+            top = max(sc for _t, sc in self._best_scores)
+            if top < QUAD_MIN_CONF:
+                bits.append(f'best box all mission scored {top:.2f}, under the '
+                            f'{QUAD_MIN_CONF:.2f} the quadcopter needs - every box '
+                            f'you can see is being thrown away')
+            else:
+                bits.append(f'best box all mission scored {top:.2f}, which is '
+                            f'over the {QUAD_MIN_CONF:.2f} needed')
+        # `hold_target` is set when a hold starts and never cleared when it
+        # ends, so it alone says "holding" long after the quad has moved on.
+        # Their own phase is the authority on whether a hold is live.
+        holding_now = str(quad.get('phase', '')) in HOLD_PHASES
+        target = quad.get('hold_target')
+        if holding_now and target:
+            bits.append(f'holding over ({target[0]:.1f}, {target[1]:.1f})')
+        elif target:
+            bits.append(f'last looked at ({target[0]:.1f}, {target[1]:.1f}), '
+                        f'not holding now')
+        else:
+            bits.append('has never held over anything')
+        if publishers is not None:
+            bits.append(f'{publishers} publisher(s) on {C.CAGE_WAYPOINTS}')
+        self._emit(C.EV_NOTE,
+                   text='Nothing handed to the skidsteer yet - ' + '; '.join(bits))
+
     def _publish_status(self):
+        self._why_nothing_found()
         self._set_state(self._mission_state())
 
         rover = self._robot_block(self.rover_odom, 'rover')
@@ -801,6 +1042,8 @@ class MissionBridge(Node):
                     'hold_target', 'planner', 'counters'):
             if key in self.quad:
                 quad[key] = self.quad[key]
+        if self._hold_since is not None:
+            quad['holding_for'] = round(time.monotonic() - self._hold_since, 1)
 
         status = {
             'running': self.running,
@@ -828,6 +1071,11 @@ class MissionBridge(Node):
             'coverage': (None if self.coverage is None
                          or not self._fresh('ground_map', GROUND_MAP_STALE_S)
                          else round(self.coverage, 3)),
+            # How long the mapped fraction has sat at the same number. A
+            # figure that has not moved in minutes is not progress, and
+            # showing it without that is how "area mapped" looked broken.
+            'coverage_still_s': (None if self.coverage is None or not self._coverage_moved
+                                 else round(time.monotonic() - self._coverage_moved, 1)),
             'placed': self.placed,
             'quads': self.quads,
             'rovers': self.rovers,

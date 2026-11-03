@@ -94,6 +94,20 @@ MARK_KEY = ('circles: mushrooms - red out there, amber seen, green collected  '
             'boxes: teal quad, blue skidsteer')
 
 
+def screen_angle(yaw):
+    """A world heading as a clockwise screen angle on the overhead picture.
+
+    Not the same as on the map, and the difference is why a robot symbol
+    drawn with the map's rule points the wrong way here. This camera puts
+    +y to the left and +x upward (see `project` above), so a world step
+    (dx, dy) moves the picture by (-dy, -dx) - and a heading of `yaw`,
+    which is (cos yaw, sin yaw) in the world, becomes (-sin yaw, -cos yaw)
+    on screen. Qt measures rotation clockwise with v downward, so that is
+    atan2(-cos yaw, -sin yaw), which simplifies to 270 degrees - yaw.
+    """
+    return (270.0 - math.degrees(yaw)) % 360.0
+
+
 def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
     """Marks for the overhead camera: every mushroom, and every robot.
 
@@ -132,7 +146,7 @@ def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
         near = min((math.hypot(x - fx, y - fy), st) for fx, fy, st in found) if found else None
         state = near[1] if near and near[0] < MARK_NEAR_M else None
         marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': True,
-                      'shape': 'circle', 'state': state,
+                      'kind': 'mushroom', 'shape': 'circle', 'state': state,
                       'r': max(7.0, metres_to_px(0.9, height, px, hfov)),
                       'colour': MARK_COLOURS.get(state, MARK_UNFOUND),
                       'label': f'M{i}'})
@@ -141,13 +155,20 @@ def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
             x, y = float(pos[0]), float(pos[1])
         except (TypeError, ValueError, IndexError):
             continue
+        # (x, y) or (x, y, yaw) - the heading is only needed by the symbol
+        # drawing, so callers that have it pass it and the rest do not.
+        try:
+            yaw = float(pos[2])
+        except (TypeError, ValueError, IndexError):
+            yaw = 0.0
         at = project(x, y, height, px, hfov=hfov)
         if at is None:
             continue
         quad = str(key).startswith('quad')
         label = ('Q' + str(key)[4:]) if quad else ('S' + str(key)[5:])
         marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': False,
-                      'shape': 'box',
+                      'kind': 'quad' if quad else 'rover', 'yaw': yaw,
+                      'angle_deg': screen_angle(yaw), 'shape': 'box',
                       'r': max(9.0, metres_to_px(1.2, height, px, hfov)),
                       'colour': QUAD_COLOUR if quad else ROVER_COLOUR,
                       'label': label})

@@ -7,17 +7,33 @@ HUD) - nothing here touches it, and both can run at the same time.
 ## One-time setup, per machine
 
 ```bash
-sudo apt install -y git-lfs libxcb-cursor0
-pip3 install PySide6
+sudo apt install -y git-lfs libxcb-cursor0 python3-scipy python3-pil
+pip3 install PySide6 ultralytics
+pip3 install torch --index-url https://download.pytorch.org/whl/cpu
+pip3 install "opencv-python<5" "numpy<2"   # last, and both at once
 
 cd ~/41068_ws/src/AMMO-Mushroom-Fleet
 git lfs install && git lfs pull                 # see below - this is not optional
 cd ~/41068_ws && colcon build                   # AFTER the lfs pull, not before
 ```
 
-`libxcb-cursor0` is what Qt 6.5+ needs for the xcb platform plugin. PySide6 is
-the only Python dependency - no OpenCV, since ROS images are converted to Qt
-images with numpy (`image_utils.py`).
+`libxcb-cursor0` is what Qt 6.5+ needs for the xcb platform plugin. This
+package itself needs only PySide6 and numpy - no OpenCV, since ROS images are
+converted to Qt images with numpy (`image_utils.py`) - but the simulation it
+starts needs the detector stack, and **nothing in the repo declares it**:
+`perception/package.xml` lists rclpy, sensor_msgs, vision_msgs and cv_bridge
+while `yolo_node.py` imports torch, cv2 and ultralytics, so `rosdep install`
+cannot produce a working machine.
+
+**Pin numpy below 2 and do it last.** `cv_bridge` and the Humble torch wheels
+are built against the numpy 1.x ABI; `pip install ultralytics` installs numpy
+2.x over the top, and the failure is not a version complaint but an
+`ImportError` inside `cv_bridge` that never mentions numpy. The detectors
+then never start, so nothing is ever detected and the checklist's two
+detector rows never tick.
+
+`tests/check_env.py` checks all of this and prints the command that fixes
+each thing it finds.
 
 **`git lfs` is not optional, and it is the one step people skip.**
 `41068_ignition_bringup/.gitattributes` puts every `*.png`, `*.jpg`, `*.obj`
@@ -522,7 +538,7 @@ python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py
 python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py --render
 ```
 
-618 checks, a few seconds, no ROS, no simulation, no display and no built
+638 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and

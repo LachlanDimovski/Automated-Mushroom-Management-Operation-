@@ -495,6 +495,27 @@ old_bridge = DebugWindow(FakeLink())
 status = mission_status()
 status.pop('phase', None)
 old_bridge.link.status_updated.emit(status)
+# the report keeps a mushroom log with the pictures that go with each one
+check('the report has a mushroom log', hasattr(gate.report, 'log'))
+gate.link.event_received.emit({'kind': C.EV_MISSION_START, 't': 0})
+gate.link.event_received.emit({'kind': C.EV_FOUND, 'n': 1, 'x': 3.0, 'y': 4.0,
+                               'conf': 0.71, 't': 12})
+check('a sighting makes an entry', 1 in gate.report.log.entries,
+      list(gate.report.log.entries))
+gate.link.event_received.emit({'kind': C.EV_FOUND, 'n': 2, 'x': -2.0, 'y': 1.0,
+                               'conf': 0.55, 't': 30})
+check('and a second one another', len(gate.report.log.entries) == 2)
+gate.link.event_received.emit({'kind': C.EV_COLLECTED, 'n': 1, 't': 44})
+check('collecting marks that entry, not the other',
+      gate.report.log.entries[1].status == 'collected'
+      and gate.report.log.entries[2].status == 'found',
+      [e.status for e in gate.report.log.entries.values()])
+gate.link.event_received.emit({'kind': C.EV_ABANDONED, 'n': 2, 't': 60})
+check('and giving up marks it as such',
+      gate.report.log.entries[2].status == 'abandoned')
+gate.link.event_received.emit({'kind': C.EV_MISSION_START, 't': 0})
+check('a new run starts the log empty', gate.report.log.entries == {})
+
 check('a bridge that sends no phase still works off running',
       old_bridge.banner.isHidden() is True)
 
@@ -1650,8 +1671,19 @@ marks_cam.toggle_boxes()
 check('clicking it turns the marks on', marks_cam.show_overlay is True)
 check('and leaves the detector boxes alone', marks_cam.show_boxes is False)
 check('and reports the change', flips == [True], flips)
+check('and it says what it is showing', marks_cam.overlay_label() == 'MARKS',
+      marks_cam.overlay_label())
 marks_cam.toggle_boxes()
-check('clicking again turns them off', marks_cam.show_overlay is False)
+check('clicking again switches to the map\'s own symbols',
+      marks_cam.overlay_mode == 2 and marks_cam.overlay_label() == 'SYMBOLS',
+      marks_cam.overlay_label())
+check('which still counts as an overlay being shown',
+      marks_cam.show_overlay is True)
+marks_cam.toggle_boxes()
+check('and a third click turns them off', marks_cam.show_overlay is False)
+check('set_show_overlay still works for the M key',
+      (marks_cam.set_show_overlay(True), marks_cam.overlay_mode)[1] == 1)
+marks_cam.set_show_overlay(False)
 check('an ordinary panel still toggles boxes',
       CameraPanel('ROVER', 'y', theme.ACCENT).overlay_button is False)
 

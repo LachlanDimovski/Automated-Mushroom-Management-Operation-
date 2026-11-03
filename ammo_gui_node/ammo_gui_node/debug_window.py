@@ -37,6 +37,9 @@ from ammo_gui_node.overhead import overhead_marks as _overhead_marks
 from ammo_gui_node.mission_launcher import world_meta_full
 from ammo_gui_node.timeline import Timeline, format_clock
 
+# How long the mapped fraction may sit unchanged before the card says so.
+COVERAGE_STILL_S = 90.0
+
 LEGEND = [C.SEARCH, C.FOUND, C.TRANSIT, C.FORD, C.ALIGN, C.CAPTURE, C.STUCK,
           C.OPERATOR, C.PAUSED, C.ABORT]
 
@@ -483,8 +486,17 @@ class DebugWindow(QWidget):
             self.coverage_value.setText(f'{coverage * 100:.0f} %')
             self.coverage_bar.setValue(int(coverage * 100))
             river = status.get('river') or {}
-            self.coverage_sub.setText(
-                f"{river['fords']} ford(s) open" if river.get('fords') else 'by the quadcopter')
+            still = status.get('coverage_still_s')
+            if still is not None and still > COVERAGE_STILL_S:
+                # A number that has not moved in minutes is not progress.
+                # Saying so is the difference between "the quadcopter is
+                # mapping slowly" and "this figure is stuck".
+                self.coverage_sub.setText(f'no change for {still / 60.0:.0f} min - '
+                                          f'the quadcopter is not adding to its map')
+            elif river.get('fords'):
+                self.coverage_sub.setText(f"{river['fords']} ford(s) open")
+            else:
+                self.coverage_sub.setText('by the quadcopter')
 
         paused = status.get('paused', False)
         self.map.set_frozen(paused)
@@ -506,13 +518,15 @@ class DebugWindow(QWidget):
         # the fleet window has no overhead panel
         if not getattr(self, 'topdown_cam', None) or not self.topdown_cam.show_overlay:
             return
+        # (x, y, yaw) - the heading is what lets the symbol mode draw a
+        # rover that is visibly facing the wrong way.
         robots = {}
         if self.map.rover:
-            robots['rover1'] = (self.map.rover[0], self.map.rover[1])
+            robots['rover1'] = tuple(self.map.rover[:3])
         if self.map.quad:
-            robots['quad1'] = (self.map.quad[0], self.map.quad[1])
+            robots['quad1'] = tuple(self.map.quad[:3])
         for key, pose in self.map.fleet.items():
-            robots[key] = (pose[0], pose[1])
+            robots[key] = tuple(pose[:3])
         self.topdown_cam.set_overlay(overhead_marks(
             status.get('world') or self.world or 'simple_trees',
             status.get('placed') or [],
@@ -541,6 +555,7 @@ class DebugWindow(QWidget):
             self.events = [ev]
             self.map.clear()
             self.feed.clear()
+            self.report.log.clear()
             self._set_phase('running')
         elif self.phase != 'running':
             # Prepare-stage chatter is not mission history, and a timeline
@@ -548,22 +563,50 @@ class DebugWindow(QWidget):
             return
         else:
             self.events.append(ev)
+        self._log_event(ev)
         self.timeline.apply_events(self.events)
         self.feed.add(ev)
         self._autoscroll()
+
+    def _log_event(self, ev):
+        """Keep the mushroom log for the end-of-mission report.
+
+        The same bookkeeping the mission page does, kept here so the report
+        can show every mushroom with the pictures that go with it: the
+        quadcopter's camera at the moment it reported the sighting, and the
+        skidsteer's at the moment it finished collecting. Frames are grabbed
+        from whatever each panel last received, which is why this has to
+        happen as the event arrives rather than at the end.
+        """
+        kind, n = ev.get('kind'), ev.get('n')
+        if n is None:
+            return
+        if kind == C.EV_FOUND:
+            self.report.log.add(n, ev.get('x', 0.0), ev.get('y', 0.0),
+                                ev.get('conf'), format_clock(ev.get('t', 0)),
+                                quad_image=self.quad_cam.image)
+        elif kind == C.EV_COLLECTED:
+            self.report.log.set_capture_image(n, self.rover_cam.image)
+            self.report.log.set_status(n, 'collected')
+        elif kind == C.EV_ABANDONED:
+            self.report.log.set_status(n, 'abandoned')
+        elif kind == C.EV_MISSED:
+            self.report.log.set_status(n, 'missed')
 
     def _show_report(self, status):
         self.showing_report = True
         # The report has its own header; the banner underneath it would be
         # telling you about a stage the run is no longer in.
         self.banner.hide()
+        # (x, y, yaw) - the heading is what lets the symbol mode draw a
+        # rover that is visibly facing the wrong way.
         robots = {}
         if self.map.rover:
-            robots['rover1'] = (self.map.rover[0], self.map.rover[1])
+            robots['rover1'] = tuple(self.map.rover[:3])
         if self.map.quad:
-            robots['quad1'] = (self.map.quad[0], self.map.quad[1])
+            robots['quad1'] = tuple(self.map.quad[:3])
         for key, pose in self.map.fleet.items():
-            robots[key] = (pose[0], pose[1])
+            robots[key] = tuple(pose[:3])
         marks = overhead_marks(status.get('world') or self.world or 'simple_trees',
                                status.get('placed') or [],
                                status.get('mushrooms') or [], robots)

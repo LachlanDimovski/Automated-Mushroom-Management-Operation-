@@ -22,6 +22,7 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QPainter,
 from PySide6.QtWidgets import QWidget
 
 from ammo_gui_node import contract as C
+from ammo_gui_node import glyphs
 from ammo_gui_node import theme
 
 # How long after the last frame a feed counts as dead. Two seconds suits a
@@ -68,6 +69,10 @@ class CameraPanel(QWidget):
         # {'u', 'v', 'r', 'colour', 'label'}. Used by the overhead view to
         # ring the mushrooms and the robots.
         self.overlay = []
+        # 0 off, 1 plain marks, 2 the map's own symbols. `show_overlay` is
+        # kept in step so everything that only cares whether anything is
+        # drawn can go on asking that.
+        self.overlay_mode = 0
         self.show_overlay = False
         self.frozen = False
         self.note = ''
@@ -100,7 +105,8 @@ class CameraPanel(QWidget):
 
     def toggle_boxes(self):
         if self.overlay_button:
-            self.set_show_overlay(not self.show_overlay)
+            # off -> marks -> symbols -> off
+            self.set_overlay_mode((self.overlay_mode + 1) % 3)
             self.boxes_toggled.emit(self.show_overlay)
             return
         self.set_show_boxes(not self.show_boxes)
@@ -111,8 +117,16 @@ class CameraPanel(QWidget):
             self.update()
 
     def set_show_overlay(self, on):
-        self.show_overlay = bool(on)
+        self.set_overlay_mode(1 if on else 0)
+
+    def set_overlay_mode(self, mode):
+        """0 nothing, 1 plain circles and squares, 2 the map's own symbols."""
+        self.overlay_mode = int(mode) % 3
+        self.show_overlay = self.overlay_mode > 0
         self.update()
+
+    def overlay_label(self):
+        return ('NO MARKS', 'MARKS', 'SYMBOLS')[self.overlay_mode]
 
     def set_frozen(self, frozen):
         self.frozen = bool(frozen)
@@ -206,7 +220,7 @@ class CameraPanel(QWidget):
     def _tab(self, p, live):
         rect = self._tab_rect()
         if self.overlay_button:
-            label = 'MARKS' if self.show_overlay else 'NO MARKS'
+            label = self.overlay_label()
         else:
             label = 'BOXES' if self.show_boxes else 'NO BOXES'
         if self.frozen:
@@ -219,8 +233,10 @@ class CameraPanel(QWidget):
         if live and not self.frozen:
             p.setPen(QPen(QColor(theme.LINE_SOFT), 1))
             p.setBrush(Qt.NoBrush)
-            on = self.show_overlay if self.overlay_button else self.show_boxes
-            width = 46 if on else 64
+            if self.overlay_button:
+                width = {0: 64, 1: 46, 2: 60}[self.overlay_mode]
+            else:
+                width = 44 if self.show_boxes else 62
             p.drawRoundedRect(QRectF(rect.right() - width - 4, 7, width, 16), 3, 3)
 
     def _frame(self, p, view, dim):
@@ -259,6 +275,14 @@ class CameraPanel(QWidget):
             colour = QColor(mark.get('colour') or theme.ACCENT)
             p.setBrush(Qt.NoBrush)
             p.setPen(QPen(colour, 1.8))
+            if self.overlay_mode == 2:
+                # The map's own symbols, so the picture and the drawing beside
+                # it read as the same scene rather than two notations.
+                self._symbol(p, mark, QPointF(cx, cy), r, colour)
+                p.setPen(QPen(colour, 1.0))
+                glyphs.label(p, QPointF(cx, cy), mark.get('label'),
+                             colour, offset=r + 4)
+                continue
             # Shape carries the kind and colour carries the state, so the
             # two never have to be told apart by hue alone: a robot is a
             # square, a mushroom is a circle, whatever colour either is.
@@ -274,6 +298,27 @@ class CameraPanel(QWidget):
             if label:
                 p.setPen(QPen(colour, 1.0))
                 p.drawText(QPointF(cx + r + 3, cy + 4), label)
+
+    def _symbol(self, p, mark, pt, r, colour):
+        """One mark as the map would draw it.
+
+        Robots keep their heading, which is the point of using the symbols
+        here: a rover facing the wrong way on the overhead view is obvious
+        at a glance and invisible as a square.
+        """
+        kind = mark.get('kind') or ('mushroom' if mark.get('mushroom') else 'robot')
+        yaw = float(mark.get('yaw') or 0.0)
+        # The mark carries the heading already converted to this picture's
+        # own geometry; without it a robot symbol faces the way it would on
+        # the map, which here is simply wrong.
+        angle = mark.get('angle_deg')
+        scale = max(0.6, r / 11.0)
+        if kind == 'mushroom':
+            glyphs.mushroom(p, QPointF(pt.x(), pt.y() - r * 0.4), max(5.0, r), colour)
+        elif kind == 'quad':
+            glyphs.quad(p, pt, yaw, scale=scale, colour=colour, angle_deg=angle)
+        else:
+            glyphs.rover(p, pt, yaw, scale=scale, colour=colour, angle_deg=angle)
 
     def _boxes(self, p, target):
         """Draw the detector's boxes, scaled from source pixels into the view."""

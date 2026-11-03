@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QScrollArea, QVBoxLayout, QWidget)
 
 from ammo_gui_node import cards, contract as C, theme
 from ammo_gui_node.camera_panel import CameraPanel
+from ammo_gui_node.mushroom_log import MushroomLog
 from ammo_gui_node.timeline import Timeline, format_clock
 
 # Which event kinds are worth repeating in the report, in this order.
@@ -172,6 +173,19 @@ class MissionReport(QWidget):
         nlay.addWidget(self.advice, 1)
         right.addWidget(notes, 2)
         body.addLayout(right, 2)
+
+        # The mushroom log, kept for the report rather than scrolled past
+        # during the run: one entry per mushroom, the quadcopter's view at
+        # the moment it reported the sighting and the skidsteer's at the
+        # moment it collected, newest open and the rest a click away.
+        log_panel = cards.panel()
+        loglay = QVBoxLayout(log_panel)
+        loglay.setContentsMargins(16, 12, 16, 14)
+        loglay.setSpacing(7)
+        loglay.addWidget(cards.section('EVERY MUSHROOM'))
+        self.log = MushroomLog()
+        loglay.addWidget(self.log, 1)
+        body.addWidget(log_panel, 2)
 
         self.footer = cards.label(
             'This stays until the next Prepare. When it clears and the cameras '
