@@ -312,6 +312,8 @@ class ReadyPage(QWidget):
         self.map.clear()
         self.map.set_world(config.get('meta') or {})
         self.map.set_planned(config.get('points') or [])
+        self.people = []
+        self.map.set_people([])
         self.map.set_spawns(spawn_points(config.get('quads', 1),
                                          config.get('rovers', 1)))
         self.held = False
@@ -363,8 +365,8 @@ class ReadyPage(QWidget):
             'the window is usually what never finishes loading.')
 
     # -- stage two: ready ---------------------------------------------------
-    def set_ready(self, points):
-        """Everything is up, the nodes are held and the mushrooms are placed."""
+    def set_ready(self, points, people=None):
+        """Everything is up, the nodes are held, and everything is placed."""
         self.stage_chip.setText('READY')
         self.stage_chip.set_colour(theme.GREEN, theme.GREEN)
         self.launch_button.setEnabled(True)
@@ -373,15 +375,23 @@ class ReadyPage(QWidget):
         self.note.setText('Launch thaws both mission nodes and starts the clock. '
                           'Back to setup leaves the simulation up and the robots '
                           'held, so preparing the same world again is instant.')
-        self.set_points(points)
+        self.set_points(points, people=people)
 
-    def set_points(self, points):
+    def set_points(self, points, people=None):
         self.points = list(points or [])
+        self.people = list(people if people is not None
+                           else getattr(self, 'people', []))
         self.map.set_planned(self.points)
-        self.placement_note.setText(f'{len(self.points)} mushroom(s)')
-        self.coords.setText('\n'.join(f'{i}.  {x:+.1f}, {y:+.1f}'
-                                      for i, (x, y) in enumerate(self.points, 1))
-                            or 'the world file has its own')
+        self.map.set_people(self.people)
+        note = f'{len(self.points)} mushroom(s)'
+        if self.people:
+            note += f'  ·  {len(self.people)} person(s)'
+        self.placement_note.setText(note)
+        lines = [f'{i}.  {x:+.1f}, {y:+.1f}'
+                 for i, (x, y) in enumerate(self.points, 1)]
+        lines += [f'H{i}. {x:+.1f}, {y:+.1f}   person'
+                  for i, (x, y) in enumerate(self.people, 1)]
+        self.coords.setText('\n'.join(lines) or 'the world file has its own')
 
     def set_photo(self, image):
         self.photo.set_image(image)

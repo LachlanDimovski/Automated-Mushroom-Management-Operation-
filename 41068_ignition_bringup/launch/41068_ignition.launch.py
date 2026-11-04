@@ -216,11 +216,20 @@ def add_perception(
     robot_namespace,
     start_delay,
     core='',
+    hazard_core='',
     yolo_arg='yolo',
+    hazard_arg='hazard',
 ):
     """Run the shared perception stack (YOLO detector) for one robot.
 
     Publishes <namespace>/detections and <namespace>/detections/image.
+
+    `hazard_arg` is per robot, not shared. It used to be the one `hazard`
+    configuration for both, so `hazard:=true` started a COCO person detector
+    on the quadcopter as well as the rover - two extra inference passes per
+    frame when only the rover's can act on what it sees, since the hazard
+    brake is a rover node. On a four-core machine that was the difference
+    between a detector that keeps up and one that does not.
     """
     perception_include = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -234,11 +243,12 @@ def add_perception(
             'robot': robot_namespace,
             'use_sim_time': use_sim_time,
             'yolo': LaunchConfiguration(yolo_arg),
-            'hazard': LaunchConfiguration('hazard'),
+            'hazard': LaunchConfiguration(hazard_arg),
             'conf_threshold': LaunchConfiguration('conf_threshold'),
             'hazard_conf': LaunchConfiguration('hazard_conf'),
             'stop_height_px': LaunchConfiguration('stop_height_px'),
             'core': core,
+            'hazard_core': hazard_core,
         }.items(),
     )
 
@@ -247,7 +257,7 @@ def add_perception(
         actions=[GroupAction(scoped=True, actions=[perception_include])],
         # Either detector is reason enough to bring perception up; which
         # nodes actually run is decided inside perception.launch.py.
-        condition=_if_any_of_and((yolo_arg, 'hazard'), robot_arg),
+        condition=_if_any_of_and((yolo_arg, hazard_arg), robot_arg),
     ))
 
 
@@ -358,6 +368,12 @@ def generate_launch_description():
                     '(~90 ms of a 333 ms budget) and the mission path does not '
                     'need it.',
     ))
+    ld.add_action(DeclareLaunchArgument(
+        'quad_hazard',
+        default_value='False',
+        description='Also run the person detector on the quadcopter. Off: the '
+                    'hazard brake is a rover node, so a second COCO pass on '
+                    'the quad costs a core and changes nothing.'))
 
     yolo_launch_arg = DeclareLaunchArgument(
         'yolo',
@@ -491,6 +507,10 @@ def generate_launch_description():
         robot_namespace='husky1',
         start_delay=8.0,
         core='6',
+        # The rover runs two detectors when there are people about. 7 is the
+        # quad's, so this is the one logical CPU left that is not already a
+        # detector's.
+        hazard_core='5',
         yolo_arg='husky_yolo_on',
     )
 
@@ -501,6 +521,9 @@ def generate_launch_description():
         robot_namespace='parrot1',
         start_delay=11.0,
         core='7',
+        # Not `hazard`: the person detector belongs on the rover, which is the
+        # robot that can be driven into someone. See add_perception.
+        hazard_arg='quad_hazard',
     )
 
     add_rviz_instance(

@@ -90,6 +90,41 @@ def quad(p, pt, yaw, scale=1.0, colour=None, heading=True, angle_deg=None):
     p.restore()
 
 
+def person(p, pt, yaw=0.0, scale=1.0, colour=None, heading=False, angle_deg=None):
+    """A head and shoulders, in outline. Hazards, not targets.
+
+    Deliberately the only unfilled symbol on the map. Everything else the
+    mission cares about is something to go and get, drawn solid; a person is
+    something to keep away from, and an outline reads as a boundary rather
+    than a thing. It also means a person drawn on top of a tree or a mushroom
+    does not hide it.
+
+    The head is a circle and the shoulders an arc below it, which is a
+    recognisable pictogram at eight pixels - two eyes and a mouth are not.
+    Heading is off by default: a standing person has one, but it tells the
+    operator nothing, and a facing tick on a small symbol only adds clutter.
+    """
+    colour = QColor(colour or theme.ORCHID)
+    p.save()
+    p.translate(pt)
+    p.scale(scale, scale)
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(colour, 1.8, Qt.SolidLine, Qt.RoundCap))
+    p.drawEllipse(QPointF(0, -4.2), 3.4, 3.4)
+    shoulders = QPainterPath()
+    # A shallow arc under the head, open at the bottom: the top half of an
+    # ellipse 15 wide, swept from the left round to the right.
+    shoulders.arcMoveTo(QRectF(-7.5, 0.4, 15.0, 13.0), 180)
+    shoulders.arcTo(QRectF(-7.5, 0.4, 15.0, 13.0), 180, -180)
+    p.drawPath(shoulders)
+    if heading:
+        a = math.radians(screen_degrees(yaw, angle_deg))
+        p.setPen(QPen(colour, 1.4, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(0, -4.2), QPointF(-4.2 * 0 + 9.0 * math.cos(a),
+                                             -4.2 + 9.0 * math.sin(a)))
+    p.restore()
+
+
 def label(p, pt, text, colour, offset=12.0, size=8):
     if not text:
         return

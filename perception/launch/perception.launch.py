@@ -33,6 +33,15 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument('stop_height_px', default_value='120.0'))
     # one core per detector (see yolo_node.py); '' = unpinned
     ld.add_action(DeclareLaunchArgument('core', default_value=''))
+    # A different one from `core`, or the two detectors on the rover land on
+    # the same logical CPU and queue behind each other.
+    ld.add_action(DeclareLaunchArgument('hazard_core', default_value=''))
+    # combined_view draws both detectors onto one picture. Off by default
+    # now: the operator GUI already merges the mushroom boxes and the person
+    # boxes onto the rover's own camera tile, so on a GUI run this is a third
+    # node decoding the same images at camera rate for a window nobody has
+    # open. Pass combined_view:=true for a standalone recording.
+    ld.add_action(DeclareLaunchArgument('combined_view', default_value='False'))
     ld.add_action(DeclareLaunchArgument('imgsz', default_value='384'))  # 640 keeps small, far mushrooms detectable
 
     ld.add_action(Node(
@@ -67,6 +76,7 @@ def generate_launch_description():
             'hazard': LaunchConfiguration('hazard'),
             'conf_threshold': LaunchConfiguration('hazard_conf'),
             'stop_height_px': LaunchConfiguration('stop_height_px'),
+            'core': LaunchConfiguration('hazard_core'),
         }.items(),
     ))
 
@@ -83,6 +93,8 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(
             ["'", yolo, "'.lower() in ['true','1','yes','on'] and '",
              LaunchConfiguration('hazard'),
+             "'.lower() in ['true','1','yes','on'] and '",
+             LaunchConfiguration('combined_view'),
              "'.lower() in ['true','1','yes','on']"])),
     ))
 

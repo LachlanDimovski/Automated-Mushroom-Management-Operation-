@@ -173,6 +173,12 @@ ASSETS = [
     ('flat terrain heightmap', 'models/forest_flat_terrain/heightmap.png'),
     ('random terrain heightmap', 'models/forest_random_terrain/heightmap.png'),
     ('oak bark texture', 'models/tree_oak/materials/textures/bark_diffuse.png'),
+    # The hazard. A pointer here spawns a person with no geometry: Gazebo
+    # reports nothing, the rover's COCO detector sees an empty clearing, and
+    # the hazard stop looks broken when what is actually wrong is the mesh.
+    ('person mesh', 'models/walking_person/meshes/walking.dae'),
+    ('person skin texture',
+     'models/walking_person/materials/textures/young_lightskinned_male_diffuse.png'),
 ]
 
 
@@ -240,22 +246,42 @@ elif not installed:
 
 # --------------------------------------------------------- the weights -----
 section('detector weights')
+# Named, not "the biggest .pt in the folder". There are nine weights files
+# under models/ and the biggest is the stock COCO one, so reporting the
+# biggest said "YOLO weights: yolo11n_coco.pt" and looked like a clean bill
+# of health on a checkout where the mushroom model was a 130-byte pointer.
+WEIGHTS = [
+    ('mushroom weights', 'amanita_muscaria_yolo11n.pt', True),
+    # Only needed for the person detector, which only runs on a run with
+    # people in it - so a missing one is worth knowing about, not fatal.
+    ('person weights (COCO)', 'yolo11n_coco.pt', False),
+]
 for prefix in prefixes.split(':'):
     share = os.path.join(prefix, 'share', 'perception', 'models')
-    if prefix and os.path.isdir(share):
-        found = []
-        for base, _dirs, files in os.walk(share):
-            found += [os.path.join(base, f) for f in files if f.endswith('.pt')]
-        if found:
-            biggest = max(found, key=os.path.getsize)
-            size = os.path.getsize(biggest)
-            report(OK if size > 100_000 else BAD, 'YOLO weights',
-                   f'{os.path.basename(biggest)}, {size / 1e6:.1f} MB',
-                   'git lfs pull && colcon build --packages-select perception'
-                   if size <= 100_000 else '')
+    if not prefix or not os.path.isdir(share):
+        continue
+    found = {}
+    for base, _dirs, files in os.walk(share):
+        for f in files:
+            if f.endswith('.pt'):
+                found.setdefault(f, os.path.join(base, f))
+    for what, name, required in WEIGHTS:
+        path = found.get(name)
+        if path is None:
+            report(BAD if required else WARN, what,
+                   f'{name} not found under {share}',
+                   'git lfs pull && colcon build --packages-select perception')
+            continue
+        size = os.path.getsize(path)
+        if size <= 100_000:
+            report(BAD, what, f'{name} is {size} bytes - a Git LFS pointer',
+                   'git lfs pull && colcon build --packages-select perception')
         else:
-            report(WARN, 'YOLO weights', 'none found under ' + share)
-        break
+            report(OK, what, f'{name}, {size / 1e6:.1f} MB')
+    extra = len(found) - sum(1 for _w, n, _r in WEIGHTS if n in found)
+    if extra > 0:
+        report(OK, 'alternative weights', f'{extra} variant(s) also installed')
+    break
 
 # ----------------------------------------------------------------- done ----
 bad = [r for r in results if r[0] == BAD]

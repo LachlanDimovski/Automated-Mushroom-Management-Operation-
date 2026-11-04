@@ -18,8 +18,10 @@ you press Launch rather than after.
 The coordinate rows are editable on purpose: a saved layout is the starting
 point, not a cage. Edit a pair, add a row, delete one, and press Launch.
 """
+
 import json
 import os
+import random
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
@@ -33,7 +35,8 @@ from ammo_gui_node.contract import MAX_QUADS, MAX_ROVERS
 from ammo_gui_node.search_preview import (path_length_m, search_half,
                                           search_path)
 from ammo_gui_node.mission_launcher import (PATTERNS, SEARCH_DEFAULTS, WORLDS,
-                                            shuffle_mushrooms, world_available,
+                                            place_people, shuffle_mushrooms,
+                                            world_available,
                                             world_meta_full, world_mushroom_names,
                                             world_mushrooms)
 
@@ -291,6 +294,8 @@ class HomePage(QWidget):
         col.addWidget(self.random_box)
         lay.addLayout(col)
 
+        lay.addLayout(self._people_row())
+
         # coordinates
         coords = cards.panel(deep=True)
         clay = QVBoxLayout(coords)
@@ -365,6 +370,81 @@ class HomePage(QWidget):
         self.launch_button.clicked.connect(self._launch)
         lay.addWidget(self.launch_button)
         return card
+
+    def _people_row(self):
+        """How many people to stand in the world, as hazards.
+
+        Zero by default, and that is the point: the rover's person detector
+        is a second inference pass on a machine that is already working hard,
+        so it is only launched when a run actually has somebody in it. Set
+        this above zero and `hazard:=true` goes to the launch with it.
+
+        The first person is not placed at random - see `place_people`. They
+        go on the line from the rover's spawn to its nearest mushroom, so the
+        stop is part of the run rather than something you hope happens.
+        """
+        col = QVBoxLayout()
+        col.setSpacing(6)
+        col.addWidget(cards.section('PEOPLE (HAZARDS)'))
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 2, 0, 0)
+        row.setSpacing(10)
+        row.addWidget(cards.label('How many', 'Dim'))
+        self.people_count = QSpinBox()
+        self.people_count.setRange(0, 4)
+        self.people_count.setValue(0)
+        self.people_count.setFixedWidth(78)
+        self.people_count.setMinimumHeight(38)
+        self.people_count.valueChanged.connect(self.roll_people)
+        row.addWidget(self.people_count)
+        self.people_reroll = QPushButton('Roll again')
+        self.people_reroll.setObjectName('Ghost')
+        self.people_reroll.clicked.connect(self.roll_people)
+        row.addWidget(self.people_reroll)
+        self.people_note = cards.label('', 'Faint')
+        self.people_note.setWordWrap(True)
+        row.addWidget(self.people_note, 1)
+        col.addLayout(row)
+        self._people = []
+        self._people_seed = random.randrange(1 << 30)
+        return col
+
+    def roll_people(self):
+        """A new arrangement. Only the button and the count do this."""
+        self._people_seed = random.randrange(1 << 30)
+        self._reroll_people()
+
+    def _reroll_people(self):
+        """Work out where they stand and draw them.
+
+        Seeded, and the seed only changes on Roll again or a change of count.
+        Editing a mushroom coordinate re-runs this - the first person is
+        placed relative to the nearest mushroom and has to follow it - and
+        without a fixed seed the other two would jump to somewhere new on
+        every keystroke in the table.
+        """
+        count = int(self.people_count.value())
+        world = self.world_box.currentText()
+        self._people = (place_people(world, count, self.points(),
+                                     seed=self._people_seed) if count else [])
+        self.preview.set_people(self._people)
+        if not count:
+            self.people_note.setText(
+                'None. The rover\'s person detector only runs when this is '
+                'above zero - it is a second YOLO pass on the rover camera.')
+            self.people_reroll.setEnabled(False)
+            return
+        self.people_reroll.setEnabled(True)
+        if not self._people:
+            self.people_note.setText(
+                'Nowhere clear to stand anybody in this world - try fewer.')
+            return
+        short = ('' if len(self._people) == count
+                 else f'Only room for {len(self._people)} of {count}. ')
+        self.people_note.setText(
+            short + 'H1 stands on the rover\'s way to its nearest mushroom, so '
+            'it has to stop for somebody. The rover halts about 3 m short and '
+            'can still turn and reverse.')
 
     def _robot_hint(self):
         """Say which launch file the chosen counts will actually run."""
@@ -612,6 +692,8 @@ class HomePage(QWidget):
             'from the world file' if meta else 'no world file - showing the spawn points only')
         self._apply_layout()
         self._refresh_search_path()
+        if hasattr(self, 'people_count'):
+            self._reroll_people()
 
     def _refresh_search_path(self):
         """Draw the legs the quadcopter will actually fly.
@@ -705,6 +787,10 @@ class HomePage(QWidget):
         self.count_label.setText(text)
         self.launch_button.setEnabled(bad == 0)
         self.preview.set_planned(good)
+        # The first person is placed relative to the nearest mushroom, so
+        # moving the mushrooms moves them.
+        if hasattr(self, 'people_count'):
+            self._reroll_people()
 
     # -- go -----------------------------------------------------------------
     def options(self):
@@ -741,6 +827,7 @@ class HomePage(QWidget):
             'meta': world_meta_full(world),
             'quads': int(self.quad_count.value()),
             'rovers': int(self.rover_count.value()),
+            'people': list(self._people),
         })
 
     def _current_layout(self):

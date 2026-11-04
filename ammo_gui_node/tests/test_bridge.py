@@ -496,6 +496,75 @@ check('a run that is working never sees the diagnostic',
       [e.get('text') for e in events(b3, C.EV_NOTE)])
 
 
+
+# ---------------------------------------------------------------------------
+section('a person in the skidsteer\'s way')
+
+h = MissionBridge()
+h.feed(C.COMMAND_TOPIC, String(data=json.dumps(
+    {'cmd': 'start', 'mode': 'autonomous', 'world': 'simple_trees',
+     'layout': 'test', 'total': 1, 'placed': [[6.0, -5.0]],
+     'people': [[3.3, -2.8]]})))
+check('the bridge keeps where the GUI stood them', h.people == [[3.3, -2.8]])
+check('and starts with nothing in the way', h.hazard is False)
+check('the status says so too', status(h).get('hazard') is False)
+check('with the people in it', status(h).get('people') == [[3.3, -2.8]])
+
+h.feed(C.HAZARD_INFO, String(data=json.dumps(
+    {'class': 'person', 'score': 0.81, 'range_m': 2.4, 'lateral_m': -0.3,
+     'in_path': True, 'stopped': True})))
+h.feed(C.HAZARD_STOP, Bool(data=True))
+check('a stop reaches the bridge', h.hazard is True)
+hz = events(h, C.EV_HAZARD)
+check('and the event feed', len(hz) == 1, len(hz))
+check('the line names the distance', '2.4 m ahead' in hz[0].get('text', ''),
+      hz[0].get('text'))
+check('and which side', 'left' in hz[0].get('text', ''), hz[0].get('text'))
+check('and says the rover can still turn',
+      'turn' in hz[0].get('text', ''), hz[0].get('text'))
+check('the confidence is carried as a field', hz[0].get('score') == 0.81)
+check('it is a warning, not a failure',
+      C.EVENT_SEVERITY[C.EV_HAZARD] == C.SEV_WARN)
+
+for _ in range(5):
+    h.feed(C.HAZARD_STOP, Bool(data=True))
+check('a topic that repeats at 5 Hz does not repeat in the feed',
+      len(events(h, C.EV_HAZARD)) == 1, len(events(h, C.EV_HAZARD)))
+
+st = status(h)
+check('the status carries the stop', st.get('hazard') is True)
+check('with the measurement behind it', st.get('hazard_detail', {}).get('range_m') == 2.4)
+check('and a sentence the banner can show', 'PERSON' in st.get('hazard_text', ''))
+check('the stop is counted', st.get('hazard_stops') == 1)
+
+h.feed(C.HAZARD_STOP, Bool(data=False))
+check('clearing it is one event too', len(events(h, C.EV_HAZARD_CLEAR)) == 1)
+check('and the bridge is no longer holding', h.hazard is False)
+check('the status agrees', status(h).get('hazard') is False)
+check('but the run remembers that it happened',
+      status(h).get('hazard_stops') == 1)
+
+h.feed(C.HAZARD_STOP, Bool(data=True))
+check('a second person later counts again', status(h).get('hazard_stops') == 2)
+
+# with odometry, the stop leaves a marker where the rover was standing
+h2 = MissionBridge()
+h2.feed(C.COMMAND_TOPIC, String(data=json.dumps(
+    {'cmd': 'start', 'world': 'simple_trees', 'total': 1,
+     'people': [[3.3, -2.8]]})))
+h2.feed(C.HUSKY_ODOM, odom(1.5, -1.0))
+h2.feed(C.HAZARD_STOP, Bool(data=True))
+check('the stop is marked on the map where it happened',
+      any(mk['kind'] == C.MK_HAZARD for mk in h2.markers), h2.markers)
+
+# a run with nobody in it never mentions any of this
+h3 = fresh()
+check('a run with no people says so plainly', status(h3).get('people') == [])
+check('and never claims a hazard', status(h3).get('hazard') is False)
+check('a malformed info message is ignored rather than fatal',
+      (h3.feed(C.HAZARD_INFO, String(data='not json')) or True)
+      and h3.hazard_detail == {})
+
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('failing:')

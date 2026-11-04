@@ -52,6 +52,20 @@ def advice(status, events):
     coverage = status.get('coverage')
     kinds = [e.get('kind') for e in events]
 
+    people = len(status.get('people') or [])
+    stops = int(status.get('hazard_stops') or 0)
+    if people and stops:
+        out.append(f'The skidsteer identified a person and stopped for them '
+                   f'{stops} time(s). That is the hazard behaviour working: '
+                   f'forward motion is held while somebody is within about 3 m '
+                   f'and in front, turning and reversing are not, and it drives '
+                   f'on by itself once they are clear.')
+    elif people:
+        out.append(f'{people} person(s) were in the world and the skidsteer '
+                   f'never had to stop for one - it either kept clear of them '
+                   f'or never drove at one. Put somebody on its way to a '
+                   f'mushroom on the setup page to see the stop happen.')
+
     if total and collected == total:
         out.append('Every mushroom was collected. This is the run to record.')
     if total and found < total:
@@ -222,7 +236,16 @@ class MissionReport(QWidget):
         elapsed = float(self.status.get('elapsed') or 0.0)
         world = self.status.get('world') or '-'
         mode = self.status.get('mode') or '-'
-        self.subtitle.setText(f'{world}  ·  {mode}  ·  ran {format_clock(elapsed)}')
+        line = f'{world}  ·  {mode}  ·  ran {format_clock(elapsed)}'
+        # Only named when there were any. A report that says "0 people" on
+        # every run trains you to stop reading that part of the line.
+        people = len(self.status.get('people') or [])
+        if people:
+            stops = int(self.status.get('hazard_stops') or 0)
+            line += f'  ·  {people} person(s), '
+            line += (f'stopped for one {stops}x' if stops
+                     else 'never had to stop')
+        self.subtitle.setText(line)
 
         self.timeline.apply_events(self.events)
         self.timeline.set_now(elapsed, False, C.IDLE,

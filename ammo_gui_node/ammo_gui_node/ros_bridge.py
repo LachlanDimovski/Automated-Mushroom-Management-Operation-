@@ -61,6 +61,8 @@ class _LinkNode(Node):
         self.link = link
         self.role = role
         self._last_image = {}
+        # {id(signal): {source: ([box], at)}} - see `_merged`
+        self._boxes = {}
         # When each thing on the readiness checklist last arrived. A frame or
         # a message arriving is a much better answer to "is the camera
         # working" than a publisher existing on the topic.
@@ -107,6 +109,13 @@ class _LinkNode(Node):
                                      LIVE_QOS)
             self.create_subscription(Detection2DArray, C.PARROT_DETECTIONS,
                                      lambda m: self._detections(m, self.link.quad_detections),
+                                     LIVE_QOS)
+            # The person detector's boxes, on the same camera tile as the
+            # mushroom detector's. Two models on one picture, so they are
+            # merged rather than one replacing the other - see `_merged`.
+            self.create_subscription(Detection2DArray, C.HUSKY_HAZARDS,
+                                     lambda m: self._detections(m, self.link.rover_detections,
+                                                                source='hazard'),
                                      LIVE_QOS)
         except ImportError:
             self.get_logger().warn('vision_msgs not available - no boxes on the camera feeds')
@@ -353,7 +362,30 @@ class _LinkNode(Node):
         p = msg.pose.pose.position
         self.link.quad_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
 
-    def _detections(self, msg, signal):
+    def _merged(self, signal, source, boxes):
+        """Every detector's current boxes for one camera, as one list.
+
+        The rover has two models looking at the same picture - mushrooms from
+        the mission weights, people from stock COCO - and they publish at
+        different rates on different topics. Emitting whichever arrived last
+        would make each set blink out whenever the other ticked. So each
+        source's boxes are kept under its own key and the union is emitted,
+        with a source that has gone quiet for longer than the panel would
+        hold its boxes anyway dropped.
+        """
+        cache = self._boxes.setdefault(id(signal), {})
+        cache[source] = (boxes, time.monotonic())
+        now = time.monotonic()
+        out = []
+        for key, (saved, at) in list(cache.items()):
+            if now - at > C.DET_HOLD_S:
+                if key != source:
+                    del cache[key]
+                continue
+            out += saved
+        return out
+
+    def _detections(self, msg, signal, source='mission'):
         """Flatten a Detection2DArray into what a camera panel needs to draw.
 
         The box is already in the source image's pixels, and the hypothesis
@@ -379,7 +411,7 @@ class _LinkNode(Node):
                               'label': best[0], 'score': best[1]})
             except AttributeError:
                 continue
-        signal.emit(boxes)
+        signal.emit(self._merged(signal, source, boxes))
 
     def _image(self, msg, signal, seen=None):
         if seen:

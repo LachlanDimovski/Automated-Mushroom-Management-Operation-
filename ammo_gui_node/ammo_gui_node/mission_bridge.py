@@ -193,6 +193,11 @@ class MissionBridge(Node):
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_subscription(Bool, C.PAUSE_TOPIC, self._on_pause, 10)
         self.create_subscription(String, C.COMMAND_TOPIC, self._on_command, 10)
+        # People. Both topics are absent on a run launched without anybody in
+        # it (hazard:=false, the default), which costs nothing - the status
+        # then says no hazard, which is true.
+        self.create_subscription(Bool, C.HAZARD_STOP, self._on_hazard_stop, 10)
+        self.create_subscription(String, C.HAZARD_INFO, self._on_hazard_info, 10)
         try:
             from vision_msgs.msg import Detection2DArray
             self.create_subscription(Detection2DArray, C.PARROT_DETECTIONS,
@@ -234,6 +239,13 @@ class MissionBridge(Node):
         self.placed = []           # where the GUI put the mushrooms, if it said
         self.quads = self.rovers = 1
         self.natives = []          # [[x, y], ...] native mushrooms left in place
+        # The rover's hazard brake. `hazard` is whether it is holding the
+        # rover right now; `hazard_detail` is the measurement behind it, so
+        # the GUI can say "person 2.4 m ahead" rather than only "stopped".
+        self.hazard = False
+        self.hazard_detail = {}
+        self.hazard_stops = 0
+        self.people = []           # [[x, y], ...] where the GUI stood them
         self.detector_classes = []  # what the loaded weights can actually detect
 
         self.rover_state = 'DRIVE'
@@ -382,6 +394,8 @@ class MissionBridge(Node):
         self.total = int(cmd.get('total', 0) or 0)
         self.placed = [[float(p[0]), float(p[1])] for p in (cmd.get('placed') or [])
                        if p is not None and len(p) >= 2]
+        self.people = [[float(p[0]), float(p[1])] for p in (cmd.get('people') or [])
+                       if p is not None and len(p) >= 2]
         self.quads = int(cmd.get('quads', 1) or 1)
         self.rovers = int(cmd.get('rovers', 1) or 1)
         # A new mission's coverage starts unknown. Without this it carried the
@@ -405,6 +419,9 @@ class MissionBridge(Node):
         self.route = None
         self.river = None
         self.natives = []
+        self.hazard = False
+        self.hazard_detail = {}
+        self.hazard_stops = 0
         self._last_done = None
         self._t0 = time.monotonic()
         self._paused_at = None
@@ -807,6 +824,53 @@ class MissionBridge(Node):
         self.parrot_odom = msg
         self.seen['quad'] = time.monotonic()
 
+    # -- people -------------------------------------------------------------
+    def _on_hazard_stop(self, msg):
+        """perception/hazard_brake: a person it identified is in the way.
+
+        Only the edges become events. The topic is published at 5 Hz whether
+        or not anything has changed, and a feed with a line on every message
+        is a feed nobody reads.
+        """
+        now = bool(msg.data)
+        if now == self.hazard:
+            return
+        self.hazard = now
+        if now:
+            self.hazard_stops += 1
+            self._emit(C.EV_HAZARD, text=self._hazard_text(),
+                       **{k: v for k, v in (self.hazard_detail or {}).items()
+                          if k in ('range_m', 'lateral_m', 'score')})
+            # Where it happened, so the map and the report both keep it.
+            if self.rover_odom is not None:
+                p = self.rover_odom.pose.pose.position
+                self._add_marker(C.MK_HAZARD, p.x, p.y)
+        else:
+            self._emit(C.EV_HAZARD_CLEAR,
+                       text='Person clear - the skidsteer may drive on')
+
+    def _on_hazard_info(self, msg):
+        try:
+            data = json.loads(msg.data)
+        except (ValueError, TypeError):
+            return
+        if isinstance(data, dict):
+            self.hazard_detail = data
+
+    def _hazard_text(self):
+        """One sentence an operator can act on, from whatever is known."""
+        d = self.hazard_detail or {}
+        rng, lat, score = d.get('range_m'), d.get('lateral_m'), d.get('score')
+        where = ''
+        if isinstance(rng, (int, float)):
+            where = f' {rng:.1f} m ahead'
+            if isinstance(lat, (int, float)) and abs(lat) >= 0.2:
+                side = 'left' if lat < 0 else 'right'
+                where += f', {abs(lat):.1f} m to the {side}'
+        conf = f' ({score:.2f})' if isinstance(score, (int, float)) else ''
+        return (f'PERSON{where}{conf} - skidsteer held. It can still turn and '
+                f'reverse, and drives on by itself once they are clear.')
+
     # -- markers ------------------------------------------------------------
     def _add_marker(self, kind, x, y):
         for mk in self.markers:
@@ -1077,6 +1141,14 @@ class MissionBridge(Node):
             'coverage_still_s': (None if self.coverage is None or not self._coverage_moved
                                  else round(time.monotonic() - self._coverage_moved, 1)),
             'placed': self.placed,
+            'people': self.people,
+            # True only while a person is actually in the rover's way. The
+            # detail is whatever the brake last measured, so the banner can
+            # name a distance rather than only saying "stopped".
+            'hazard': self.hazard,
+            'hazard_detail': self.hazard_detail,
+            'hazard_stops': self.hazard_stops,
+            'hazard_text': self._hazard_text() if self.hazard else '',
             'quads': self.quads,
             'rovers': self.rovers,
             'natives': self.natives,

@@ -28,6 +28,7 @@ from ammo_gui_node.debug_window import DebugWindow                  # noqa: E402
 from ammo_gui_node.event_feed import EventFeed                      # noqa: E402
 from ammo_gui_node.home_page import HomePage, parse_pair            # noqa: E402
 from ammo_gui_node import map_view as map_view_mod                  # noqa: E402
+from ammo_gui_node import overhead                                  # noqa: E402
 from ammo_gui_node import operator_page as operator_page_mod        # noqa: E402
 from ammo_gui_node.map_view import MapView                          # noqa: E402
 from ammo_gui_node.operator_page import OperatorPage                # noqa: E402
@@ -1110,10 +1111,13 @@ class FakeLauncher:
         self.nodes_running = False
         self.calls, self.placed, self.cleared = [], [], False
         self.spawned = []
+        self.people, self.hazard_on = [], 0
 
     def prepare(self, world, show_sim=True, options=None, tool='gripper',
-                quads=1, rovers=1):
+                quads=1, rovers=1, people=0):
         self.quads, self.rovers = int(quads), int(rovers)
+        # What the real one turns into `hazard:=true/false` on the launch.
+        self.hazard_on = int(people or 0)
         if self.state in (ml.READY, ml.RUNNING) and self.world == world:
             self.calls.append('reuse')
             return 'reused'
@@ -1159,6 +1163,15 @@ class FakeLauncher:
         self.placed = list(points)
         self.calls.append('spawn')
         return list(points)
+
+    def spawn_people(self, points):
+        self.people = list(points or [])
+        if points:
+            self.calls.append('spawn_people')
+        return list(self.people)
+
+    def remove_people(self):
+        self.people = []
 
     def clear_world_mushrooms(self):
         self.cleared = True
@@ -1866,6 +1879,183 @@ check('it asks Gazebo what actually spawned', counted.confirm_mushrooms() == 2)
 counted._run = lambda args, timeout: ''
 check('and says it does not know rather than guessing',
       counted.confirm_mushrooms() is None)
+
+
+# ---------------------------------------------------------------------------
+section('people, as hazards')
+
+# -- where they stand -------------------------------------------------------
+check('nobody is placed by default', ml.place_people('simple_trees', 0) == [])
+check('and none asked for means none, whatever the mushrooms are',
+      ml.place_people('simple_trees', 0, [[6.0, -5.0]]) == [])
+
+on_path = ml.path_person([[10.0, 0.0]], [], {}, 10.0)
+check('the first person stands on the line to the nearest mushroom',
+      on_path is not None and abs(on_path[1]) < 1e-6, on_path)
+check('far enough from the rover that it does not start already stopped',
+      math.hypot(*on_path) >= ml.PERSON_HOME_M, on_path)
+check('and not so close to the mushroom that it cannot be collected',
+      math.hypot(on_path[0] - 10.0, on_path[1]) >= ml.PERSON_PATH_KEEP_M, on_path)
+
+check('a mushroom too close to stand in front of gets nobody',
+      ml.path_person([[6.0, 0.0]], [], {}, 10.0) is None)
+check('and so does a world with no mushrooms at all',
+      ml.path_person([], [], {}, 10.0) is None)
+
+near = ml.path_person([[12.0, 0.0], [0.0, 9.0]], [], {}, 12.0)
+check('the nearest mushroom is the one chosen',
+      near is not None and abs(near[0]) < 1e-6, near)
+
+blocked = ml.path_person([[11.0, 0.0]], [(6.2, 0.0, 0.3 + ml.SHUFFLE_CLEAR_M)], {}, 12.0)
+check('a trunk on the preferred spot slides them along the same leg, not off it',
+      blocked is not None and abs(blocked[1]) < 1e-6, blocked)
+check('...and clear of the trunk',
+      blocked is None or math.hypot(blocked[0] - 6.2, blocked[1]) >= ml.PERSON_CLEAR_M,
+      blocked)
+check('a leg blocked end to end gives nobody rather than somebody in a tree',
+      ml.path_person([[11.0, 0.0]], [(6.8, 0.0, 2.5 + ml.SHUFFLE_CLEAR_M)], {}, 12.0) is None)
+
+crowd = ml.place_people('simple_trees', 3, [[6.0, -5.0]], seed=11)
+check('three asked for, three placed', len(crowd) == 3, crowd)
+check('all of them clear of the spawn clearing',
+      all(math.hypot(x, y) >= ml.PERSON_HOME_M - 1e-6 for x, y in crowd), crowd)
+check('and none standing on top of another',
+      all(math.hypot(crowd[i][0] - crowd[j][0], crowd[i][1] - crowd[j][1])
+          >= ml.PERSON_APART_M - 1e-6
+          for i in range(len(crowd)) for j in range(i + 1, len(crowd))), crowd)
+check('the same seed gives the same arrangement',
+      ml.place_people('simple_trees', 3, [[6.0, -5.0]], seed=11) == crowd)
+check('a different seed does not',
+      ml.place_people('simple_trees', 3, [[6.0, -5.0]], seed=12) != crowd)
+
+# -- spawning them ----------------------------------------------------------
+stander = ml.MissionLauncher()
+stander.state, stander.world = ml.READY, 'forest_random'
+person_calls = []
+stander._run = lambda args, timeout: person_calls.append(args) or ''
+stood = stander.spawn_people([(4.0, 4.0), (-5.0, 2.0)])
+check('both people are spawned', len(stood) == 2, stood)
+create = [c for c in person_calls if 'create' in c]
+check('with the walking_person model',
+      all(any(ml.PERSON_MODEL in str(part) for part in c) for c in create),
+      create[:1])
+check('under names of their own',
+      [c[c.index('-name') + 1] for c in create]
+      == [ml.PERSON_PREFIX + '1', ml.PERSON_PREFIX + '2'],
+      [c[c.index('-name') + 1] for c in create])
+check('each turned to face the middle, where the rover comes from',
+      all('-Y' in c for c in create))
+stander.remove_people()
+check('and taken out again on request', stander.people == [])
+check('asking for nobody runs no commands',
+      stander.spawn_people([]) == [] and
+      len([c for c in person_calls if 'create' in c]) == 2)
+
+check('their model name is not one cage_capture_node reads as a mushroom',
+      not any(k in ml.PERSON_PREFIX + '1'
+              for k in ('mushroom', 'demo_m', 'cage_test', 'amanita')),
+      ml.PERSON_PREFIX)
+
+# -- the launch argument ----------------------------------------------------
+# The same app the rest of this file drives, taken back to the setup page so
+# a fresh prepare really runs rather than being answered with 'reused'.
+app_under_test.launcher.state, app_under_test.launcher.world = ml.IDLE, None
+app_under_test.begin_prepare({'world': 'simple_trees', 'points': [(6.0, -5.0)],
+                              'meta': ml.world_meta_full('simple_trees'),
+                              'people': []})
+check('no people means the person detector is not launched',
+      app_under_test.launcher.hazard_on == 0)
+app_under_test.launcher.state, app_under_test.launcher.world = ml.IDLE, None
+app_under_test.begin_prepare({'world': 'simple_trees', 'points': [(6.0, -5.0)],
+                              'meta': ml.world_meta_full('simple_trees'),
+                              'people': [(4.0, -3.0), (-5.0, 2.0)]})
+check('people mean it is', app_under_test.launcher.hazard_on == 2)
+app_under_test._hold_and_place(photo=False)
+check('they are spawned under the same hold as the mushrooms',
+      'spawn_people' in app_under_test.launcher.calls,
+      app_under_test.launcher.calls[-4:])
+check('and the ready page lists them beside the mushrooms',
+      'person' in app_under_test.ready.coords.toPlainText().lower()
+      if hasattr(app_under_test.ready.coords, 'toPlainText')
+      else 'person' in app_under_test.ready.coords.text().lower())
+
+# -- the setup page ---------------------------------------------------------
+page = HomePage()
+check('the setup page offers none by default', page.people_count.value() == 0)
+check('and Roll again is off until somebody is asked for',
+      not page.people_reroll.isEnabled())
+check('the map has nobody on it', page.preview.people == [])
+page.people_count.setValue(2)
+check('asking for two places two', len(page.preview.people) == 2, page.preview.people)
+check('and the button comes alive', page.people_reroll.isEnabled())
+check('the note says where the first one stands',
+      'rover' in page.people_note.text().lower(), page.people_note.text())
+first = list(page.preview.people)
+page.roll_people()
+check('Roll again moves them', page.preview.people != first)
+page.people_count.setValue(0)
+check('and back to none clears the map', page.preview.people == [])
+sent = []
+page.prepare_requested.connect(sent.append)
+page.people_count.setValue(2)
+page.launch_button.click()
+check('the launch config carries them to the launcher',
+      bool(sent) and len(sent[-1].get('people') or []) == 2,
+      sent[-1].get('people') if sent else None)
+
+# -- the map ----------------------------------------------------------------
+m = MapView()
+m.set_world(ml.world_meta_full('simple_trees'))
+check('a map with nobody on it lists nobody in the key',
+      'person' not in [k for k, _ in m.key_entries()])
+m.set_people([[3.0, 4.0], [-2.0, 5.0]])
+check('two people are kept', len(m.people) == 2)
+check('and the key names them',
+      'person' in [k for k, _ in m.key_entries()])
+check('the hazard ring is off until the rover has stopped', not m.hazard)
+m.set_people([[3.0, 4.0]], hazard=True)
+check('and on when it has', m.hazard)
+m.clear()
+check('clearing the map clears them too', m.people == [] and not m.hazard)
+
+# -- the overhead marks -----------------------------------------------------
+marks = overhead.overhead_marks([[2.0, 0.0]], [], {'rover1': (0.0, 0.0, 0.0)},
+                                height=30.0, px=640, hfov=1.5,
+                                people=[[4.0, 1.0]])
+kinds = [mk.get('kind') for mk in marks]
+check('a person reaches the overhead marks', 'person' in kinds, kinds)
+person_mark = next(mk for mk in marks if mk['kind'] == 'person')
+check('with a shape of its own, not a circle or a square',
+      person_mark['shape'] == 'person', person_mark['shape'])
+check('and its own colour, not a mushroom state colour',
+      person_mark['colour'] == theme.ORCHID
+      and person_mark['colour'] not in overhead.MARK_COLOURS.values(),
+      person_mark['colour'])
+check('labelled H1', person_mark['label'] == 'H1')
+check('the key under the picture mentions them',
+      'person' in overhead.MARK_KEY)
+
+# -- the camera panel's corner chip -----------------------------------------
+panel = CameraPanel('TOP-DOWN', overlay_button=True)
+check('it starts with no marks', panel.overlay_label() == 'NO MARKS')
+panel.toggle_boxes()
+check('one click gives marks', panel.overlay_label() == 'MARKS')
+panel.toggle_boxes()
+check('two gives symbols', panel.overlay_label() == 'SYMBOLS')
+panel.toggle_boxes()
+check('three comes back round', panel.overlay_label() == 'NO MARKS')
+colours = [CameraPanel('x', overlay_button=True).overlay_colour()]
+p2 = CameraPanel('x', overlay_button=True)
+for _ in range(2):
+    p2.set_overlay_mode(p2.overlay_mode + 1)
+    colours.append(p2.overlay_colour())
+check('each mode has its own colour, so the three are told apart at a glance',
+      len(set(colours)) == 3, colours)
+
+check('a person box is not drawn in the mushroom colours',
+      C.DET_COLOURS['person'] not in (C.DET_COLOURS[C.DET_INVASIVE],
+                                      C.DET_COLOURS[C.DET_NATIVE], theme.AMBER),
+      C.DET_COLOURS['person'])
 
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:

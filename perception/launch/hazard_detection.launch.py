@@ -41,11 +41,19 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument('robot', default_value='husky1'))
     ld.add_action(DeclareLaunchArgument('use_sim_time', default_value='True'))
     ld.add_action(DeclareLaunchArgument('hazard', default_value='True'))
+    # One core to itself, like the mission detector. yolo_node pins the whole
+    # process before any thread pool spawns, and its own comment measures the
+    # difference as 3.2 s/frame unpinned against 0.3 s/frame pinned - so a
+    # second detector left floating does not just cost its own core, it takes
+    # time off the one that was pinned. '' = unpinned.
+    ld.add_action(DeclareLaunchArgument('core', default_value=''))
     ld.add_action(DeclareLaunchArgument(
-        'stop_height_px', default_value='120.0',
-        description='A person taller than this in frame triggers a stop. '
-                    'Height is a stand-in for range: 120 px is roughly 3 m '
-                    'for a 1.9 m person on this camera.'))
+        'stop_height_px', default_value='180.0',
+        description='All-round backstop: a person whose box is this tall '
+                    'stops the rover wherever they are in frame. 180 px is '
+                    '2.0 m on this camera. The directional test - a person '
+                    'within 3 m AND inside the rover\'s corridor - is what '
+                    'normally fires first; see hazard_brake.py.'))
     ld.add_action(DeclareLaunchArgument(
         'conf_threshold', default_value='0.65',
         description='Higher than the mushroom detector on purpose: at low '
@@ -71,6 +79,7 @@ def generate_launch_description():
         remappings=[('detections', 'hazards'),
                     ('detections/image', 'hazards/image')],
         condition=IfCondition(hazard),
+        additional_env={'YOLO_CORE': LaunchConfiguration('core')},
     ))
 
     # Acts on those detections: cancels navigation when a person is close.

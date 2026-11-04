@@ -30,6 +30,12 @@ TEAL = '#46A08A'
 BLUE = '#4F9CD6'
 VIOLET = '#7A86D6'
 PURPLE = '#B07BD0'
+# People. Its own colour rather than PURPLE, which the overhead marks already
+# use for a mushroom that was gripped and turned out not to be there - two
+# different things in the same hue in the same picture is exactly the kind of
+# overlay nobody can read. Warm enough to stand out against the forest and
+# clearly not the mushroom red.
+ORCHID = '#D45BB0'
 GREY = '#6E6A63'
 ABORT = '#C0392B'      # the emergency stop, and its band on the timeline
 

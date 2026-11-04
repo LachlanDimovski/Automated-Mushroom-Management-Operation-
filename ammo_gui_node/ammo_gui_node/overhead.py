@@ -87,11 +87,17 @@ MARK_COLOURS = {
 MARK_UNFOUND = theme.ACCENT        # still out there
 QUAD_COLOUR = theme.TEAL
 ROVER_COLOUR = theme.BLUE
+# People. Not in MARK_COLOURS because that dict is keyed by a mushroom's
+# status, and a person has none - they are not something the mission is
+# trying to do anything with.
+PERSON_COLOUR = theme.ORCHID
+PERSON_R_M = 0.8                   # shoulder width, near enough, for sizing
 MARK_NEAR_M = 1.5                  # how close a report has to be to be this one
 
 # What the note under the picture says, so the colours do not need explaining.
-MARK_KEY = ('circles: mushrooms - red out there, amber seen, green collected  '
-            'boxes: teal quad, blue skidsteer')
+MARK_KEY = ('circles: mushrooms - red out there, amber seen, green collected   '
+            'boxes: teal quad, blue skidsteer   '
+            'pink head: person')
 
 
 def screen_angle(yaw):
@@ -108,7 +114,8 @@ def screen_angle(yaw):
     return (270.0 - math.degrees(yaw)) % 360.0
 
 
-def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
+def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None,
+                   people=None):
     """Marks for the overhead camera: every mushroom, and every robot.
 
     `placed` is where the GUI put the mushrooms, `mushrooms` is what the
@@ -119,6 +126,10 @@ def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
     the picture, so if its box sits on it, the mushroom circles are in the
     right place too. They are drawn as squares and the mushrooms as circles,
     so the two are never told apart by colour alone.
+
+    `people` is where the GUI stood the hazards. They get a third shape of
+    their own - neither circle nor square - so the picture never asks anyone
+    to tell a person from a mushroom by colour.
 
     `height`, `px` and `hfov` describe the camera. The callers in the two
     windows pass the ones for the world in question; the defaults are the
@@ -150,6 +161,18 @@ def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None):
                       'r': max(7.0, metres_to_px(0.9, height, px, hfov)),
                       'colour': MARK_COLOURS.get(state, MARK_UNFOUND),
                       'label': f'M{i}'})
+    for i, point in enumerate(people or [], 1):
+        try:
+            x, y = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        at = project(x, y, height, px, hfov=hfov)
+        if at is None:
+            continue
+        marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': False,
+                      'kind': 'person', 'shape': 'person',
+                      'r': max(7.0, metres_to_px(PERSON_R_M, height, px, hfov)),
+                      'colour': PERSON_COLOUR, 'label': f'H{i}'})
     for key, pos in (robots or {}).items():
         try:
             x, y = float(pos[0]), float(pos[1])

@@ -51,6 +51,19 @@ CAGE_WAYPOINTS = 'husky1/cage/waypoints'
 CAGE_DONE = 'husky1/cage/done'
 CAGE_MISSED = 'husky1/cage/missed'     # gripped, but nothing was there
 
+# People, from the rover's second detector. `hazard_detection.launch.py` runs
+# stock COCO weights filtered to the `person` class on the rover camera, on
+# its own topics so the two class sets never mix: the mission detector owns
+# `detections`, this owns `hazards`. `hazard_stop` is perception's
+# hazard_brake saying a person is in the rover's way - collision_guard holds
+# forward motion off it, and so does the banner on the mission page.
+# `hazard_info` is the same thing with the detail: class, score, range and
+# how far off the centreline.
+HUSKY_HAZARDS = 'husky1/hazards'
+HUSKY_HAZARD_CAM = 'husky1/hazards/image'
+HAZARD_STOP = 'husky1/hazard_stop'
+HAZARD_INFO = 'husky1/hazard_info'
+
 # The quad's shared ground map. The rover routes on it, and its "known"
 # fraction is the honest answer to "how much has the quadcopter seen?".
 QUAD_GROUND_MAP = 'parrot1/ground_obstacles'
@@ -346,6 +359,8 @@ EV_DETECTOR = 'detector'        # which classes the detector was loaded with
 EV_ABORT = 'abort'             # the operator pressed the emergency stop
 EV_ABORT_DONE = 'abort_done'   # every robot has actually come to rest
 EV_MARKED = 'marked'           # the operator sent the mushroom in view to the rover
+EV_HAZARD = 'hazard'           # a person was identified in the rover's way
+EV_HAZARD_CLEAR = 'hazard_clear'   # ...and is no longer in it
 
 # How the Debug UI colours a line in the event feed.
 SEV_GOOD = 'good'
@@ -380,6 +395,10 @@ EVENT_SEVERITY = {
     EV_ABORT: SEV_BAD,
     EV_ABORT_DONE: SEV_WARN,
     EV_MARKED: SEV_INFO,
+    # A warning, not a failure: the rover stopping for somebody is the
+    # system working. Red is for things that went wrong.
+    EV_HAZARD: SEV_WARN,
+    EV_HAZARD_CLEAR: SEV_GOOD,
 }
 
 # -- detections drawn over the camera feeds ---------------------------------
@@ -409,7 +428,10 @@ DET_COLOURS = {
     'amanita': '#D63434',
     'mushroom': '#D63434',
     'native': '#46A08A',
-    'person': '#E8B33A',
+    # The hazard colour, the same one the map and the overhead marks draw a
+    # person in. It used to be amber, which is also "mushroom the quadcopter
+    # has seen" on every other surface in the GUI.
+    'person': '#D45BB0',
 }
 DET_DEFAULT_COLOUR = '#4F9CD6'
 # Boxes arrive at the detector's rate (2 Hz), the video at the camera's.
@@ -431,6 +453,7 @@ MK_EMPTY = 'empty'
 MK_GAVE_UP = 'gave_up'
 MK_NATIVE = 'native'
 MK_ABORT = 'abort'
+MK_HAZARD = 'hazard'
 
 MARKER_LABELS = {
     MK_FORD: 'ford crossing',
@@ -439,6 +462,7 @@ MARKER_LABELS = {
     MK_GAVE_UP: 'Nav2 gave up',
     MK_NATIVE: 'native - left alone',
     MK_ABORT: 'emergency stop',
+    MK_HAZARD: 'stopped for a person',
 }
 
 # -- world-file symbols -----------------------------------------------------

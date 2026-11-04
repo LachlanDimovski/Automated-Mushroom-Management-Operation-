@@ -26,7 +26,7 @@ from ammo_gui_node.teleop_widget import TeleopWidget
 from ammo_gui_node.timeline import format_clock
 
 
-def overhead_marks(world, placed, mushrooms, robots):
+def overhead_marks(world, placed, mushrooms, robots, people=None):
     """Marks for the overhead camera, for this world's camera geometry.
 
     The drawing and the colour rules live in `overhead.py`, which has no Qt
@@ -36,7 +36,8 @@ def overhead_marks(world, placed, mushrooms, robots):
     """
     return _overhead_marks(placed, mushrooms, robots,
                            height=topdown_height(world),
-                           px=C.TOPDOWN_PX, hfov=C.TOPDOWN_HFOV)
+                           px=C.TOPDOWN_PX, hfov=C.TOPDOWN_HFOV,
+                           people=people)
 
 
 class OperatorPage(QWidget):
@@ -106,8 +107,15 @@ class OperatorPage(QWidget):
         self.abort_chip = cards.Chip('', theme.ACCENT)
         self.abort_chip.set_colour(C.STATE_COLOURS[C.ABORT], C.STATE_COLOURS[C.ABORT])
         self.abort_chip.hide()
+        # A person in the rover's way. On the bar rather than down in the
+        # event feed: it is the one thing on this page that explains a rover
+        # that has stopped moving for no visible reason, and the feed is the
+        # place you look after you have already wondered why.
+        self.hazard_chip = cards.Chip('', theme.ORCHID)
+        self.hazard_chip.set_colour(theme.ORCHID, theme.ORCHID)
+        self.hazard_chip.hide()
         for chip in (self.mode_chip, self.world_chip, self.layout_chip,
-                     self.phase_chip, self.abort_chip):
+                     self.phase_chip, self.hazard_chip, self.abort_chip):
             lay.addWidget(chip)
         lay.addStretch(1)
 
@@ -602,9 +610,20 @@ class OperatorPage(QWidget):
             f"alt {quad.get('alt', 0):.1f} m" if quad.get('fresh') else 'no telemetry')
         self.quad_card.set(quad.get('state', '--'), quad_detail)
 
+        hazard = bool(status.get('hazard'))
+        self.hazard_chip.setVisible(hazard)
+        if hazard:
+            d = status.get('hazard_detail') or {}
+            rng = d.get('range_m')
+            self.hazard_chip.setText(
+                'PERSON AHEAD  %.1f m' % rng if isinstance(rng, (int, float))
+                else 'PERSON AHEAD')
+            self.hazard_chip.setToolTip(status.get('hazard_text') or '')
+
         self.map.set_mushrooms(status.get('mushrooms', []))
         self.map.set_markers(status.get('markers', []))
         self.map.set_natives(natives)
+        self.map.set_people(status.get('people') or [], hazard=hazard)
         self.map.set_route(status.get('route'))
         goal = status.get('operator_goal')
         self.map.set_goal(goal)
@@ -633,7 +652,8 @@ class OperatorPage(QWidget):
             status.get('world') or self.world or 'simple_trees',
             status.get('placed') or [],
             status.get('mushrooms') or [],
-            robots)
+            robots,
+            people=status.get('people') or [])
         self.topdown_cam.set_overlay(marks)
         if self.big_which == 'topdown':
             self.big_cam.set_overlay(marks)

@@ -46,8 +46,8 @@ from PySide6.QtWidgets import QApplication, QStackedWidget
 from ammo_gui_node import contract as C
 from ammo_gui_node import theme
 from ammo_gui_node.home_page import HomePage
-from ammo_gui_node.mission_launcher import (MissionLauncher, world_meta,
-                                            world_mushrooms)
+from ammo_gui_node.mission_launcher import (MissionLauncher, place_people,
+                                            world_meta, world_mushrooms)
 # aliased: this module has a slot of the same name, and a bare call that
 # resolved to the module function by luck is not worth reading twice
 from ammo_gui_node.mission_launcher import shuffle_mushrooms as random_placement
@@ -89,6 +89,7 @@ class OperatorApp:
 
         self.config = {}
         self.placed = []              # where the mushrooms actually are
+        self.standing = []            # ...and where the people are
         self.phase = 'setup'          # setup, preparing, ready, running
         self.active_goal = None
         self.mission_running = False
@@ -232,7 +233,10 @@ class OperatorApp:
                                         show_sim=config.get('show_sim', True),
                                         options=config.get('options'),
                                         tool=config.get('tool', 'gripper'),
-                                        quads=quads, rovers=rovers)
+                                        quads=quads, rovers=rovers,
+                                        # > 0 turns the rover's person
+                                        # detector and the hazard brake on
+                                        people=len(config.get('people') or []))
         if started is None or started == 'blocked':
             self.link.set_standdown('all', False)
             self.link.set_holding(False)
@@ -244,6 +248,7 @@ class OperatorApp:
         self.home.set_blocked(False)
         self.phase = 'preparing'
         self.placed = []
+        self.standing = []
         self._prepare_t0 = time.monotonic()
         self._held_said = False
         self.ready.begin(config)
@@ -288,7 +293,10 @@ class OperatorApp:
         self.phase = 'ready'
         self.link.publish_command({'cmd': 'prepare', 'stage': 'ready'})
         self.placed = self._place_mushrooms(self.config.get('points') or [])
-        self.ready.set_ready(self.placed)
+        # People go in with the mushrooms, under the same hold, so nothing has
+        # driven at one before the run starts.
+        self.standing = self.launcher.spawn_people(self.config.get('people') or [])
+        self.ready.set_ready(self.placed, people=self.standing)
         if photo:
             self.take_photo()
 
@@ -331,7 +339,14 @@ class OperatorApp:
             self.config['spawn'] = True
         self.config['points'] = points
         self.placed = self.launcher.spawn_mushrooms(points)
-        self.ready.set_points(self.placed)
+        # The first person stands on the way to the nearest mushroom, so
+        # moving the mushrooms has to move them too - otherwise a shuffle
+        # leaves somebody standing in the middle of nowhere.
+        if self.config.get('people'):
+            self.config['people'] = place_people(
+                world, len(self.config['people']), points)
+            self.standing = self.launcher.spawn_people(self.config['people'])
+        self.ready.set_points(self.placed, people=self.standing)
         if len(self.placed) < count:
             self._log(f'only found room for {len(self.placed)} of {count} '
                       f'- {world} is crowded')
@@ -415,6 +430,7 @@ class OperatorApp:
         self.link.set_standdown('all', False)
         self.launcher.shutdown()
         self.placed = []
+        self.standing = []
         self.phase = 'setup'
         self.link.publish_command({'cmd': 'prepare', 'stage': 'idle'})
         self.home.set_blocked(False)
@@ -457,6 +473,11 @@ class OperatorApp:
             # and to tag them in the end-of-mission report.
             'placed': [[round(float(x), 2), round(float(y), 2)]
                        for x, y in self.placed],
+            # Same reasoning for the people: the GUI stood them there, so it
+            # is the only thing that knows where they are. The detector finds
+            # them; this is what the map draws before it does.
+            'people': [[round(float(x), 2), round(float(y), 2)]
+                       for x, y in self.standing],
             'quads': self.launcher.quads,
             'rovers': self.launcher.rovers,
         })
@@ -501,6 +522,7 @@ class OperatorApp:
         self.abort_watch.stop()
         self.mission_running = False
         self.placed = []
+        self.standing = []
         self.phase = 'ready' if self.launcher.prepared() else 'setup'
         self.operator.stop_mission()
         self.home.set_note('Mission ended and the simulation is closed. The '

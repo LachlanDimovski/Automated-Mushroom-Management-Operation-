@@ -128,6 +128,11 @@ class CameraPanel(QWidget):
     def overlay_label(self):
         return ('NO MARKS', 'MARKS', 'SYMBOLS')[self.overlay_mode]
 
+    def overlay_colour(self):
+        """The chip's colour for each mode, so the three are told apart by
+        more than reading seven points of grey text in a corner."""
+        return (theme.TEXT_FAINT, theme.BLUE, theme.TEAL)[self.overlay_mode]
+
     def set_frozen(self, frozen):
         self.frozen = bool(frozen)
         self.update()
@@ -218,26 +223,52 @@ class CameraPanel(QWidget):
         p.end()
 
     def _tab(self, p, live):
+        """The chip in the top right: what this button is showing, and that
+        it is a button at all.
+
+        It used to be seven points of dim grey with a hairline box round it,
+        the same whichever mode was on, and the box was sized from a hardcoded
+        per-mode width that no longer matched the words. Nobody could tell
+        MARKS from SYMBOLS without switching between them.
+
+        Now the chip is filled in the colour of whatever it has turned on and
+        the word is drawn bright on top; off is the only unfilled state. The
+        width comes from the text, so a renamed mode cannot go back to being
+        clipped.
+        """
         rect = self._tab_rect()
+        on, colour = True, theme.TEXT_FAINT
         if self.overlay_button:
             label = self.overlay_label()
+            colour = self.overlay_colour()
+            on = self.overlay_mode > 0
         else:
             label = 'BOXES' if self.show_boxes else 'NO BOXES'
+            # The boxes are mostly mushrooms, so the chip is the mushroom red
+            # the boxes themselves are drawn in.
+            colour, on = theme.ACCENT, self.show_boxes
         if self.frozen:
-            label = 'HELD'
+            label, on, colour = 'HELD', False, theme.TEXT_FAINT
         elif not live:
-            label = 'NO SIGNAL'
-        p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
-        p.setPen(QColor(theme.TEXT_DIM if live else theme.TEXT_FAINT))
-        p.drawText(rect.adjusted(0, 0, -6, 0), int(Qt.AlignRight | Qt.AlignVCenter), label)
+            label, on, colour = 'NO SIGNAL', False, theme.TEXT_FAINT
+
+        font = QFont(theme.MONO_FAMILIES[0], 7, QFont.DemiBold)
+        p.setFont(font)
+        width = QFontMetrics(font).horizontalAdvance(label) + 14
+        chip = QRectF(rect.right() - width - 4, 7, width, 16)
         if live and not self.frozen:
-            p.setPen(QPen(QColor(theme.LINE_SOFT), 1))
-            p.setBrush(Qt.NoBrush)
-            if self.overlay_button:
-                width = {0: 64, 1: 46, 2: 60}[self.overlay_mode]
+            if on:
+                fill = QColor(colour)
+                fill.setAlpha(58)
+                p.setBrush(QBrush(fill))
+                p.setPen(QPen(QColor(colour), 1))
             else:
-                width = 44 if self.show_boxes else 62
-            p.drawRoundedRect(QRectF(rect.right() - width - 4, 7, width, 16), 3, 3)
+                p.setBrush(Qt.NoBrush)
+                p.setPen(QPen(QColor(theme.LINE_SOFT), 1))
+            p.drawRoundedRect(chip, 3, 3)
+        p.setPen(QColor(colour if (on and live and not self.frozen)
+                        else theme.TEXT_FAINT))
+        p.drawText(chip, int(Qt.AlignCenter), label)
 
     def _frame(self, p, view, dim):
         img = self.image
@@ -288,12 +319,20 @@ class CameraPanel(QWidget):
             # square, a mushroom is a circle, whatever colour either is.
             if mark.get('shape') == 'box':
                 p.drawRect(QRectF(cx - r, cy - r, 2 * r, 2 * r))
+            elif mark.get('shape') == 'person':
+                # Even in the plain mode a person gets the head-and-shoulders
+                # rather than a third kind of ring: a hazard is the one thing
+                # on this picture nobody should have to decode.
+                glyphs.person(p, QPointF(cx, cy), scale=max(0.7, r / 9.0),
+                              colour=colour)
             else:
                 p.drawEllipse(QPointF(cx, cy), r, r)
-            # a cross in the middle, so a big mark still points at a spot
+            # a cross in the middle, so a big mark still points at a spot -
+            # except on a person, where it would land on the face
             p.setPen(QPen(colour, 1.0))
-            p.drawLine(QPointF(cx - 3, cy), QPointF(cx + 3, cy))
-            p.drawLine(QPointF(cx, cy - 3), QPointF(cx, cy + 3))
+            if mark.get('shape') != 'person':
+                p.drawLine(QPointF(cx - 3, cy), QPointF(cx + 3, cy))
+                p.drawLine(QPointF(cx, cy - 3), QPointF(cx, cy + 3))
             label = str(mark.get('label') or '')
             if label:
                 p.setPen(QPen(colour, 1.0))
@@ -315,6 +354,8 @@ class CameraPanel(QWidget):
         scale = max(0.6, r / 11.0)
         if kind == 'mushroom':
             glyphs.mushroom(p, QPointF(pt.x(), pt.y() - r * 0.4), max(5.0, r), colour)
+        elif kind == 'person':
+            glyphs.person(p, pt, scale=scale, colour=colour)
         elif kind == 'quad':
             glyphs.quad(p, pt, yaw, scale=scale, colour=colour, angle_deg=angle)
         else:

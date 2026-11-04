@@ -136,6 +136,36 @@ SOLID_TYPES = {
     'clutter': 0.2,
     'decoy': 0.3,          # not solid, but a mushroom beside one confuses YOLO
 }
+# A person is a hazard, not a target, so its name must contain none of the
+# words `cage_capture_node._is_mushroom` looks for ('mushroom', 'demo_m',
+# 'cage_test', 'amanita') - otherwise the rover would count one as collected
+# the moment it drove near enough. 'demo_person_' shares no substring with
+# any of them, and the test beside this file checks that it stays that way.
+PERSON_PREFIX = 'demo_person_'
+PERSON_MODEL = 'walking_person'
+
+# Where a person may stand. Looser than the mushroom rules in one way and
+# much tighter in another: a person does not have to be collectable, so the
+# standoff and apart distances can shrink, but one standing inside a trunk or
+# in the middle of the river reads as a broken world rather than a hazard.
+PERSON_CLEAR_M = 1.2       # added to a solid object's own radius
+PERSON_APART_M = 3.0
+# The rover spawns at (0, 0) and the hazard gate stops it at about three
+# metres. A person closer than this means the rover is already stopped before
+# the mission starts, which looks like the rover being broken rather than the
+# gate working.
+PERSON_HOME_M = 5.0
+
+# The first person is placed deliberately, on the line from the rover's spawn
+# to the nearest mushroom, so the hazard stop actually happens in a demo
+# instead of only possibly happening. Not at the far end of that line: a
+# person standing on the mushroom makes it uncollectable, and the run then
+# shows a mushroom that is never picked up rather than a rover that stopped
+# for a human.
+PERSON_PATH_FRAC = 0.55    # how far along the line, before the clamps below
+PERSON_PATH_KEEP_M = 2.5   # ...and never closer than this to the mushroom
+PERSON_LIFT_M = 0.0        # the mesh already has its feet at z = 0
+
 # Spawned a few centimetres high on purpose. The height estimate is good to
 # about that, and the two errors are not equal: a mushroom a little above the
 # ground looks fine and the detector still sees it, while one a little below
@@ -486,6 +516,98 @@ def shuffle_mushrooms(world, count, seed=None):
     return picked
 
 
+def _person_ok(x, y, avoid, picked, meta, half):
+    """Is (x, y) somewhere a person could plausibly be standing?"""
+    if abs(x) > half or abs(y) > half:
+        return False
+    if math.hypot(x, y) < PERSON_HOME_M:
+        return False
+    for ax, ay, r in avoid:
+        # `avoid` carries the mushroom clearance baked in; a person only needs
+        # to be out of the object itself, so the mushroom margin comes back off.
+        if math.hypot(x - ax, y - ay) < max(0.6, r - SHUFFLE_CLEAR_M + PERSON_CLEAR_M):
+            return False
+    if any(math.hypot(x - px, y - py) < PERSON_APART_M for px, py in picked):
+        return False
+    river = _river_distance(meta, x, y)
+    return not (river is not None and river < PERSON_CLEAR_M)
+
+
+def path_person(mushrooms, avoid, meta, half, rover=(0.0, 0.0)):
+    """A spot on the rover's way to its nearest mushroom, or None.
+
+    Walks back along the line from the mushroom toward the rover rather than
+    giving up at the first unusable point: on a crowded world the midpoint is
+    often inside a trunk's clearance, and somewhere else on the same line is
+    still on the rover's way.
+    """
+    best = None
+    for point in (mushrooms or []):
+        try:
+            mx, my = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        d = math.hypot(mx - rover[0], my - rover[1])
+        if best is None or d < best[0]:
+            best = (d, mx, my)
+    if best is None or best[0] < PERSON_HOME_M + PERSON_PATH_KEEP_M:
+        return None       # nothing far enough away to stand in front of
+    span, mx, my = best
+    # The usable window along the line, as a fraction of its length.
+    low = PERSON_HOME_M / span
+    high = (span - PERSON_PATH_KEEP_M) / span
+    if high <= low:
+        return None
+    # Sweep outward from the preferred fraction, alternating back and forth,
+    # so the spot chosen is the closest usable one to the middle of the leg
+    # rather than whichever end happened to be tried first.
+    for step in range(26):
+        for f in ({PERSON_PATH_FRAC} if step == 0 else
+                  (PERSON_PATH_FRAC - step * 0.02, PERSON_PATH_FRAC + step * 0.02)):
+            if not low <= f <= high:
+                continue
+            x = rover[0] + (mx - rover[0]) * f
+            y = rover[1] + (my - rover[1]) * f
+            if _person_ok(x, y, avoid, [], meta, half):
+                return (round(x, 2), round(y, 2))
+    return None
+
+
+def place_people(world, count, mushrooms=None, seed=None):
+    """Where to stand `count` people in this world.
+
+    The first goes in the rover's way, on the line to its nearest mushroom,
+    so the hazard stop is part of the run rather than a lucky accident. The
+    rest are scattered under the same rules the mushroom shuffle uses, minus
+    the collectability margins a person does not need.
+
+    Returns fewer than asked rather than looping, exactly like
+    `shuffle_mushrooms`, and the caller says so.
+    """
+    count = max(0, int(count or 0))
+    if count <= 0:
+        return []
+    meta = world_meta_full(world)
+    avoid = _keep_out(world)
+    if not avoid:
+        avoid = [(tx, ty, SHUFFLE_TRUNK_M)
+                 for tx, ty in trunk_pairs(world_meta(world)[0])]
+    half = max(4.0, world_meta(world)[2])
+    picked = []
+    first = path_person(mushrooms, avoid, meta, half)
+    if first is not None:
+        picked.append(first)
+    rng = random.Random(seed)
+    for _ in range(SHUFFLE_TRIES):
+        if len(picked) >= count:
+            break
+        x = rng.uniform(-half, half)
+        y = rng.uniform(-half, half)
+        if _person_ok(x, y, avoid, picked, meta, half):
+            picked.append((round(x, 2), round(y, 2)))
+    return picked[:count]
+
+
 def sim_already_running():
     out = subprocess.run(['pgrep', '-f', r'^(ruby [^ ]+/)?(ign gazebo|gz sim) '],
                          capture_output=True, text=True)
@@ -547,6 +669,7 @@ class MissionLauncher:
         self.options = {}
         self.started_at = 0.0
         self.spawned = []          # [(name, x, y)] mushrooms we put there
+        self.people = []           # [(name, x, y)] people we put there
         self.cleared_world = False  # the world's own mushrooms have been removed
         self.held = False          # the two mission nodes are frozen right now
         self.quads, self.rovers = 1, 1
@@ -557,7 +680,7 @@ class MissionLauncher:
 
     # -- stage one: prepare -------------------------------------------------
     def prepare(self, world, show_sim=True, options=None, tool='gripper',
-                quads=1, rovers=1):
+                quads=1, rovers=1, people=0):
         """Bring the simulation up, or reuse the one already up.
 
         With one of each robot this runs the team's `cage_mission.launch.py`
@@ -595,6 +718,14 @@ class MissionLauncher:
         # the nodes we freeze talk over UDP: over shared memory a long freeze cut them off from Nav2 for good
         env['AMMO_FREEZABLE_PROFILE'] = os.path.join(_share('ammo_gui_node') or '', 'config', 'fastdds_udp_only.xml')
         fleet = quads > 1 or rovers > 1
+        if fleet and int(people or 0) > 0:
+            # fleet_mission.launch.py has no `hazard` argument, so there is
+            # nowhere to turn the person detector on for its rovers. The
+            # people still go into the world - they are just scenery on a
+            # fleet run, and saying so beats a hazard stop that never comes.
+            self.log('people will be placed, but the person detector only runs '
+                     'on a one-of-each run - the fleet launch file has no '
+                     'hazard option, so nothing will stop for them')
         if fleet and show_sim:
             # Two quads means two YOLO instances and two depth cameras on top
             # of everything else; adding Gazebo's own renderer to that is what
@@ -614,6 +745,11 @@ class MissionLauncher:
                    # cage_mission defaults husky_yolo to false, which leaves the
                    # rover with no detector and therefore no boxes on its feed.
                    'husky_yolo:=true',
+                   # The COCO person detector on the rover, and the hazard
+                   # brake that acts on it. Off unless this run has people in
+                   # it: it is a second inference pass per frame, and on a
+                   # four-core machine that is not free.
+                   f'hazard:={"true" if int(people or 0) > 0 else "false"}',
                    f'headless:={"false" if show_sim else "true"}']
             for key, default in SEARCH_DEFAULTS.items():
                 cmd.append(f'{key}:={_as_launch_value((options or {}).get(key, default))}')
@@ -669,6 +805,7 @@ class MissionLauncher:
         self.started_at = time.monotonic()
         self._reported_death = False
         self.spawned = []
+        self.people = []
         self.cleared_world = False
         self.held = False
         what = (f'{quads} quadcopter(s) and {rovers} skidsteer(s)' if fleet
@@ -746,6 +883,7 @@ class MissionLauncher:
         # Not suspended: the window holds both robots with their own
         # stand-down, which leaves the nodes healthy for the next run.
         self.remove_mushrooms()
+        self.remove_people()
         self.state = READY if self.proc and self.proc.poll() is None else IDLE
         self.log('mission ended - the simulation is still up')
 
@@ -825,6 +963,80 @@ class MissionLauncher:
         for name, _x, _y in self.spawned:
             self._remove_model(name)
         self.spawned = []
+
+    # -- people -------------------------------------------------------------
+    # People are hazards: the rover's COCO detector identifies them and the
+    # hazard brake stops it driving into one. They are spawned exactly like
+    # the mushrooms - after the mission nodes are held, so nothing has seen
+    # them before the run starts - and removed when the mission ends.
+    #
+    # `walking_person` is static in its own model file, so nobody walks
+    # anywhere. That is on purpose: a person who moves makes "did the rover
+    # stop for them, or did they step aside" unanswerable from a recording.
+    def spawn_people(self, points):
+        """Put people into the running world. Returns the (x, y) that took."""
+        self.remove_people()
+        if not points:
+            return []
+        share = _share('41068_ignition_bringup')
+        if not share:
+            self.log('cannot find 41068_ignition_bringup to spawn people')
+            return []
+        sdf = os.path.join(share, 'models', PERSON_MODEL, 'model.sdf')
+        if not os.path.exists(sdf):
+            self.log(f'the person model is missing at {sdf} - nothing to spawn. '
+                     f'It is part of 41068_ignition_bringup; a colcon build of '
+                     f'that package installs it.')
+            return []
+        problem = mesh_problem(sdf)
+        if problem:
+            self.log(f'WARNING: {problem}. The people will spawn with no '
+                     f'geometry - invisible in Gazebo and invisible to the '
+                     f'detector, with no error anywhere. `git lfs pull` and '
+                     f'rebuild before concluding the hazard stop is broken.')
+        errors = []
+        for i, (x, y) in enumerate(points, 1):
+            name = f'{PERSON_PREFIX}{i}'
+            z = ground_z_at(self.world, float(x), float(y)) + PERSON_LIFT_M
+            self._run(['ros2', 'run', 'ros_ign_gazebo', 'create', '-file', sdf,
+                       '-name', name, '-x', str(float(x)), '-y', str(float(y)),
+                       '-z', f'{z:.3f}',
+                       # A person is recognisable from the front and oddly hard
+                       # to call from directly behind, so they are turned to
+                       # face the middle of the world - which is where the
+                       # rover is coming from.
+                       '-Y', f'{math.atan2(-float(y), -float(x)):.3f}'], 20)
+            if self.last_error:
+                errors.append(f'{name}: {self.last_error.splitlines()[-1][:120]}')
+            self.people.append((name, float(x), float(y)))
+        there = self.confirm_people()
+        if there is None:
+            self.log(f'{len(self.people)} person(s) asked for, but Gazebo would '
+                     f'not say what it has - treat the count as unconfirmed')
+        elif there == 0:
+            self.log(f'NONE of the {len(self.people)} people are in the world. '
+                     f'The spawn ran and Gazebo has no model named '
+                     f'{PERSON_PREFIX}*. Model file: {sdf}')
+        elif there < len(self.people):
+            self.log(f'only {there} of {len(self.people)} people are actually '
+                     f'in the world - the rest did not spawn')
+        else:
+            self.log(f'{there} person(s) placed and confirmed in Gazebo')
+        for line in errors[:3]:
+            self.log(f'person spawn error - {line}')
+        return [(x, y) for _n, x, y in self.people]
+
+    def confirm_people(self):
+        """How many of ours Gazebo says it has, or None if it would not say."""
+        out = self._run(['ign', 'model', '--list'], 8)
+        if not out:
+            return None
+        return sum(1 for line in out.splitlines() if PERSON_PREFIX in line)
+
+    def remove_people(self):
+        for name, _x, _y in self.people:
+            self._remove_model(name)
+        self.people = []
 
     def clear_world_mushrooms(self):
         """Take out the mushrooms the world file came with.
@@ -1105,6 +1317,7 @@ class MissionLauncher:
         self.kill_strays()
         self.proc = None
         self.spawned = []
+        self.people = []
         self.cleared_world = False
         self.held = False
         self.state = IDLE

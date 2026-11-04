@@ -12,6 +12,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include "skidsteer_controller/depth_check.hpp"
 
@@ -28,6 +29,8 @@ private:
   void scanCallback(const sensor_msgs::msg::LaserScan::SharedPtr msg);
   void depthCallback(const sensor_msgs::msg::Image::SharedPtr msg);
   void cmdCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
+  void hazardCallback(const std_msgs::msg::Bool::SharedPtr msg);
+  bool humanBlocksForward() const;
   void navCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   bool depthBlocksForward(double vx);
   struct Sectors
@@ -74,6 +77,20 @@ private:
   // camera in the URDF needs no change here.
   static constexpr double CAMERA_HORIZONTAL_FOV_RAD = 2.0944;
   static constexpr double DEPTH_STALE_S = 1.0;  // older depth results are ignored, not trusted
+  // A person the rover's detector has identified, from perception's
+  // hazard_brake on husky1/hazard_stop. Forward motion is blocked while it is
+  // true; turning and reversing are deliberately left alone, so the rover can
+  // always steer or back out of a hazard stop instead of sitting in one.
+  //
+  // This gate is here and not only in hazard_brake because this node is the
+  // single publisher of husky1/cmd_vel. hazard_brake cancels the Nav2 goal,
+  // which is right for an autonomous run and does nothing at all for a rover
+  // being hand-driven from the GUI's teleop panel - and a hand-driven rover is
+  // exactly the one with a person in front of it and someone holding W down.
+  //
+  // Stale means clear: if hazard_brake dies or was never launched (hazard:=false,
+  // which is the default), the rover must not be left unable to drive forward.
+  static constexpr double HAZARD_STALE_S = 2.0;
   // Sides only need to guard against scraping while turning - a much
   // tighter threshold than front/rear, since normal avoidance turns
   // routinely pass within a few metres of things on the flank on purpose.
@@ -106,6 +123,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_nav_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr hazard_sub_;
   rclcpp::TimerBase::SharedPtr guard_timer_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -123,6 +141,10 @@ private:
   rclcpp::Time depthStamp_;
   bool cliffDetected_ = false;
   float depthLeft_ = 0.0f, depthRight_ = 0.0f;  // flank gaps past the front corners (depth camera)
+
+  bool hazardStop_ = false;      // a person is in the rover's way
+  bool haveHazard_ = false;
+  rclcpp::Time hazardStamp_;
 
   rclcpp::Time blockedSince_, lastBlocked_, escapeUntil_;
   bool blocked_ = false, escaping_ = false;

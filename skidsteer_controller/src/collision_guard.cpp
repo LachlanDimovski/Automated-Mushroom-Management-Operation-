@@ -33,6 +33,12 @@ CollisionGuard::CollisionGuard()
   depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
     "husky1/camera/depth/image", 10,
     std::bind(&CollisionGuard::depthCallback, this, std::placeholders::_1));
+  // perception/hazard_brake: true while a person it has identified is in the
+  // rover's way. Absent on a run launched with hazard:=false, which is why
+  // nothing here waits for it.
+  hazard_sub_ = create_subscription<std_msgs::msg::Bool>(
+    "husky1/hazard_stop", 10,
+    std::bind(&CollisionGuard::hazardCallback, this, std::placeholders::_1));
   base_frame_ = declare_parameter("base_frame", "husky1_base_link");
   // wheel axle z (0.0328) - wheel radius (0.1651) in husky.urdf.xacro
   base_height_ = declare_parameter("base_height_m", 0.1323);
@@ -46,7 +52,8 @@ CollisionGuard::CollisionGuard()
 
   RCLCPP_INFO(
     get_logger(),
-    "Collision guard active: full 360-degree envelope, front/rear stop %.2fm, side scrape guard %.2fm",
+    "Collision guard active: full 360-degree envelope, front/rear stop %.2fm, side scrape guard %.2fm, "
+    "forward held on husky1/hazard_stop while a person is ahead",
     FORWARD_STOP_DIST_M, SIDE_STOP_DIST_M);
 }
 
@@ -106,6 +113,31 @@ void CollisionGuard::depthCallback(const sensor_msgs::msg::Image::SharedPtr msg)
   haveDepth_ = true;
 }
 
+void CollisionGuard::hazardCallback(const std_msgs::msg::Bool::SharedPtr msg)
+{
+  if (msg->data && !hazardStop_) {
+    RCLCPP_WARN(get_logger(),
+      "Collision guard: person ahead - forward motion held (turning and reverse still allowed)");
+  } else if (!msg->data && hazardStop_) {
+    RCLCPP_INFO(get_logger(), "Collision guard: person clear - forward motion released");
+  }
+  hazardStop_ = msg->data;
+  haveHazard_ = true;
+  hazardStamp_ = now();
+}
+
+// A person identified by the rover's own detector, close enough and square
+// enough in front to be in the way. Unlike every other check in this file this
+// one is not geometric - it is somebody else's classifier - so it fails open:
+// no message in HAZARD_STALE_S and the rover drives normally.
+bool CollisionGuard::humanBlocksForward() const
+{
+  if (!haveHazard_ || !hazardStop_) {
+    return false;
+  }
+  return (now() - hazardStamp_).seconds() < HAZARD_STALE_S;
+}
+
 bool CollisionGuard::depthBlocksForward(double vx)
 {
   if (vx <= 0.0 || !haveDepth_ || (now() - depthStamp_).seconds() >= DEPTH_STALE_S) {
@@ -136,6 +168,15 @@ void CollisionGuard::navCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
 
   if (escaping_) {
     return;  // the timer drives the escape, so it ends even if Nav2 stops publishing
+  }
+  // Before the depth check, and deliberately not feeding the escape timer: an
+  // escape reverses and turns, which is the right answer to being wedged
+  // against a log and the wrong one to a person standing there. Nav2 keeps the
+  // goal, sees the person on the lidar in its own costmap, and routes around.
+  if (cmd.linear.x > 0.0 && humanBlocksForward()) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+      "Collision guard: holding Nav2's forward motion, person ahead");
+    cmd.linear.x = 0.0;
   }
   if (depthBlocksForward(cmd.linear.x)) {
     cmd.linear.x = 0.0;
@@ -305,6 +346,15 @@ geometry_msgs::msg::Twist CollisionGuard::applyGuard(geometry_msgs::msg::Twist c
     // Independent depth-camera check: low obstacles (logs, roots) under the
     // lidar plane, and the floor vanishing ahead.
     if (depthBlocksForward(cmd.linear.x)) {
+      cmd.linear.x = 0.0;
+    }
+
+    // And a person the detector has identified, which the lidar would only
+    // stop for at FORWARD_STOP_DIST_M - a metre away from somebody. This
+    // stops at about three, and says what it stopped for.
+    if (humanBlocksForward()) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+        "Collision guard: blocking forward motion, person ahead");
       cmd.linear.x = 0.0;
     }
   } else if (cmd.linear.x < 0.0) {

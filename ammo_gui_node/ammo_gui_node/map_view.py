@@ -137,6 +137,8 @@ class MapView(QWidget):
         self.natives = []        # [[x, y], ...]
         self.route = None        # {'sx','sy','gx','gy','vias'}
         self.planned = []        # [[x, y], ...] mushrooms a run would spawn
+        self.people = []         # [[x, y], ...] hazards - people in the world
+        self.hazard = False      # the rover is held for one of them
         self.search_path = []    # [(x, y), ...] the legs the quad will fly
 
     # -- inputs -------------------------------------------------------------
@@ -287,6 +289,21 @@ class MapView(QWidget):
                             if p is not None and len(p) >= 2]
         self.update()
 
+    def set_people(self, points, hazard=False):
+        """Where the people are, and whether one is holding the rover.
+
+        Ground truth, not perception: the GUI put them there, so the map can
+        say where they are from the first frame instead of waiting for the
+        detector to find them. What the detector contributes is `hazard` -
+        the ring that appears round them when the rover has stopped for one.
+        """
+        self.people = [[float(p[0]), float(p[1])] for p in (points or [])
+                       if p is not None and len(p) >= 2]
+        for x, y in self.people:
+            self._grow(x, y)
+        self.hazard = bool(hazard)
+        self.update()
+
     def set_planned(self, points):
         """Mushrooms a run would spawn - the setup page's preview."""
         self.planned = [[float(p[0]), float(p[1])] for p in (points or [])
@@ -314,6 +331,8 @@ class MapView(QWidget):
         self.mushrooms = []
         self.markers = []
         self.natives = []
+        self.people = []
+        self.hazard = False
         self.route = None
         self.range_m = 12.0
         self.update()
@@ -379,6 +398,7 @@ class MapView(QWidget):
         self._search_path(p)
         self._planned(p)
         self._mushrooms(p)
+        self._people(p)
         self._goal(p)
         if self.rover:
             self._rover_glyph(p, *self.rover)
@@ -727,6 +747,30 @@ class MapView(QWidget):
             p.setBrush(Qt.NoBrush)
             p.drawEllipse(pt, r + 3.5, r + 3.5)
 
+    def _people(self, p):
+        """People, drawn over everything the rover is trying to reach.
+
+        Last of the world symbols on purpose: a person standing in front of a
+        mushroom is the case that matters, and the mushroom hiding them would
+        be exactly the wrong way round.
+        """
+        if not self.people:
+            return
+        scale = 0.85 if self.compact else 1.15
+        p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
+        for i, (x, y) in enumerate(self.people, 1):
+            pt = self.to_px(x, y)
+            if self.hazard:
+                # One ring round all of them: the rover knows a person is in
+                # its way, not which person, and ringing a guess would be the
+                # map claiming to know something it does not.
+                p.setPen(QPen(QColor(theme.ORCHID), 1.2, Qt.DashLine))
+                p.setBrush(Qt.NoBrush)
+                p.drawEllipse(pt, 13.0 * scale, 13.0 * scale)
+            glyphs.person(p, pt, scale=scale)
+            p.setPen(QColor(theme.ORCHID))
+            p.drawText(QPointF(pt.x() + 11 * scale, pt.y() + 4), f'H{i}')
+
     def _search_path(self, p):
         """The quad's legs: a dashed line with the start marked.
 
@@ -834,6 +878,8 @@ class MapView(QWidget):
         """
         if self.planned and not self.mushrooms:
             entries = [('planned', 'will be spawned here')]
+            if self.people:
+                entries.append(('person', 'person - do not drive at'))
             if self.world_mushrooms:
                 entries.append(('in_world', 'already in the world file'))
             if self.river:
@@ -855,6 +901,8 @@ class MapView(QWidget):
             entries.append(('in_world', 'in the world file'))
         if self.natives:
             entries.append((C.MK_NATIVE, C.MARKER_LABELS[C.MK_NATIVE]))
+        if self.people:
+            entries.append(('person', 'person - do not drive at'))
         if self.river:
             entries.append(('river', 'river'))
             if self.fords:
@@ -924,6 +972,8 @@ class MapView(QWidget):
             p.drawEllipse(at, 4.2, 4.2)
         elif kind == C.MK_NATIVE:
             self._mushroom_glyph(p, QPointF(at.x(), at.y() - 1), 4.0, QColor(theme.TEAL))
+        elif kind == 'person':
+            glyphs.person(p, QPointF(at.x(), at.y() - 1), scale=0.62)
         elif kind == 'river':
             p.setPen(QPen(QColor(RIVER_EDGE), 1.0))
             p.setBrush(QBrush(QColor(RIVER_FILL)))

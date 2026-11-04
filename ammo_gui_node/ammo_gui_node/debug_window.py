@@ -57,7 +57,7 @@ BANNER = {
 }
 
 
-def overhead_marks(world, placed, mushrooms, robots):
+def overhead_marks(world, placed, mushrooms, robots, people=None):
     """Marks for the overhead camera, for this world's camera geometry.
 
     The drawing and the colour rules live in `overhead.py`, which has no Qt
@@ -67,7 +67,8 @@ def overhead_marks(world, placed, mushrooms, robots):
     """
     return _overhead_marks(placed, mushrooms, robots,
                            height=topdown_height(world),
-                           px=C.TOPDOWN_PX, hfov=C.TOPDOWN_HFOV)
+                           px=C.TOPDOWN_PX, hfov=C.TOPDOWN_HFOV,
+                           people=people)
 
 
 class DebugWindow(QWidget):
@@ -506,6 +507,8 @@ class DebugWindow(QWidget):
         self.map.set_mushrooms(status.get('mushrooms', []) if live else [])
         self.map.set_markers(status.get('markers', []) if live else [])
         self.map.set_natives(status.get('natives', []) if live else [])
+        self.map.set_people(status.get('people', []) if live else [],
+                            hazard=bool(status.get('hazard')))
         self.map.set_route(status.get('route') if live else None)
         self.map.set_goal(status.get('operator_goal') if live else None)
 
@@ -531,7 +534,8 @@ class DebugWindow(QWidget):
             status.get('world') or self.world or 'simple_trees',
             status.get('placed') or [],
             status.get('mushrooms') or [],
-            robots))
+            robots,
+            people=status.get('people') or []))
 
     def _overhead_marks_toggled(self, on):
         """The panel's own MARKS button was clicked."""
@@ -609,7 +613,8 @@ class DebugWindow(QWidget):
             robots[key] = tuple(pose[:3])
         marks = overhead_marks(status.get('world') or self.world or 'simple_trees',
                                status.get('placed') or [],
-                               status.get('mushrooms') or [], robots)
+                               status.get('mushrooms') or [], robots,
+                               people=status.get('people') or [])
         self.report.show_report(status, self.events, self.last_overhead, marks)
         self.stack.setCurrentIndex(2)
 
