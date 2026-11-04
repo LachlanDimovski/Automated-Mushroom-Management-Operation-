@@ -516,11 +516,19 @@ def shuffle_mushrooms(world, count, seed=None):
     return picked
 
 
-def _person_ok(x, y, avoid, picked, meta, half):
+def _person_ok(x, y, avoid, picked, meta, half, mushrooms=()):
     """Is (x, y) somewhere a person could plausibly be standing?"""
     if abs(x) > half or abs(y) > half:
         return False
     if math.hypot(x, y) < PERSON_HOME_M:
+        return False
+    # Not on top of a mushroom. The deliberately-placed first person is kept
+    # clear of the one they are standing in front of; without this the
+    # scattered ones had no rule about mushrooms at all, and a person standing
+    # on one makes it uncollectable - which reads as the gripper being broken
+    # rather than as the hazard stop working.
+    if any(math.hypot(x - float(m[0]), y - float(m[1])) < PERSON_PATH_KEEP_M
+           for m in (mushrooms or ()) if m is not None and len(m) >= 2):
         return False
     for ax, ay, r in avoid:
         # `avoid` carries the mushroom clearance baked in; a person only needs
@@ -533,7 +541,7 @@ def _person_ok(x, y, avoid, picked, meta, half):
     return not (river is not None and river < PERSON_CLEAR_M)
 
 
-def path_person(mushrooms, avoid, meta, half, rover=(0.0, 0.0)):
+def path_person(mushrooms, avoid, meta, half, rover=None):
     """A spot on the rover's way to its nearest mushroom, or None.
 
     Walks back along the line from the mushroom toward the rover rather than
@@ -541,6 +549,9 @@ def path_person(mushrooms, avoid, meta, half, rover=(0.0, 0.0)):
     often inside a trunk's clearance, and somewhere else on the same line is
     still on the rover's way.
     """
+    # Rover 1's spawn, from the launch file's own list rather than a literal,
+    # so moving the spawn moves this with it.
+    rover = tuple(rover if rover is not None else ROVER_SPAWNS[0])
     best = None
     for point in (mushrooms or []):
         try:
@@ -568,7 +579,9 @@ def path_person(mushrooms, avoid, meta, half, rover=(0.0, 0.0)):
                 continue
             x = rover[0] + (mx - rover[0]) * f
             y = rover[1] + (my - rover[1]) * f
-            if _person_ok(x, y, avoid, [], meta, half):
+            # Every mushroom, not just the one at the end of this leg: the
+            # line to the nearest one can still pass over another.
+            if _person_ok(x, y, avoid, [], meta, half, mushrooms):
                 return (round(x, 2), round(y, 2))
     return None
 
@@ -603,7 +616,7 @@ def place_people(world, count, mushrooms=None, seed=None):
             break
         x = rng.uniform(-half, half)
         y = rng.uniform(-half, half)
-        if _person_ok(x, y, avoid, picked, meta, half):
+        if _person_ok(x, y, avoid, picked, meta, half, mushrooms):
             picked.append((round(x, 2), round(y, 2)))
     return picked[:count]
 
@@ -715,8 +728,29 @@ class MissionLauncher:
         # Kept so `create`, `remove` and `ign model --list` run against the
         # same resource path as the server they are talking to.
         self._env = env
-        # the nodes we freeze talk over UDP: over shared memory a long freeze cut them off from Nav2 for good
-        env['AMMO_FREEZABLE_PROFILE'] = os.path.join(_share('ammo_gui_node') or '', 'config', 'fastdds_udp_only.xml')
+        # NOT SET ANY MORE. This used to point the three mission nodes at
+        # `config/fastdds_udp_only.xml`, because the GUI held them still by
+        # SIGSTOPping their processes and a process frozen past Fast DDS's
+        # 20 s lease was dropped by everything else and not reliably
+        # re-matched. The profile bought a one-hour lease at the price of
+        # loopback UDP only, with shared memory and data-sharing both off.
+        #
+        # Nothing is SIGSTOPped any more - robots are held with the
+        # `teleop_active` heartbeat instead - so the price was being paid for
+        # nothing, and it is not a small price. `collision_guard` subscribes
+        # to husky1/camera/depth/image: 720 x 480 float32 is 1.4 MB a frame,
+        # which over shared memory is a pointer and over UDP is about a
+        # thousand datagrams that the default kernel socket buffers drop. A
+        # guard that is not reliably receiving depth is a guard whose
+        # forward-motion checks come and go. It also left the mission nodes on
+        # a different transport from Nav2, the Gazebo bridge and the
+        # detectors, which is a strange place to be for no benefit.
+        #
+        # To put it back - if the SIGSTOP hold is ever revived - this one line
+        # is all it takes; `cage_mission.launch.py` and `zcam_mission.launch.py`
+        # both already read the variable and do nothing when it is absent:
+        #   env['AMMO_FREEZABLE_PROFILE'] = os.path.join(
+        #       _share('ammo_gui_node') or '', 'config', 'fastdds_udp_only.xml')
         fleet = quads > 1 or rovers > 1
         if fleet and int(people or 0) > 0:
             # fleet_mission.launch.py has no `hazard` argument, so there is

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QScrollArea, QVBoxLayout, QWidget)
 from ammo_gui_node import cards, contract as C, theme
 from ammo_gui_node.camera_panel import CameraPanel
 from ammo_gui_node.mushroom_log import MushroomLog
+from ammo_gui_node.overhead import MARK_KEY
 from ammo_gui_node.timeline import Timeline, format_clock
 
 # Which event kinds are worth repeating in the report, in this order.
@@ -169,9 +170,20 @@ class MissionReport(QWidget):
         bar.addWidget(self.shot_note)
         slay.addLayout(bar)
         slay.addWidget(cards.hline())
+        # The report's photo had the detector's BOXES toggle in its corner,
+        # which could never do anything: this is a still frame from a camera
+        # with no detector on it, and what is actually drawn over it is the
+        # outcome marks. So it gets the same three-way button the live
+        # overhead view has - NO MARKS for the clean photograph, MARKS for the
+        # tagged circles, SYMBOLS for the map's own glyphs - and it starts on
+        # MARKS, because a picture of what became of each mushroom is the
+        # whole reason the report shows it.
         self.shot = CameraPanel('OVERHEAD', '', theme.BLUE, show_boxes=False,
-                                allow_expand=False, stale_s=1e9)
-        self.shot.set_show_overlay(True)
+                                allow_expand=False, stale_s=1e9,
+                                overlay_button=True)
+        self._shot_label = ''
+        self.shot.set_overlay_mode(1)
+        self.shot.boxes_toggled.connect(self._shot_marks_toggled)
         self.shot.setMinimumHeight(280)
         slay.addWidget(self.shot, 1)
         right.addWidget(shot, 3)
@@ -253,14 +265,20 @@ class MissionReport(QWidget):
 
         if shot is not None:
             self.shot.set_image(shot)
-            self.shot_note.setText('last overhead frame')
+            self._shot_label = 'last overhead frame'
         else:
             self.shot.image = None
-            self.shot_note.setText('no overhead frame was captured')
+            self._shot_label = 'no overhead frame was captured'
+        self._shot_marks_toggled(self.shot.overlay_mode > 0)
         self.shot.set_overlay(self._tagged(marks))
 
         self.advice.setText('\n\n'.join(
             f'•  {line}' for line in advice(self.status, self.events)))
+
+    def _shot_marks_toggled(self, _on):
+        """Say what the marks mean, next to them, and only while they are on."""
+        self.shot_note.setText(
+            MARK_KEY if self.shot.overlay_mode else self._shot_label)
 
     def _tagged(self, marks):
         """The overhead marks, relabelled with what became of each mushroom."""

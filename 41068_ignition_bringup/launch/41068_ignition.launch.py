@@ -358,7 +358,7 @@ def generate_launch_description():
         'hazard_conf', default_value='0.65',
         description='Confidence threshold for the person detector'))
     ld.add_action(DeclareLaunchArgument(
-        'stop_height_px', default_value='120.0',
+        'stop_height_px', default_value='180.0',
         description='Person height in frame that triggers the hazard stop'))
     ld.add_action(DeclareLaunchArgument(
         'hazard',

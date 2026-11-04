@@ -48,6 +48,10 @@ def generate_launch_description():
     # time off the one that was pinned. '' = unpinned.
     ld.add_action(DeclareLaunchArgument('core', default_value=''))
     ld.add_action(DeclareLaunchArgument(
+        'annotated', default_value='False',
+        description='Publish hazards/image as well as hazards. Off: nothing '
+                    'subscribes to it on a GUI run.'))
+    ld.add_action(DeclareLaunchArgument(
         'stop_height_px', default_value='180.0',
         description='All-round backstop: a person whose box is this tall '
                     'stops the rover wherever they are in frame. 180 px is '
@@ -72,6 +76,12 @@ def generate_launch_description():
             'image_topic': 'camera/image',
             'model_path': COCO_WEIGHTS,
             'classes': [PERSON_CLASS],
+            # Nothing reads hazards/image: the operator GUI draws the person
+            # boxes onto the rover's own camera tile from the `hazards` topic,
+            # and combined_view is off by default. Encoding a JPEG nobody
+            # decodes costs real time on a CPU-bound detector, and this one is
+            # third in the queue behind two mushroom detectors.
+            'publish_annotated': LaunchConfiguration('annotated'),
             'conf_threshold': ParameterValue(conf_threshold, value_type=float),
         }],
         # Its own topics: the mission detector owns `detections`, and mixing

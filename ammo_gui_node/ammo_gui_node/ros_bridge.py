@@ -294,20 +294,40 @@ class _LinkNode(Node):
         except Exception:
             return
         if handle is None or not handle.accepted:
-            self.link.nav_goal_finished.emit(False)
+            # Rejected before it started. Nav2 does this when the goal is
+            # outside the global costmap or in a frame it cannot transform -
+            # a different fault from giving up part-way, and the two used to
+            # be reported with the same sentence.
+            self.link.nav_goal_finished.emit(
+                False, 'Nav2 would not accept the goal - it is outside the '
+                       'costmap, or the rover has no transform for it yet')
             return
         self._nav_handle = handle
         handle.get_result_async().add_done_callback(self._nav_result)
 
+    # action_msgs/GoalStatus, so a failure can say which kind it was rather
+    # than offering the operator a list of things it might have been.
+    NAV_STATUS = {
+        2: 'the goal was cancelled while it was running - something else '
+           'cancelled it, which on a run with people in it is usually the '
+           'hazard brake',
+        5: 'Nav2 gave up: no route it could follow, or it stopped making '
+           'progress along the one it had',
+        6: 'the goal was cancelled before it finished',
+    }
+
     def _nav_result(self, future):
-        ok = False
+        ok, why = False, 'Nav2 ended the goal without saying how'
         try:
             result = future.result()
-            ok = getattr(result, 'status', 0) == 4  # STATUS_SUCCEEDED
-        except Exception:
-            ok = False
+            status = getattr(result, 'status', 0)
+            ok = status == 4  # STATUS_SUCCEEDED
+            if not ok:
+                why = self.NAV_STATUS.get(status, f'Nav2 ended with status {status}')
+        except Exception as exc:
+            why = f'the goal result could not be read: {str(exc)[:80]}'
         self._nav_handle = None
-        self.link.nav_goal_finished.emit(ok)
+        self.link.nav_goal_finished.emit(ok, '' if ok else why)
 
     # -- the zero-velocity hold used while paused ---------------------------
     def set_holding(self, holding):
@@ -667,7 +687,7 @@ class RosLink(QObject):
     fleet_frame = Signal(str, object)
     fleet_pose = Signal(str, float, float, float, float)
     robot_state = Signal(str, str, str)
-    nav_goal_finished = Signal(bool)
+    nav_goal_finished = Signal(bool, str)   # ok, and why not
     topdown_frame = Signal(object)
 
     def __init__(self, role='gui'):

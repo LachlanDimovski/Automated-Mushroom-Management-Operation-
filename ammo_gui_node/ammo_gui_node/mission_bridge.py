@@ -333,9 +333,11 @@ class MissionBridge(Node):
                     gx, gy = self.operator_goal
                     self._emit(C.EV_GOAL_FAILED,
                                x=round(gx, 2), y=round(gy, 2),
-                               text=cmd.get('why') or
-                               f'Nav2 refused or gave up on ({gx:.1f}, {gy:.1f}) - '
-                               'outside the world, or no route to it. Back on the queue.')
+                               text=(f'Goal ({gx:.1f}, {gy:.1f}) failed: '
+                                     f'{cmd["why"]}. Back on the queue.')
+                               if cmd.get('why') else
+                               f'Nav2 refused or gave up on ({gx:.1f}, {gy:.1f}). '
+                               'Back on the queue.')
                 elif ok is None:
                     self._emit(C.EV_NOTE,
                                text='Operator goal cleared - back on the mushroom queue')

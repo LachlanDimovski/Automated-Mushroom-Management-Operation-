@@ -30,7 +30,13 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument('conf_threshold', default_value='0.25'))
     ld.add_action(DeclareLaunchArgument('hazard', default_value='False'))
     ld.add_action(DeclareLaunchArgument('hazard_conf', default_value='0.65'))
-    ld.add_action(DeclareLaunchArgument('stop_height_px', default_value='120.0'))
+    # 180 px is 2.0 m on the rover camera. It MUST be shorter range than
+    # hazard_brake's stop_range_m (3 m) or it swallows the directional test
+    # whole: 120 px works out at 3.03 m, so every person anywhere in a
+    # 120-degree frame tripped the all-round backstop and the bearing was
+    # never consulted. This default has to match hazard_detection.launch.py's
+    # - it is passed down, so the one here is the one that wins.
+    ld.add_action(DeclareLaunchArgument('stop_height_px', default_value='180.0'))
     # one core per detector (see yolo_node.py); '' = unpinned
     ld.add_action(DeclareLaunchArgument('core', default_value=''))
     # A different one from `core`, or the two detectors on the rover land on

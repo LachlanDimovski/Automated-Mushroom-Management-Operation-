@@ -2057,6 +2057,55 @@ check('a person box is not drawn in the mushroom colours',
                                       C.DET_COLOURS[C.DET_NATIVE], theme.AMBER),
       C.DET_COLOURS['person'])
 
+
+# ---------------------------------------------------------------------------
+section("the report's overhead photo")
+
+from ammo_gui_node.mission_report import MissionReport          # noqa: E402
+rep = MissionReport()
+check('its corner button cycles the marks, not boxes it does not have',
+      rep.shot.overlay_button is True)
+check('and it starts showing them', rep.shot.overlay_label() == 'MARKS')
+rep.shot.toggle_boxes()
+check('one click gives the map symbols', rep.shot.overlay_label() == 'SYMBOLS')
+rep.shot.toggle_boxes()
+check('two gives the clean photograph', rep.shot.overlay_label() == 'NO MARKS')
+rep.show_report({'world': 'simple_trees', 'total': 1, 'collected': 1,
+                 'people': [[3.0, 4.0]], 'hazard_stops': 2,
+                 'mushrooms': [{'x': 6.0, 'y': -5.0, 'n': 1, 'status': 'collected'}]},
+                [], None, [])
+check('with the photo off, the note says what the picture is',
+      'overhead' in rep.shot_note.text().lower(), rep.shot_note.text())
+rep.shot.toggle_boxes()
+check('and with the marks on, it explains the colours',
+      'mushrooms' in rep.shot_note.text(), rep.shot_note.text())
+check('the report names the people', 'person' in rep.subtitle.text(),
+      rep.subtitle.text())
+check('and how many times it stopped', '2x' in rep.subtitle.text(),
+      rep.subtitle.text())
+
+
+# ---------------------------------------------------------------------------
+section('the mission nodes are left on the normal transport')
+
+import os as _os                                                 # noqa: E402
+_before = _os.environ.pop('AMMO_FREEZABLE_PROFILE', None)
+_tl = ml.MissionLauncher()
+_tl._run = lambda args, timeout: ''
+try:
+    _tl.prepare('simple_trees')
+except Exception:
+    pass          # it cannot really launch here; the environment is the point
+check('preparing does not force the mission nodes onto the UDP-only profile',
+      'AMMO_FREEZABLE_PROFILE' not in (_tl._env or {}),
+      (_tl._env or {}).get('AMMO_FREEZABLE_PROFILE'))
+check('so their launch files fall back to the default transport',
+      not _os.environ.get('AMMO_FREEZABLE_PROFILE'))
+check('the profile file is still there to go back to',
+      _os.path.exists(_os.path.join(_paths.PKG, 'config', 'fastdds_udp_only.xml')))
+if _before is not None:
+    _os.environ['AMMO_FREEZABLE_PROFILE'] = _before
+
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('failing:')

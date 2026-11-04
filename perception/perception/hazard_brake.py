@@ -62,6 +62,7 @@ import math
 import rclpy
 from action_msgs.srv import CancelGoal
 from rclpy.node import Node
+from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool, String
 from vision_msgs.msg import Detection2DArray
 
@@ -107,6 +108,24 @@ class HazardBrake(Node):
         # metre of margin: the strip the rover would drive through, not a point.
         self.declare_parameter('corridor_half_m', 1.0)
         self.declare_parameter('stop_range_m', 3.0)
+        # ...plus however far the rover will travel before the next frame.
+        #
+        # This is the one that matters on a slow machine. The detector on the
+        # test box runs at about 0.2 Hz - a frame every five seconds - and the
+        # rover cruises at 1.3 m/s, so between one frame and the next it covers
+        # six and a half metres. A fixed three-metre gate is then not a gate at
+        # all: the rover can be at eight metres in one frame and past the
+        # person in the next, and the stop is simply skipped. (The lidar and
+        # depth guards still stop it a metre short, so it does not hit anyone -
+        # but it stops as an obstacle, not as a person, which is not the
+        # behaviour being demonstrated.)
+        #
+        # So the gate grows with speed x the measured frame interval: at 2 Hz
+        # and 1.3 m/s that adds 0.65 m and the gate is essentially the 3 m it
+        # says; at 0.2 Hz it opens up to about 9 m, which is the honest range
+        # at which that detector can still promise to stop in time.
+        self.declare_parameter('lookahead', True)
+        self.declare_parameter('lookahead_max_m', 8.0)   # never a whole world away
         # Backstop, independent of bearing: a box this tall is someone close
         # enough that which way they are standing no longer matters. It has to
         # mean a SHORTER range than `stop_range_m` or it swallows the corridor
@@ -116,6 +135,24 @@ class HazardBrake(Node):
         # bearing was never consulted. 180 px is 2.0 m.
         self.declare_parameter('stop_height_px', 180.0)
         self.declare_parameter('clear_after_s', 2.0)
+        # Clearing on a timer alone is wrong whenever the detector is slower
+        # than the timer. On the test machine it runs at about 0.2 Hz - a frame
+        # every five seconds - so a two-second clear let the rover drive at
+        # somebody for three seconds with no information at all, then stop
+        # again when the next frame landed. Stuttering towards a person is a
+        # worse failure than stopping for one too long.
+        #
+        # So clearing needs positive evidence: the detector publishes an array
+        # on every inference, empty or not, so a frame with nobody blocking in
+        # it is a frame that says the way is clear. Two of those, AND the timer
+        # elapsed, and the rover drives on. With a fast detector that is still
+        # about two seconds; with a slow one it is as slow as the detector, and
+        # it should be.
+        self.declare_parameter('clear_frames', 2)
+        # ...unless the detector has stopped publishing altogether, in which
+        # case nothing will ever produce that evidence. Fail open rather than
+        # leave a rover that cannot drive forward because a node died.
+        self.declare_parameter('detector_stale_s', 8.0)
         self.declare_parameter('cancel_nav', True)
         self.declare_parameter('recancel_after_s', 8.0)
 
@@ -125,21 +162,33 @@ class HazardBrake(Node):
         self.hfov = float(g('camera_hfov_rad').value)
         self.person_h = float(g('person_height_m').value)
         self.corridor = float(g('corridor_half_m').value)
-        self.stop_range = float(g('stop_range_m').value)
+        self.fixed_range = float(g('stop_range_m').value)
         self.stop_height = float(g('stop_height_px').value)
         self.clear_after = float(g('clear_after_s').value)
+        self.clear_frames = int(g('clear_frames').value)
+        self.detector_stale = float(g('detector_stale_s').value)
         self.cancel_nav = bool(g('cancel_nav').value)
+        self.lookahead = bool(g('lookahead').value)
+        self.lookahead_max = float(g('lookahead_max_m').value)
         self.recancel_after = float(g('recancel_after_s').value)
         self.f = focal_px(self.width, self.hfov)
 
         self.stopped = False
-        self.last_seen = None
+        self.last_seen = None      # last frame with somebody blocking in it
+        self.last_frame = None     # last frame at all, blocking or not
+        self.clear_count = 0       # consecutive frames with nobody blocking
+        self.frame_gap = None      # seconds between frames, as measured
         self.last_cancel = None
         self.worst = {}
         self.stops = 0
+        self.speed = 0.0           # rover forward speed, for the lookahead
 
         self.create_subscription(
             Detection2DArray, 'hazards', self._hazards_cb, 10)
+        # Relative, so it resolves to <ns>/odometry. Only the forward speed is
+        # used, and only to widen the gate - a missing odometry topic leaves
+        # the gate at its fixed range rather than breaking anything.
+        self.create_subscription(Odometry, 'odometry', self._odom_cb, 10)
         self.state_pub = self.create_publisher(Bool, 'hazard_stop', 10)
         # What the GUI shows the operator: which class, how confident, how far
         # away and how far off the centreline. A bare Bool leaves "why has the
@@ -153,12 +202,28 @@ class HazardBrake(Node):
         self.create_timer(0.2, self._tick)
         self.get_logger().info(
             f'watching for {sorted(self.classes)} on hazards: stop within '
-            f'{self.stop_range:.1f} m and {self.corridor:.2f} m of the '
+            f'{self.fixed_range:.1f} m (plus speed x frame interval) and '
+            f'{self.corridor:.2f} m of the '
             f'centreline, or any box over {self.stop_height:.0f} px tall '
             f'(f = {self.f:.1f} px from {self.width:.0f} px / '
             f'{math.degrees(self.hfov):.0f} deg)')
 
     # -- detections ---------------------------------------------------------
+    def _odom_cb(self, msg):
+        self.speed = float(msg.twist.twist.linear.x)
+
+    def stop_range(self):
+        """How far ahead a person stops the rover, right now.
+
+        The fixed range plus whatever ground the rover will cover before the
+        detector can speak again. Reversing does not count - the gate is about
+        driving into somebody.
+        """
+        if not self.lookahead or not self.frame_gap:
+            return self.fixed_range
+        return self.fixed_range + min(
+            self.lookahead_max, max(0.0, self.speed) * self.frame_gap)
+
     def _measure(self, det):
         """One detection as a dict, or None if it is not a hazard class."""
         if not det.results:
@@ -181,9 +246,16 @@ class HazardBrake(Node):
                 'height_px': round(h, 1), 'range_m': round(rng, 2),
                 'bearing_deg': round(math.degrees(bearing), 1),
                 'lateral_m': round(lateral, 2), 'in_path': in_path,
-                'blocking': close or (in_path and rng <= self.stop_range)}
+                'blocking': close or (in_path and rng <= self.stop_range())}
 
     def _hazards_cb(self, msg):
+        now = self.get_clock().now()
+        if self.last_frame is not None:
+            gap = (now - self.last_frame).nanoseconds / 1e9
+            # Smoothed, so one slow frame does not swing the clear time about.
+            self.frame_gap = gap if self.frame_gap is None else (
+                0.7 * self.frame_gap + 0.3 * gap)
+        self.last_frame = now
         seen = [m for m in (self._measure(d) for d in msg.detections) if m]
         blocking = [m for m in seen if m['blocking']]
         # The nearest blocking person, or - when nobody blocks - the nearest
@@ -195,8 +267,13 @@ class HazardBrake(Node):
         elif not self.stopped:
             self.worst = {}
         if not blocking:
+            # A frame that saw nobody in the way. This is the evidence the
+            # clear is built on, which is why it is counted here and not in
+            # the timer.
+            self.clear_count += 1
             return
-        self.last_seen = self.get_clock().now()
+        self.clear_count = 0
+        self.last_seen = now
         if not self.stopped:
             self._engage(self.worst)
 
@@ -232,16 +309,41 @@ class HazardBrake(Node):
                 'nav2 cancel service not available - is Nav2 running?')
 
     def _tick(self):
-        if self.stopped and self.last_seen is not None:
-            age = (self.get_clock().now() - self.last_seen).nanoseconds / 1e9
-            if age > self.clear_after:
+        now = self.get_clock().now()
+        if self.stopped:
+            quiet = (None if self.last_frame is None
+                     else (now - self.last_frame).nanoseconds / 1e9)
+            age = (0.0 if self.last_seen is None
+                   else (now - self.last_seen).nanoseconds / 1e9)
+            # At 0.2 Hz a normal gap between frames is five seconds, so a
+            # fixed eight-second "the detector has died" timeout is a coin
+            # toss. Three frame intervals is the honest version of that test.
+            stale = max(self.detector_stale, 3.0 * (self.frame_gap or 0.0))
+            if quiet is None or quiet > stale:
+                self.stopped = False
+                self.clear_count = 0
+                self.get_logger().warn(
+                    'the person detector has not published for %.1f s - '
+                    'releasing the rover rather than holding it on a node '
+                    'that may be dead (expected a frame every %.1f s)'
+                    % (quiet or 0.0, self.frame_gap or 0.0))
+            elif self.clear_count >= self.clear_frames and age > self.clear_after:
                 self.stopped = False
                 self.get_logger().info(
-                    'hazard clear for %.1f s - the rover may drive on' % age)
+                    '%d frames with nobody in the way over %.1f s - the rover '
+                    'may drive on' % (self.clear_count, age))
         self.state_pub.publish(Bool(data=self.stopped))
         info = dict(self.worst)
         info['stopped'] = self.stopped
         info['stops'] = self.stops
+        # How fast the detector is actually running. At a frame every few
+        # seconds the stop is as coarse as the detector, and that is worth
+        # being able to read rather than guess at from the rover's behaviour.
+        info['detector_hz'] = (None if not self.frame_gap
+                               else round(1.0 / self.frame_gap, 2))
+        info['clear_frames_seen'] = self.clear_count
+        info['stop_range_m'] = round(self.stop_range(), 2)
+        info['speed_ms'] = round(self.speed, 2)
         self.info_pub.publish(String(data=json.dumps(info)))
 
 

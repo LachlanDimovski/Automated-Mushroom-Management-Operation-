@@ -752,7 +752,7 @@ class OperatorApp:
             self.link.set_standdown('rover', False)
         self.link.publish_command({'cmd': 'operator_goal_done', 'ok': False, 'why': why})
 
-    def on_goal_finished(self, ok):
+    def on_goal_finished(self, ok, why=''):
         if not self.active_goal:
             return
         self.active_goal = None
@@ -761,7 +761,8 @@ class OperatorApp:
         # Distinguish the two: a rejected or aborted goal used to be reported
         # as "reached the goal", which is how a rover that never moved could
         # still claim to have arrived.
-        self.link.publish_command({'cmd': 'operator_goal_done', 'ok': bool(ok)})
+        self.link.publish_command({'cmd': 'operator_goal_done', 'ok': bool(ok),
+                                   'why': why or ''})
 
     def clear_goal(self):
         if not self.active_goal:
