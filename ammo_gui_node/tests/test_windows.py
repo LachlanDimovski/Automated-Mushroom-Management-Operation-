@@ -2169,6 +2169,63 @@ check('including Nav2 under all its process names',
           for n in ('bt_navigator', 'controller_server', 'lifecycle_manager')),
       [k for k in _killed if 'nav' in k or 'server' in k])
 
+
+# ---------------------------------------------------------------------------
+section('what the first working run turned up')
+
+op = OperatorPage(FakeLink())
+
+# -- the log marked the wrong mushroom as being collected -------------------
+op.log.add(1, 6.0, -5.0, 0.91, '01:35')
+op.log.add(2, -1.9, 6.5, 0.92, '03:24')
+op.log.add(3, -5.0, -5.4, 0.90, '04:24')
+op.status = {'route': {'sx': 0.0, 'sy': 0.0, 'gx': -1.9, 'gy': 6.5},
+             'mushrooms': [{'n': 1, 'x': 6.0, 'y': -5.0, 'status': 'collected'},
+                           {'n': 2, 'x': -1.9, 'y': 6.5, 'status': 'found'},
+                           {'n': 3, 'x': -5.0, 'y': -5.4, 'status': 'found'}]}
+check('the mushroom being collected is the one the rover is driving to',
+      op._collecting_now() == 2, op._collecting_now())
+op.status = {}
+check('with no route it falls back to the oldest still open, not the newest',
+      op._collecting_now() == 1, op._collecting_now())
+
+# -- a new sighting hid the pictures of the one being collected -------------
+op.log.set_status(2, 'collecting')
+check('an entry still in play is open', op.log.entries[2].expanded)
+op.log.add(4, 4.3, 5.5, 0.88, '07:54')
+check('and a newer sighting does not close it',
+      op.log.entries[2].expanded, 'collapsed by the next find')
+check('the new one is open too', op.log.entries[4].expanded)
+op.log.set_status(2, 'collected')
+check('collecting it folds it away', not op.log.entries[2].expanded)
+op.log.entries[2].mousePressEvent(type('E', (), {
+    'button': lambda self: Qt.LeftButton})())
+check('and a click opens it again', op.log.entries[2].expanded)
+
+# -- two numbering schemes on one screen ------------------------------------
+marks = overhead.overhead_marks(
+    [[6.0, -5.0], [-1.9, 6.5]],
+    [{'n': 2, 'x': -1.9, 'y': 6.5, 'status': 'found'}],
+    {}, height=30.0, px=640, hfov=1.5)
+labels = {tuple(m['at']): m['label'] for m in marks if m.get('mushroom')}
+check('a reported mushroom is numbered the way the log numbers it',
+      labels.get((-1.9, 6.5)) == 'M2', labels)
+check('and one nobody has reported says its number is provisional',
+      labels.get((6.0, -5.0)) == 'M1\u00b7', labels)
+
+# -- the map, full screen ---------------------------------------------------
+check('the map starts in its own panel', not op._map_big)
+op.expand_map()
+check('the button fills the window with it', op._map_big)
+check('and it is the same widget, so the trail comes with it',
+      op.map.parent() is not None)
+op._collapse()
+check('Esc or Back puts it home', not op._map_big)
+op.expand_map()
+op._expand(op.cams['rover1'])
+check('full-screening a camera takes the map home first', not op._map_big)
+op._collapse()
+
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('failing:')

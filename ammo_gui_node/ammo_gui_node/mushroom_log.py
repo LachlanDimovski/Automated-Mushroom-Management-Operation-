@@ -115,6 +115,19 @@ class Entry(QWidget):
         lay.addWidget(self.thumbs)
 
         self._restyle()
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip('Click to show or hide the pictures')
+
+    # Click anywhere on an entry to open or close its two pictures. There was
+    # no way to reopen one: adding a sighting collapsed every entry that was
+    # already there, so the photograph of the mushroom being collected
+    # disappeared the moment the quadcopter found the next one, and nothing
+    # brought it back.
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.set_expanded(not self.expanded)
+            return
+        return super().mousePressEvent(event)
 
     def set_expanded(self, expanded):
         self.expanded = expanded
@@ -178,11 +191,19 @@ class MushroomLog(QWidget):
         self.entries.clear()
         self.count.setText('no entries yet')
 
+    # Statuses that mean this mushroom is finished with. Only these get
+    # folded away to make room; anything still in play keeps its pictures.
+    DONE = ('collected', 'abandoned', 'missed')
+
     def add(self, n, x, y, conf, stamp, quad_image=None):
         if n in self.entries:
             return self.entries[n]
         for entry in self.entries.values():
-            entry.set_expanded(False)
+            # Was: collapse everything. A new sighting then hid the pictures
+            # of the one the rover was in the middle of collecting, which is
+            # the entry you are most likely to be looking at.
+            if entry.status in self.DONE:
+                entry.set_expanded(False)
         entry = Entry(n, x, y, conf, stamp)
         if quad_image is not None:
             entry.quad_thumb.set_image(quad_image)
@@ -198,5 +219,12 @@ class MushroomLog(QWidget):
 
     def set_status(self, n, status):
         entry = self.entries.get(n)
-        if entry is not None:
-            entry.set_status(status)
+        if entry is None:
+            return
+        entry.set_status(status)
+        # Fold it away once it is finished - but only if there is another
+        # entry still open, so the last mushroom of a run does not collapse
+        # into a one-line summary of itself.
+        if status in self.DONE and any(
+                e.expanded for k, e in self.entries.items() if k != n):
+            entry.set_expanded(False)

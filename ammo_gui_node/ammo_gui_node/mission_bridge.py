@@ -752,12 +752,48 @@ class MissionBridge(Node):
                 m.x, m.y = x, y
                 return
 
+        # Not a mushroom if somebody is standing there. The quadcopter's
+        # weights are single-class and fine-tuned on mushrooms, so everything
+        # it is confident about becomes a mushroom - and on the first run with
+        # a person in the world it reported one as Mushroom 04, queued it, and
+        # sent the rover to collect them. The GUI is the only thing that knows
+        # where the people are (it put them there), so it is the only thing
+        # that can tell the difference.
+        #
+        # Said out loud rather than dropped silently: if a real mushroom is
+        # lying next to somebody, this throws it away, and that is worth
+        # seeing in the feed rather than discovering from a count that never
+        # adds up.
+        near = self._person_at(x, y)
+        if near is not None:
+            self._emit(C.EV_NOTE,
+                       text=f'Ignored a sighting at ({x:.1f}, {y:.1f}) - that is '
+                            f'where H{near} is standing. The quadcopter\'s '
+                            f'detector has one class, so a person reads as a '
+                            f'mushroom to it.')
+            return
+
         conf = self._last_conf if time.monotonic() - self._last_conf_at < CONF_WINDOW_S else None
         mush = Mushroom(len(self.mushrooms) + 1, x, y, conf, self.now())
         self.mushrooms.append(mush)
         self._emit(C.EV_FOUND, n=mush.n, x=round(x, 2), y=round(y, 2), conf=conf,
                    text=f'Mushroom {mush.n:02d} found at ({x:.1f}, {y:.1f})'
                         + (f' - {conf:.2f} confidence' if conf else ''))
+
+    # A sighting this close to a person is that person. Generous on purpose:
+    # the projection from the quad has a metre or so of error in it, and a
+    # mushroom lost is better than the rover being driven at somebody.
+    PERSON_SIGHTING_M = 2.5
+
+    def _person_at(self, x, y):
+        """Which person (1-based) is standing at (x, y), or None."""
+        for i, p in enumerate(self.people or [], 1):
+            try:
+                if math.hypot(x - float(p[0]), y - float(p[1])) < self.PERSON_SIGHTING_M:
+                    return i
+            except (TypeError, ValueError, IndexError):
+                continue
+        return None
 
     def _on_done(self, msg):
         """Where the rover finished. What happened there comes from the log."""

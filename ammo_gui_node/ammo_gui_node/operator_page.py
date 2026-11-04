@@ -9,6 +9,8 @@ rover somewhere, and hand-driving either robot. Each camera fills the window
 on a double-click, which is what you want while flying by hand.
 """
 
+import math
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QProgressBar,
                                QPushButton, QScrollArea, QStackedWidget,
@@ -383,6 +385,16 @@ class OperatorPage(QWidget):
         self.key_button.setChecked(True)
         self.key_button.toggled.connect(lambda on: self.map.set_key_visible(on))
         head.addWidget(self.key_button)
+        # A button rather than the double-click the camera tiles use. A
+        # double-click on this map would send two operator goals on its way to
+        # full-screening it, because the first click is already a goal.
+        self.big_map_button = QPushButton('Full screen')
+        self.big_map_button.setObjectName('Ghost')
+        self.big_map_button.setToolTip(
+            'Fill the window with the map. Esc, or the button at the top, to '
+            'come back. It is the same map, so trails and zoom are kept.')
+        self.big_map_button.clicked.connect(self.expand_map)
+        head.addWidget(self.big_map_button)
         lay.addLayout(head)
         lay.addWidget(cards.hline())
 
@@ -391,6 +403,12 @@ class OperatorPage(QWidget):
         self.map = MapView(interactive=True, show_key=True, fit_world=True)
         self.map.clicked.connect(self._on_map_click)
         lay.addWidget(self.map, 1)
+        # Where to put it back. Full-screening moves this very widget into the
+        # expanded page rather than mirroring it into a second one: a copy
+        # would start with no trail, no route and no zoom, and every
+        # `self.map.set_*` call in this file would have to be made twice and
+        # would drift the first time one was forgotten.
+        self._map_home, self._map_stretch = lay, 1
         return panel
 
     def _log_panel(self):
@@ -422,11 +440,15 @@ class OperatorPage(QWidget):
         self.big_cam.set_expanded(True)
         self.big_cam.expand_requested.connect(lambda _panel: self._collapse())
         lay.addWidget(self.big_cam, 1)
+        self.big_lay = lay          # the map is moved in here when expanded
         self.big_which = None
+        self._map_big = False
         return page
 
     # -- full screen --------------------------------------------------------
     def _expand(self, panel):
+        if self._map_big:
+            self._collapse()       # the map goes home before a camera moves in
         self.big_which = next((k for k, c in self.cams.items() if c is panel), 'rover1')
         self.big_cam.title = panel.title
         self.big_cam.topic = panel.topic
@@ -448,7 +470,26 @@ class OperatorPage(QWidget):
         self.big_cam.update()
         self.stack.setCurrentIndex(1)
 
+    def expand_map(self):
+        """Fill the window with the world map."""
+        if self._map_big:
+            return
+        self._map_home.removeWidget(self.map)
+        self.big_cam.hide()
+        self.big_lay.addWidget(self.map, self._map_stretch)
+        self.map.show()
+        self._map_big = True
+        self.big_which = None
+        self.big_title.setText('WORLD MAP')
+        self.stack.setCurrentIndex(1)
+
     def _collapse(self):
+        if self._map_big:
+            self.big_lay.removeWidget(self.map)
+            self._map_home.addWidget(self.map, self._map_stretch)
+            self.map.show()
+            self.big_cam.show()
+            self._map_big = False
         self.big_which = None
         self.stack.setCurrentIndex(0)
 
@@ -687,10 +728,45 @@ class OperatorPage(QWidget):
         elif kind == C.EV_MISSED and n is not None:
             self.log.set_status(n, 'missed')
         elif kind == C.EV_STATE and ev.get('state') in (C.ALIGN, C.CAPTURE):
-            live = [num for num, entry in self.log.entries.items()
-                    if entry.status == 'found']
-            if live:
-                self.log.set_status(max(live), 'collecting')
+            target = self._collecting_now()
+            if target is not None:
+                self.log.set_status(target, 'collecting')
+
+    def _collecting_now(self):
+        """Which mushroom the rover is working on, or None.
+
+        This used to be `max(n for n in the log if it is still 'found')` - a
+        guess that the rover is always collecting the most recently found
+        one. It is not: the rover works a queue, so while it grips M2 the
+        quadcopter can already have found M3, and the log then showed
+        COLLECTING against a mushroom nobody had driven to.
+
+        The rover's own Nav2 leg is in the status, and its far end is the
+        mushroom it is going to - so ask that instead of guessing.
+        """
+        status = getattr(self, 'status', None) or {}
+        route = status.get('route') or {}
+        try:
+            gx, gy = float(route['gx']), float(route['gy'])
+        except (KeyError, TypeError, ValueError):
+            gx = None
+        if gx is not None:
+            best = None
+            for m in (status.get('mushrooms') or []):
+                try:
+                    d = math.hypot(gx - float(m['x']), gy - float(m['y']))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if d < C.MERGE_M * 1.5 and (best is None or d < best[0]):
+                    best = (d, m.get('n'))
+            if best and best[1] in self.log.entries:
+                return best[1]
+        # No route published yet. The queue is worked in the order things were
+        # found, so the oldest one still open is a far better fallback than
+        # the newest - and it is only a fallback.
+        live = [num for num, entry in self.log.entries.items()
+                if entry.status == 'found']
+        return min(live) if live else None
 
     # -- frames -------------------------------------------------------------
     def on_rover_frame(self, image):

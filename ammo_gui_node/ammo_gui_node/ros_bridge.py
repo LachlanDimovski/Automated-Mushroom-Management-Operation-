@@ -190,6 +190,9 @@ class _LinkNode(Node):
         self._standdown = set()
         self._descending = False
         self.agl = None
+        self.agl_at = 0.0          # when that reading arrived
+        self.quad_z = None         # odometry height, the landing fallback
+        self._descend_from = 0.0   # when the abort descent started
         self.nav_client = None
         self.cancel_client = None
         self._nav_handle = None
@@ -380,6 +383,7 @@ class _LinkNode(Node):
     def _on_quad_odom(self, msg):
         self.seen['quad_odom'] = time.monotonic()
         p = msg.pose.pose.position
+        self.quad_z = float(p.z)
         self.link.quad_pose.emit(p.x, p.y, yaw_of(msg.pose.pose.orientation), p.z)
 
     def _merged(self, signal, source, boxes):
@@ -474,6 +478,7 @@ class _LinkNode(Node):
 
     def _on_agl(self, msg):
         self.agl = float(msg.data)
+        self.agl_at = time.monotonic()
         self.link.quad_agl.emit(self.agl)
 
     def _on_landed(self, msg):
@@ -496,9 +501,43 @@ class _LinkNode(Node):
                 pub.publish(Bool(data=True))
         if self._descending and self.cmd_pubs:
             down = Twist()
-            if self.agl is None or self.agl > C.LANDED_AGL_M:
+            if self._should_descend():
                 down.linear.z = -float(C.ABORT_DESCENT_MS)
             self.cmd_pubs[2].publish(down)       # parrot1/cmd_vel
+
+    # Longest an abort descent may run before it stops regardless. The quad
+    # cruises at about a metre: from four metres up, at ABORT_DESCENT_MS, the
+    # ground arrives in about eight seconds, so twelve is generous and still
+    # finite. The abort watcher's own 40 s timeout is far too long to be the
+    # only thing between the quadcopter and the centre of the earth.
+    DESCENT_LIMIT_S = 12.0
+    AGL_STALE_S = 2.0
+
+    def _should_descend(self):
+        """Is the quadcopter still above the ground?
+
+        This used to read `self.agl is None or self.agl > LANDED_AGL_M` - so
+        the case where `parrot1/agl` had not arrived, or had stopped
+        arriving, flew the quadcopter *downward*. On a run where that topic
+        was quiet, Abort drove it through the world and kept going until the
+        abort watcher gave up forty seconds later. Twenty-two metres of it.
+
+        Unknown now means stop. Height comes from `agl` while it is fresh,
+        from odometry z when it is not, and when neither can be had the
+        descent runs only long enough to have landed from any sane cruise
+        height.
+        """
+        now = time.monotonic()
+        if now - self._descend_from > self.DESCENT_LIMIT_S:
+            return False
+        if self.agl is not None and now - self.agl_at < self.AGL_STALE_S:
+            return self.agl > C.LANDED_AGL_M
+        # Odometry z is not height above ground - on a heightmap world the
+        # ground itself moves - but it is bounded below by the world origin,
+        # and stopping a little high beats not stopping at all.
+        if self.quad_z is not None:
+            return self.quad_z > C.LANDED_AGL_M
+        return True      # nothing to go on; the time limit above is the floor
 
     def set_fleet(self, quads, rovers):
         """How many of each robot this run has."""
@@ -541,6 +580,8 @@ class _LinkNode(Node):
         return key in self._standdown
 
     def set_descending(self, on):
+        if on and not self._descending:
+            self._descend_from = time.monotonic()
         self._descending = bool(on)
 
     def publish_mark(self, quad='quad1'):

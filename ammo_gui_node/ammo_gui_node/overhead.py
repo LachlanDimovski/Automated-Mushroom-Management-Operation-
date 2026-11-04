@@ -143,7 +143,7 @@ def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None,
     for m in (mushrooms or []):
         try:
             found.append((float(m.get('x', 0.0)), float(m.get('y', 0.0)),
-                          m.get('status')))
+                          m.get('status'), m.get('n')))
         except (TypeError, ValueError):
             continue
     for i, point in enumerate(placed or [], 1):
@@ -154,13 +154,22 @@ def overhead_marks(placed, mushrooms, robots, height=None, px=None, hfov=None,
         at = project(x, y, height, px, hfov=hfov)
         if at is None:
             continue
-        near = min((math.hypot(x - fx, y - fy), st) for fx, fy, st in found) if found else None
-        state = near[1] if near and near[0] < MARK_NEAR_M else None
+        near = (min((math.hypot(x - fx, y - fy), st, n) for fx, fy, st, n in found)
+                if found else None)
+        hit = near if near and near[0] < MARK_NEAR_M else None
+        state = hit[1] if hit else None
+        # Numbered the way the rest of the GUI numbers them. These used to be
+        # labelled by the order the GUI spawned them, while the mushroom log
+        # and the world map label by the order the quadcopter found them - so
+        # the same mushroom was M3 on the overhead view and M2 everywhere
+        # else. A mushroom nobody has reported yet has no number of its own,
+        # and keeps its spawn index with a dot to say it is provisional.
+        label = f'M{hit[2]}' if hit and hit[2] else f'M{i}·'
         marks.append({'u': at[0], 'v': at[1], 'at': (x, y), 'mushroom': True,
                       'kind': 'mushroom', 'shape': 'circle', 'state': state,
                       'r': max(7.0, metres_to_px(0.9, height, px, hfov)),
                       'colour': MARK_COLOURS.get(state, MARK_UNFOUND),
-                      'label': f'M{i}'})
+                      'label': label})
     for i, point in enumerate(people or [], 1):
         try:
             x, y = float(point[0]), float(point[1])
