@@ -2147,6 +2147,28 @@ check('a clean machine is not reported as dirty',
 check('and the GUI\'s own launch line is not a stray',
       _re.search(_launch, 'ros2 launch ammo_gui_node gui.launch.py') is None)
 
+# The loop: the check learned about Nav2 and the killer did not, so Stop what
+# is running removed everything except the thing that was blocking, and the
+# next Prepare was blocked by it again. The two lists are derived from one
+# another now; this is what keeps that true.
+_killer = ml.MissionLauncher()
+_sent = []
+_real_run = ml.subprocess.run
+ml.subprocess.run = lambda args, **kw: (
+    _sent.append(args) or _real_run(['true'], **kw))
+try:
+    _killer.kill_strays()
+finally:
+    ml.subprocess.run = _real_run
+_killed = [a[-1] for a in _sent if a and a[0] == 'pkill']
+for _label, _pattern in ml.STRAY_PATTERNS:
+    check(f'Stop what is running also kills what the check calls {_label}',
+          _pattern in _killed, _label)
+check('including Nav2 under all its process names',
+      all(any(n in k for k in _killed)
+          for n in ('bt_navigator', 'controller_server', 'lifecycle_manager')),
+      [k for k in _killed if 'nav' in k or 'server' in k])
+
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('failing:')

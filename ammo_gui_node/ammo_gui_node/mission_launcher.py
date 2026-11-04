@@ -1245,11 +1245,25 @@ class MissionLauncher:
 
         Returns the number of processes it signalled.
         """
-        patterns = [r'ign gazebo', r'gz sim', r'ruby .*ign gazebo',
-                    'ign-gazebo-server', 'ign-gazebo-gui',
-                    'cage_mission.launch.py', 'fleet_mission.launch.py',
-                    'zcam_mission.launch.py', 'parameter_bridge', 'yolo_node',
-                    'fleet_yolo_pool', 'fleet_coordinator']
+        # Everything `strays_running` looks for, plus the rest of a run's
+        # processes. Derived from the same list on purpose: when the two were
+        # written separately, the check learned about Nav2 and the killer did
+        # not, so "Stop what is running" killed the launch, left three
+        # lifecycle managers behind, and the next Prepare was blocked by the
+        # very thing the button was supposed to have removed. Pressing it
+        # again did the same. That loop is only possible if these two lists
+        # can disagree, so now they cannot.
+        patterns = [pattern for _label, pattern in STRAY_PATTERNS] + [
+            r'ruby .*ign gazebo', 'ign-gazebo-server', 'ign-gazebo-gui',
+            'yolo_node', 'fleet_yolo_pool', 'fleet_coordinator',
+            'hazard_brake', 'combined_view', 'truth_localizer',
+            'collision_guard_node', 'cage_capture_node', 'rover_capture_node',
+            'zcam_quad_node', 'quad_search_node', 'fleet_quad_node',
+            # Nav2 spreads over more processes than the four the check names;
+            # a lifecycle manager left alone will happily re-activate them.
+            'nav2_', 'bt_navigator', 'controller_server', 'planner_server',
+            'behavior_server', 'waypoint_follower', 'velocity_smoother',
+            'smoother_server', 'robot_state_publisher']
         killed = 0
         for sig in ('-TERM', '-KILL'):
             for pattern in patterns:
@@ -1258,6 +1272,14 @@ class MissionLauncher:
                 if out.returncode == 0:
                     killed += 1
             killed += self._kill_ign_ruby()
+            time.sleep(0.5)        # let TERM work before reaching for KILL
+        # Say what would not die, rather than reporting success and leaving
+        # the operator to discover it by being blocked again.
+        left = strays_running()
+        if left:
+            self.log('these would not stop: ' + ', '.join(left) +
+                     '. Kill them by hand -  pkill -9 -f nav2_  - or restart '
+                     'the terminal the GUI is in.')
         return killed
 
     def _kill_ign_ruby(self):
