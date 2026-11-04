@@ -436,7 +436,22 @@ class DebugWindow(QWidget):
             if was == 'running' and phase in ('ready', 'idle'):
                 # A run just ended. Keep everything on screen instead of
                 # letting it vanish with the simulation.
-                self._show_report(status)
+                # Guarded: this builds the whole report in one call, and
+                # anything that throws inside it used to escape through the
+                # status callback. The phase has already changed by then, so
+                # the report is never retried - the window carries on working
+                # and simply never shows one, which is a maddening way to
+                # fail. Now it says so where it can be seen.
+                try:
+                    self._show_report(status)
+                except Exception as exc:        # noqa: BLE001 - report anything
+                    self.showing_report = False
+                    self.feed.add({'t': status.get('elapsed', 0.0),
+                                   'kind': C.EV_NOTE,
+                                   'text': f'the mission report could not be '
+                                           f'built: {type(exc).__name__}: {exc}'})
+                    import traceback
+                    traceback.print_exc()
             elif phase in ('idle', 'preparing'):
                 self._forget_run()
         if self.showing_report and phase == 'preparing':
@@ -633,6 +648,16 @@ class DebugWindow(QWidget):
         self.timeline.clear()
         self.feed.clear()
         self.map.clear()
+        # And the last run's pictures. A camera panel keeps its frame until a
+        # new one arrives, so a robot whose camera is slow to come up on the
+        # next run shows the previous world instead of nothing - which is
+        # exactly as confusing as it sounds when the previous world was a
+        # forest and this one is a river.
+        for cam in (self.rover_cam, self.quad_cam, self.topdown_cam):
+            if cam is not None:
+                cam.image = None
+                cam.detections = []
+                cam.update()
 
     def _tick(self):
         status = self.status

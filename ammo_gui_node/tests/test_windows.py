@@ -2226,6 +2226,80 @@ op._expand(op.cams['rover1'])
 check('full-screening a camera takes the map home first', not op._map_big)
 op._collapse()
 
+
+# ---------------------------------------------------------------------------
+section('closing the GUI takes the simulation with it')
+
+import inspect as _inspect                                        # noqa: E402
+_src = _inspect.getsource(operator_app.main)
+check('Ctrl-C and SIGTERM are handled, not left to the launch system',
+      'SIGINT' in _src and 'SIGTERM' in _src)
+check('with a timer, or the handler never runs inside Qt\'s event loop',
+      'QTimer()' in _src and 'start(200)' in _src)
+check('and they go through the same teardown the window close uses',
+      'app.quit()' in _src and 'aboutToQuit' in _src)
+
+_quit = _inspect.getsource(operator_app.OperatorApp.quit)
+check('which shuts the mission launch down', 'launcher.shutdown()' in _quit)
+check('after releasing the robots rather than leaving them held',
+      _quit.index("set_standdown('all', False)") < _quit.index('launcher.shutdown()'))
+
+
+# ---------------------------------------------------------------------------
+section('the fleet run, and the abort')
+
+# -- a person read as a native, not as an invasive --------------------------
+from ammo_gui_node.mission_bridge import MissionBridge         # noqa: E402
+from std_msgs.msg import String as _String                       # noqa: E402
+
+nb = MissionBridge()
+nb.feed(C.COMMAND_TOPIC, _String(data=json.dumps(
+    {'cmd': 'start', 'world': 'river_moderate_aus', 'total': 2,
+     'people': [[4.0, -3.0]]})))
+nb._note_native([4.4, -3.2])
+check('a native reported where somebody is standing is not counted',
+      nb.natives == [], nb.natives)
+check('and the feed says why',
+      any('H1 is standing' in e.get('text', '')
+          for e in [json.loads(m.data) for m in nb.sent(C.EVENTS_TOPIC)]))
+nb._note_native([-6.0, 6.0])
+check('a native anywhere else still counts', len(nb.natives) == 1, nb.natives)
+
+# -- the cards during an abort ----------------------------------------------
+ab = OperatorPage(FakeLink())
+ab.apply_status({'rover': {'state': 'DRIVE', 'detail': 'picking a route', 'speed': 1.1},
+                 'quad': {'state': 'SEARCHING', 'alt': 1.0, 'fresh': True}})
+check('normally the cards show the mission states',
+      ab.rover_card.value.text() == 'DRIVE', ab.rover_card.value.text())
+ab.apply_status({'aborting': True, 'rover': {'state': 'DRIVE', 'speed': 0.9},
+                 'quad': {'state': 'SEARCHING', 'alt': 2.4, 'fresh': True}})
+check('aborting, the skidsteer says it is stopping',
+      ab.rover_card.value.text() == 'STOPPING', ab.rover_card.value.text())
+check('and not that it is still driving somewhere',
+      'route' not in ab.rover_card.detail.text().lower(), ab.rover_card.detail.text())
+check('the quadcopter says it is landing',
+      ab.quad_card.value.text() == 'LANDING', ab.quad_card.value.text())
+check('with how far it still has to come down',
+      '2.4 m up' in ab.quad_card.detail.text(), ab.quad_card.detail.text())
+
+# -- stale pictures from the previous world ---------------------------------
+ab.rover_cam.set_image(fake_camera())
+check('a panel keeps its frame', ab.rover_cam.image is not None)
+ab.clear_frames()
+check('until a new run clears it', ab.rover_cam.image is None)
+
+# -- a greyed tick still reads as yes ---------------------------------------
+hp = HomePage()
+check('one of each robot offers the Gazebo window', hp.show_sim.isEnabled())
+hp.show_sim.setChecked(True)
+hp.quad_count.setValue(2)
+check('a fleet disables it', not hp.show_sim.isEnabled())
+check('and unticks it, because greyed-but-ticked reads as yes',
+      not hp.show_sim.isChecked())
+hp.quad_count.setValue(1)
+check('going back to one robot restores it', hp.show_sim.isEnabled())
+check('with the choice that was made before', hp.show_sim.isChecked())
+
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
     print('failing:')

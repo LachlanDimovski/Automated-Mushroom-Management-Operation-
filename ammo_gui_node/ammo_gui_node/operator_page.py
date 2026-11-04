@@ -561,6 +561,22 @@ class OperatorPage(QWidget):
         self.coverage_bar.setValue(0)
         self.clock.setText('00:00')
 
+    def clear_frames(self):
+        """Forget the last run's pictures.
+
+        A camera panel holds its frame until a new one replaces it, so a
+        robot whose camera is slow on the next run shows the previous world
+        rather than nothing - a forest on quadcopter 1 while quadcopter 2 is
+        already over a river. The panel does dim it and call it NO SIGNAL,
+        but a dimmed picture of the wrong world is still a picture of the
+        wrong world.
+        """
+        for cam in list(self.cams.values()) + [self.big_cam]:
+            if cam is not None:
+                cam.image = None
+                cam.detections = []
+                cam.update()
+
     def stop_mission(self):
         self.paused = False
         self.aborting = False
@@ -646,10 +662,26 @@ class OperatorPage(QWidget):
 
         rover = status.get('rover', {})
         quad = status.get('quad', {})
-        self.rover_card.set(rover.get('state', '--'), rover.get('detail', ''))
         quad_detail = quad.get('detail') or (
             f"alt {quad.get('alt', 0):.1f} m" if quad.get('fresh') else 'no telemetry')
-        self.quad_card.set(quad.get('state', '--'), quad_detail)
+        if status.get('aborting'):
+            # During an abort the cards went on reporting the mission states -
+            # SEARCHING, DRIVE - which is what the robots were doing a moment
+            # ago, not what is happening to them now. Neither robot has a
+            # state of its own for "being stopped", because the stopping is
+            # done to them from outside: the stand-down heartbeat holds their
+            # nodes off and the GUI publishes the velocities. So the GUI is
+            # the only thing that can say so, and it says it here.
+            speed = rover.get('speed')
+            still = isinstance(speed, (int, float)) and abs(speed) < C.ABORT_STILL_MS
+            self.rover_card.set('STOPPING', 'at rest' if still else
+                                'emergency stop - coming to a halt')
+            alt = quad.get('alt')
+            where = f' - {alt:.1f} m up' if isinstance(alt, (int, float)) else ''
+            self.quad_card.set('LANDING', f'emergency stop{where}, flying down')
+        else:
+            self.rover_card.set(rover.get('state', '--'), rover.get('detail', ''))
+            self.quad_card.set(quad.get('state', '--'), quad_detail)
 
         hazard = bool(status.get('hazard'))
         self.hazard_chip.setVisible(hazard)

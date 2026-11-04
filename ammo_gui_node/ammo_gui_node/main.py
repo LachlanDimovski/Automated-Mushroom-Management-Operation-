@@ -36,6 +36,7 @@ thing that hand-drives either robot. The Debug UI is read-only and can be
 opened or closed at any point without affecting a run.
 """
 import math
+import signal
 import sys
 import time
 
@@ -249,6 +250,8 @@ class OperatorApp:
         self.phase = 'preparing'
         self.placed = []
         self.standing = []
+        # A new world starts with no pictures of the last one.
+        self.operator.clear_frames()
         self._prepare_t0 = time.monotonic()
         self._held_said = False
         self.ready.begin(config)
@@ -793,6 +796,32 @@ def main(args=None):
     operator = OperatorApp()
     app.aboutToQuit.connect(operator.quit)
     operator.stack.show()
+
+    # Ctrl-C has to tear the simulation down the same way closing the window
+    # does, and by default it does not.
+    #
+    # `aboutToQuit` runs `OperatorApp.quit`, which shuts the mission launch
+    # down - so clicking the X has always been clean. Ctrl-C was not: Qt's
+    # event loop is C++, Python only runs its signal handlers between its own
+    # bytecodes, and while `app.exec()` is blocking there are none. The
+    # interrupt was therefore never delivered to us; the launch system killed
+    # this process instead, `aboutToQuit` never fired, and the simulation it
+    # had started - Gazebo, Nav2, the bridges - carried on with nobody owning
+    # it. The next Prepare then stacked a second Nav2 on the same namespace,
+    # which is a failure that shows up nowhere near its cause: the rover
+    # turns on the spot and goes nowhere.
+    #
+    # A timer that does nothing is the standard fix. It hands control back to
+    # the interpreter a few times a second, which is all the handler below
+    # needs to run.
+    def _bye(_sig, _frame):
+        app.quit()
+
+    for _sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(_sig, _bye)
+    wake = QTimer()
+    wake.timeout.connect(lambda: None)
+    wake.start(200)
 
     code = app.exec()
     if rclpy.ok():

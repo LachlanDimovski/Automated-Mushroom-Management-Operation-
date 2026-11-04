@@ -669,6 +669,16 @@ class HomePage(QWidget):
         and this makes that visible before the run rather than after it.
         """
         fleet = self.quad_count.value() > 1 or self.rover_count.value() > 1
+        # Disabling it was not enough: a greyed-out box that is still ticked
+        # reads as "yes, and you may not change it", so the window not
+        # appearing looked like the tick being ignored. Untick it as well, and
+        # put the operator's own choice back when they return to one of each.
+        if fleet:
+            if self.show_sim.isEnabled():
+                self._show_sim_wanted = self.show_sim.isChecked()
+            self.show_sim.setChecked(False)
+        elif not self.show_sim.isEnabled():
+            self.show_sim.setChecked(getattr(self, '_show_sim_wanted', True))
         self.show_sim.setEnabled(not fleet)
         self.show_sim_note.setVisible(fleet)
         if fleet:

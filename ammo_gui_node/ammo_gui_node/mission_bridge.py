@@ -520,6 +520,15 @@ class MissionBridge(Node):
             x, y = float(point[0]), float(point[1])
         except (TypeError, ValueError, IndexError):
             return
+        # Same rule as a sighting: not a mushroom if somebody is standing
+        # there. The two-class river weights have two ways to be wrong about
+        # a person, and on a fleet run one of them called a person a native.
+        near = self._person_at(x, y)
+        if near is not None:
+            self._emit(C.EV_NOTE,
+                       text=f'Ignored a native mushroom at ({x:.1f}, {y:.1f}) - '
+                            f'that is where H{near} is standing.')
+            return
         for nx, ny in self.natives:
             if math.hypot(x - nx, y - ny) < C.NATIVE_MERGE_M:
                 return
