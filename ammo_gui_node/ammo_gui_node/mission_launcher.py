@@ -621,10 +621,50 @@ def place_people(world, count, mushrooms=None, seed=None):
     return picked[:count]
 
 
+# What a previous run leaves behind. This list used to be the first line
+# only, and that cost an entire evening: a launch whose Gazebo has died is
+# invisible to a check that looks for Gazebo, so the GUI saw a clean machine
+# and started a second `cage_mission.launch.py` on top of the first. Nav2 is
+# namespaced `/husky1`, so the second stack brings up a second bt_navigator,
+# a second controller_server and a second lifecycle manager on exactly the
+# same topics and the same action server. Goals are then accepted by one and
+# cancelled by the other, two controllers publish cmd_vel at once, and the
+# rover turns on the spot and goes nowhere. Three stacks were running by the
+# end of that evening and nothing in the GUI had said a word.
+STRAY_PATTERNS = (
+    ('Gazebo', r'^(ruby [^ ]+/)?(ign gazebo|gz sim) '),
+    ('a mission launch', r'(cage_mission|zcam_mission|fleet_mission)\.launch\.py'),
+    ('Nav2', r'nav2_(controller|bt_navigator|planner|lifecycle_manager)'),
+    ('a Gazebo bridge', r'parameter_bridge'),
+)
+
+
+def strays_running():
+    """['Gazebo (1)', 'Nav2 (3)'] - what is left over. Empty when clean.
+
+    `pgrep -f` matches whole command lines, which includes the command line of
+    whatever is asking. A shell whose line happens to contain one of these
+    words - a grep for it, a script that mentions it, this file's own tests -
+    matches itself, and a check that reports a stray that is really the
+    process doing the checking blocks the GUI from ever starting. So our own
+    process and its parent are dropped.
+    """
+    mine = {str(os.getpid()), str(os.getppid())}
+    found = []
+    for label, pattern in STRAY_PATTERNS:
+        try:
+            out = subprocess.run(['pgrep', '-f', pattern], capture_output=True,
+                                 text=True, timeout=5)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            continue
+        pids = [pid for pid in out.stdout.split() if pid not in mine]
+        if pids:
+            found.append(f'{label} ({len(pids)})')
+    return found
+
+
 def sim_already_running():
-    out = subprocess.run(['pgrep', '-f', r'^(ruby [^ ]+/)?(ign gazebo|gz sim) '],
-                         capture_output=True, text=True)
-    return bool(out.stdout.strip())
+    return bool(strays_running())
 
 
 def _as_launch_value(value):
@@ -714,10 +754,25 @@ class MissionLauncher:
             return 'reused'
         if self.state in (PREPARING, READY, RUNNING):
             self.shutdown()        # a different world needs a different Gazebo
-        if sim_already_running():
-            self.log('BLOCKED: a simulation is already running. The GUI starts its '
-                     'own, so it will not start a second. Use "Stop what is '
-                     'running" below, or close the other Gazebo.')
+            # shutdown() signals; it does not wait. Checking for strays in the
+            # same breath would find our own, still-dying processes and block
+            # on them.
+            for _ in range(20):
+                if not sim_already_running():
+                    break
+                time.sleep(0.25)
+        strays = strays_running()
+        if strays:
+            # Name what was found. "A simulation is already running" is not
+            # actionable when the thing still running is a Nav2 stack with no
+            # Gazebo attached to it - which is the case that caused the
+            # trouble, and the case where the operator can see an empty
+            # screen and reasonably believe nothing is running at all.
+            self.log('BLOCKED: a previous run is still alive - ' +
+                     ', '.join(strays) + '. The GUI will not start a second '
+                     'one: two mission launches put two Nav2 stacks on the '
+                     'same namespace, and the rover then turns on the spot '
+                     'and never drives. Use "Stop what is running" below.')
             return 'blocked'
         path = world_path(world)
         if not world_available(world):
@@ -746,11 +801,26 @@ class MissionLauncher:
         # a different transport from Nav2, the Gazebo bridge and the
         # detectors, which is a strange place to be for no benefit.
         #
-        # To put it back - if the SIGSTOP hold is ever revived - this one line
-        # is all it takes; `cage_mission.launch.py` and `zcam_mission.launch.py`
-        # both already read the variable and do nothing when it is absent:
-        #   env['AMMO_FREEZABLE_PROFILE'] = os.path.join(
-        #       _share('ammo_gui_node') or '', 'config', 'fastdds_udp_only.xml')
+        # It is NOT gone, though - it is a runtime switch now, because the
+        # trade is machine-specific. `env` below is a copy of this process's
+        # own environment, and both mission launch files read the variable
+        # from it, so exporting it before starting the GUI puts the old
+        # behaviour back with no code change and no rebuild:
+        #
+        #   export AMMO_FREEZABLE_PROFILE=$(ros2 pkg prefix ammo_gui_node)\
+        #     /share/ammo_gui_node/config/fastdds_udp_only.xml
+        #
+        # Which way round is better depends on whether shared memory is
+        # healthy on the machine. On a host with a small or cluttered
+        # /dev/shm - WSL gives it 64 MB in some configurations - letting three
+        # more participants onto shared memory is enough to make `init_port`
+        # fail, and a participant that cannot open its port discovers badly:
+        # the readiness checklist sits on "rover map frame" because the GUI
+        # never matches truth_localizer's TF. On that machine the UDP-only
+        # profile is worth its cost. On a machine with room, it is not.
+        #
+        #   df -h /dev/shm        # how much room there is
+        #   ls /dev/shm | wc -l   # how much of it is dead processes' leavings
         fleet = quads > 1 or rovers > 1
         if fleet and int(people or 0) > 0:
             # fleet_mission.launch.py has no `hazard` argument, so there is

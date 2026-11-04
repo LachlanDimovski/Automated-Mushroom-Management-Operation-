@@ -577,8 +577,10 @@ def fake_popen(cmd, **kwargs):
 
 
 real_popen, real_running = ml.subprocess.Popen, ml.sim_already_running
+real_strays = ml.strays_running
 ml.subprocess.Popen = fake_popen
 ml.sim_already_running = lambda: False
+ml.strays_running = lambda: []
 try:
     launcher = ml.MissionLauncher()
     started = launcher.prepare('forest_random', tool='gripper', show_sim=True,
@@ -648,6 +650,7 @@ try:
 finally:
     ml.subprocess.Popen = real_popen
     ml.sim_already_running = real_running
+    ml.strays_running = real_strays
 
 meta = ml.world_meta_full('forest_random')
 check('the world meta loads', 'objects' in meta)
@@ -658,6 +661,7 @@ check('world mushrooms come back as pairs',
 
 refused = ml.MissionLauncher()
 ml.sim_already_running = lambda: True
+ml.strays_running = lambda: ['Gazebo (1)', 'Nav2 (3)']
 try:
     notes = []
     refused.log = notes.append
@@ -665,9 +669,14 @@ try:
           refused.prepare('forest_random') == 'blocked')
     check('and says so loudly enough to not look like a dead button',
           any('BLOCKED' in n for n in notes), notes)
-    check('and names the cause', any('already running' in n for n in notes), notes)
+    check('and names the cause', any('still alive' in n for n in notes), notes)
+    check('naming what was actually found, not just "a simulation"',
+          any('Gazebo (1)' in n and 'Nav2 (3)' in n for n in notes), notes)
+    check('and why a second one would be bad',
+          any('two Nav2 stacks' in n for n in notes), notes)
 finally:
     ml.sim_already_running = real_running
+    ml.strays_running = real_strays
 
 dead = ml.MissionLauncher()
 dead.proc = FakeProc()
@@ -1532,6 +1541,7 @@ check('the ceilings match theirs too', (C.MAX_QUADS, C.MAX_ROVERS) == (4, 5))
 built.clear()
 ml.subprocess.Popen = fake_popen
 ml.sim_already_running = lambda: False
+ml.strays_running = lambda: []
 try:
     one = ml.MissionLauncher()
     one.prepare('forest_random', quads=1, rovers=1)
@@ -1578,6 +1588,7 @@ try:
 finally:
     ml.subprocess.Popen = real_popen
     ml.sim_already_running = real_running
+    ml.strays_running = real_strays
 
 fleet_page = OperatorPage(FakeLink())
 fleet_page.start_mission({'world': 'forest_random', 'layout': 'x', 'mode': 'autonomous',
@@ -1853,6 +1864,7 @@ check('and turning it back on shows the world again', fit.range_m >= 30.0)
 built.clear()
 ml.subprocess.Popen = fake_popen
 ml.sim_already_running = lambda: False
+ml.strays_running = lambda: []
 try:
     ender = ml.MissionLauncher()
     ender.prepare('forest_flat')
@@ -1869,6 +1881,7 @@ try:
 finally:
     ml.subprocess.Popen = real_popen
     ml.sim_already_running = real_running
+    ml.strays_running = real_strays
 
 counted = ml.MissionLauncher()
 counted.state, counted.world = ml.READY, 'forest_flat'
@@ -2105,6 +2118,34 @@ check('the profile file is still there to go back to',
       _os.path.exists(_os.path.join(_paths.PKG, 'config', 'fastdds_udp_only.xml')))
 if _before is not None:
     _os.environ['AMMO_FREEZABLE_PROFILE'] = _before
+
+
+# ---------------------------------------------------------------------------
+section('a previous run that is still alive')
+
+# The real fault: three cage_mission launches stacked up over one evening,
+# each with its own Nav2 on /husky1, because the only thing the check looked
+# for was Gazebo - and the Gazebo of a dead run is the first thing to go.
+check('the check looks for more than Gazebo now',
+      len(ml.STRAY_PATTERNS) >= 4, len(ml.STRAY_PATTERNS))
+labels = [name for name, _p in ml.STRAY_PATTERNS]
+for what in ('Gazebo', 'a mission launch', 'Nav2'):
+    check(f'it would notice {what}', what in labels, labels)
+
+import re as _re                                                  # noqa: E402
+_launch = next(p for n, p in ml.STRAY_PATTERNS if n == 'a mission launch')
+for line in ('ros2 launch ammo_mission_control cage_mission.launch.py world:=simple_trees',
+             '/usr/bin/python3 /opt/ros/humble/bin/ros2 launch quad_zcams zcam_mission.launch.py'):
+    check('it matches a real leftover launch line',
+          _re.search(_launch, line) is not None, line[:50])
+_nav = next(p for n, p in ml.STRAY_PATTERNS if n == 'Nav2')
+check('and a real leftover Nav2 line',
+      _re.search(_nav, '/opt/ros/humble/lib/nav2_controller/controller_server '
+                       '--ros-args -r __ns:=/husky1') is not None)
+check('a clean machine is not reported as dirty',
+      _re.search(_nav, 'ros2 launch ammo_gui_node gui.launch.py') is None)
+check('and the GUI\'s own launch line is not a stray',
+      _re.search(_launch, 'ros2 launch ammo_gui_node gui.launch.py') is None)
 
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:
