@@ -51,18 +51,35 @@ REQUIRED_ANY = (
 # seconds with nothing new is a stall, whatever the world. The absolute cap is
 # a backstop for the case where the very first thing never arrives.
 STALL_S = 45.0
+# ...except on a world that takes a long time to load. The river worlds are a
+# heightmap, water and several hundred models, and under software rendering
+# the gap between one robot's camera arriving and the other's can be more
+# than forty-five seconds on its own - the quadcopter spawns three seconds
+# after the skidsteer and its camera sensor only starts once the world has
+# finished loading. Giving up at forty-five there was the GUI being impatient
+# rather than anything being wrong, and the result looked identical: a
+# quadcopter camera tile that never came up and a LAUNCH ANYWAY button.
+HEAVY_STALL_S = 150.0
 PATIENCE_S = 300.0
+HEAVY_PATIENCE_S = 480.0
 
 
 class Readiness:
     """What has arrived so far, and what that means for the Launch button."""
 
-    def __init__(self, checks=CHECKS):
+    def __init__(self, checks=CHECKS, heavy=False):
+        self.set_heavy(heavy)
         self.checks = tuple(checks)
         self.state = {key: False for key, _l, _d in self.checks}
         self.first_seen = {}
         self.elapsed = 0.0
         self.last_change = 0.0
+
+    def set_heavy(self, heavy):
+        """How long to wait before calling it. A river world gets longer."""
+        self.heavy = bool(heavy)
+        self.stall_s = HEAVY_STALL_S if self.heavy else STALL_S
+        self.patience_s = HEAVY_PATIENCE_S if self.heavy else PATIENCE_S
 
     def reset(self):
         for key in self.state:
@@ -128,7 +145,7 @@ class Readiness:
         """Long enough that whatever is missing is probably not coming."""
         if self.ready():
             return False
-        return self.stalled_for() >= STALL_S or self.elapsed >= PATIENCE_S
+        return self.stalled_for() >= self.stall_s or self.elapsed >= self.patience_s
 
     def summary(self):
         if self.ready():
@@ -136,7 +153,10 @@ class Readiness:
         missing = self.missing()
         if self.impatient():
             return ('Nothing new in %.0f s. Still missing: ' % self.stalled_for()
-                    + ', '.join(m.lower() for m in missing))
+                    + ', '.join(m.lower() for m in missing)
+                    + ('. This is a heavy world, so it was given %.0f s - if '
+                       'a camera is what is missing, preparing again usually '
+                       'gets it.' % self.stall_s if self.heavy else ''))
         if not self.can_launch():
             blocking = self.blocking()
             if blocking:

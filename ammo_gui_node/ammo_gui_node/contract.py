@@ -364,6 +364,12 @@ EV_HAZARD_CLEAR = 'hazard_clear'   # ...and is no longer in it
 
 # How the Debug UI colours a line in the event feed.
 SEV_GOOD = 'good'
+# People get their own level rather than sharing amber with every other
+# warning. A person in the rover's path is the rarest thing that happens in a
+# run and the one line in the feed nobody should have to go looking for, and
+# it is pink everywhere else in the GUI already - the map symbol, the
+# overhead mark, the detection box, the chip on the sub-bar.
+SEV_HAZARD = 'hazard'
 SEV_INFO = 'info'
 SEV_WARN = 'warn'
 SEV_BAD = 'bad'
@@ -395,10 +401,10 @@ EVENT_SEVERITY = {
     EV_ABORT: SEV_BAD,
     EV_ABORT_DONE: SEV_WARN,
     EV_MARKED: SEV_INFO,
-    # A warning, not a failure: the rover stopping for somebody is the
-    # system working. Red is for things that went wrong.
-    EV_HAZARD: SEV_WARN,
-    EV_HAZARD_CLEAR: SEV_GOOD,
+    # Not red: the rover stopping for somebody is the system working, and red
+    # is for things that went wrong.
+    EV_HAZARD: SEV_HAZARD,
+    EV_HAZARD_CLEAR: SEV_HAZARD,
 }
 
 # -- detections drawn over the camera feeds ---------------------------------

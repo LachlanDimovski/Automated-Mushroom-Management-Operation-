@@ -52,6 +52,12 @@ def yaw_of(q):
 # six seconds is far longer than a healthy feed ever goes quiet, and short
 # enough that a dead one is noticed within a poll or two.
 FRESH_S = 6.0
+# Cameras get longer, for the same reason the panels do: Gazebo publishes
+# them on simulation time, and a river world under software rendering runs at
+# a fraction of real time. A readiness check that calls a 0.2 Hz camera
+# missing stalls the checklist on a feed that is working.
+FRESH_CAM_S = 20.0
+SLOW_KEYS = ('rover_cam', 'quad_cam', 'topdown')
 
 class _LinkNode(Node):
     """The actual ROS node. Everything here runs on the spin thread."""
@@ -623,7 +629,8 @@ class _LinkNode(Node):
         walks into frame. Nav2 is asked directly.
         """
         now = time.monotonic()
-        probe = {key: (now - self.seen.get(key, -1e9)) < FRESH_S
+        probe = {key: ((now - self.seen.get(key, -1e9))
+                       < (FRESH_CAM_S if key in SLOW_KEYS else FRESH_S))
                  for key in ('rover_odom', 'quad_odom', 'rover_cam', 'quad_cam')}
         probe['sim'] = self._has_publisher(C.CLOCK_TOPIC)
         probe['rover_yolo'] = self._has_publisher(C.HUSKY_DETECTIONS)

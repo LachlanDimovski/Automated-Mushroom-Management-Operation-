@@ -28,9 +28,13 @@ SEVERITY_COLOUR = {
     C.SEV_INFO: theme.TEXT_DIM,
     C.SEV_WARN: theme.AMBER,
     C.SEV_BAD: theme.ACCENT,
+    C.SEV_HAZARD: theme.ORCHID,
 }
 
-TROUBLE = {C.SEV_WARN, C.SEV_BAD}
+# What the "problems only" filter keeps, and what gets bright body text.
+# A person is included: it is not a fault, but it is one of the few things in
+# a run you would always want to see when you are filtering the feed down.
+TROUBLE = {C.SEV_WARN, C.SEV_BAD, C.SEV_HAZARD}
 
 
 class EventRow(QWidget):

@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar, QPushButton,
 
 from ammo_gui_node import cards, theme
 from ammo_gui_node.map_view import MapView
-from ammo_gui_node.mission_launcher import spawn_points
+from ammo_gui_node.mission_launcher import WORLDS, spawn_points
 from ammo_gui_node.readiness import Readiness
 
 TICK = '✓'
@@ -298,6 +298,10 @@ class ReadyPage(QWidget):
         """Called the moment Prepare is pressed."""
         self.world = config.get('world')
         self.points = []
+        # A river world is a heightmap, water and several hundred models, and
+        # takes minutes to come up under software rendering rather than the
+        # thirty seconds a forest world does.
+        self.readiness.set_heavy(WORLDS.get(self.world) == 'forest_worlds')
         self.readiness.reset()
         self.stage_chip.setText('PREPARING')
         self.stage_chip.set_colour(theme.AMBER, theme.AMBER)

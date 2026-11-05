@@ -529,6 +529,19 @@ class MissionBridge(Node):
                        text=f'Ignored a native mushroom at ({x:.1f}, {y:.1f}) - '
                             f'that is where H{near} is standing.')
             return
+        # ...and not a native if there is already an invasive one there. The
+        # two classes are the same shape at this range and the projection from
+        # the quadcopter carries a metre or two of error, so one cap seen from
+        # two angles can come back as one of each - and a native counted on
+        # top of a mushroom the rover is on its way to collect reads as the
+        # detector having found something it did not.
+        for m in self.mushrooms:
+            if math.hypot(x - m.x, y - m.y) < C.NATIVE_MERGE_M:
+                self._emit(C.EV_NOTE,
+                           text=f'Ignored a native mushroom at ({x:.1f}, {y:.1f}) - '
+                                f'Mushroom {m.n:02d} is already there, so this is '
+                                f'the same cap read as the other class.')
+                return
         for nx, ny in self.natives:
             if math.hypot(x - nx, y - ny) < C.NATIVE_MERGE_M:
                 return
@@ -821,19 +834,41 @@ class MissionBridge(Node):
             self._emit(C.EV_MISSED, x=round(x, 2), y=round(y, 2),
                        text=f'The gripper closed on nothing at ({x:.1f}, {y:.1f})')
 
-    def _nearest_open(self, x, y):
-        candidates = [m for m in self.mushrooms if m.status == 'found']
-        if not candidates:
-            return None
-        best = min(candidates, key=lambda m: math.hypot(m.x - x, m.y - y))
-        return best if math.hypot(best.x - x, best.y - y) <= MATCH_M else None
+    # Giving up is not final. The rover abandons a mushroom when Nav2 cannot
+    # reach it, and then routes around whatever was in the way - a person, a
+    # trunk - and collects it on the next pass. That is the behaviour working,
+    # not a new mushroom, so these statuses can be matched against again.
+    REOPENABLE = ('abandoned', 'missed')
+
+    def _nearest_open(self, x, y, include_done=False):
+        """The mushroom at (x, y) that the rover could be working on.
+
+        Open ones first. `include_done` also considers ones already given up
+        on: without it, a rover that came back for one it had abandoned could
+        not be matched to it at all, and the collection was credited to some
+        other mushroom - or to a brand new one invented on the spot, which is
+        how a run with three mushrooms reported four sighted and left the one
+        it had actually collected showing GAVE UP.
+        """
+        for statuses in (('found',), self.REOPENABLE) if include_done else (('found',),):
+            candidates = [m for m in self.mushrooms if m.status in statuses]
+            if not candidates:
+                continue
+            best = min(candidates, key=lambda m: math.hypot(m.x - x, m.y - y))
+            if math.hypot(best.x - x, best.y - y) <= MATCH_M:
+                return best
+        return None
 
     def _resolve_done(self, collected, picked=0):
         """Mark the mushroom nearest the last 'done' point as collected or not."""
-        target = None
+        target, returned = None, False
         if self._last_done is not None:
             dx, dy, _ = self._last_done
-            target = self._nearest_open(dx, dy)
+            # Only a collection may claim one that was given up on. A second
+            # failure at the same spot should not quietly re-abandon a
+            # mushroom that is already marked as abandoned.
+            target = self._nearest_open(dx, dy, include_done=collected)
+            returned = target is not None and target.status in self.REOPENABLE
         if target is None:
             target = next((m for m in self.mushrooms if m.status == 'found'), None)
 
@@ -850,9 +885,13 @@ class MissionBridge(Node):
         target.status = 'collected' if collected else 'abandoned'
         target.t_done = self.now()
         if collected:
+            came_back = (' - it was given up on earlier and the skidsteer came '
+                         'back for it' if returned else '')
             self._emit(C.EV_COLLECTED, n=target.n, x=round(target.x, 2), y=round(target.y, 2),
+                       returned=returned,
                        text=f'Mushroom {target.n:02d} collected'
-                            + (f' ({picked} in the gripper)' if picked > 1 else ''))
+                            + (f' ({picked} in the gripper)' if picked > 1 else '')
+                            + came_back)
         else:
             self._emit(C.EV_ABANDONED, n=target.n, x=round(target.x, 2), y=round(target.y, 2),
                        text=f'Mushroom {target.n:02d} given up on after repeated attempts')

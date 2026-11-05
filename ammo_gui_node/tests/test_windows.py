@@ -24,6 +24,7 @@ from ammo_gui_node import contract as C, theme                     # noqa: E402
 from ammo_gui_node import mission_launcher as ml                    # noqa: E402
 from ammo_gui_node.camera_panel import SLOW_STALE_S, CameraPanel   # noqa: E402
 from ammo_gui_node.ros_bridge import FRESH_S                      # noqa: E402
+from ammo_gui_node import ros_bridge as ros_bridge_mod           # noqa: E402
 from ammo_gui_node.debug_window import DebugWindow                  # noqa: E402
 from ammo_gui_node.event_feed import EventFeed                      # noqa: E402
 from ammo_gui_node.home_page import HomePage, parse_pair            # noqa: E402
@@ -1083,7 +1084,10 @@ check('husky1_map on the rover topic does',
 # and offered a Launch on a world that had not finished loading.
 check('a camera that has gone quiet stops counting',
       probe_node.seen.get('rover_cam') is not None)
-probe_node.seen['rover_cam'] = time.monotonic() - (FRESH_S + 5.0)
+# Cameras are judged on a longer window than odometry now - Gazebo publishes
+# them on simulation time, and a heavy world runs at a fraction of real time -
+# so age this one past the camera window, not the general one.
+probe_node.seen['rover_cam'] = time.monotonic() - (ros_bridge_mod.FRESH_CAM_S + 5.0)
 check('and the probe says so rather than remembering it fondly',
       link5.probe_readiness()['rover_cam'] is False)
 probe_node.feed(C.HUSKY_CAM, ros_image())
@@ -2299,6 +2303,109 @@ check('and unticks it, because greyed-but-ticked reads as yes',
 hp.quad_count.setValue(1)
 check('going back to one robot restores it', hp.show_sim.isEnabled())
 check('with the choice that was made before', hp.show_sim.isChecked())
+
+
+# ---------------------------------------------------------------------------
+section('the report says what went wrong, not just how many times')
+
+rep2 = MissionReport()
+evs = [
+    {'t': 404.0, 'kind': C.EV_ABANDONED, 'n': 2,
+     'text': 'Mushroom 02 given up on after repeated attempts'},
+    {'t': 455.0, 'kind': C.EV_WEDGED, 'text': 'Skidsteer boxed in - reversing out'},
+    {'t': 503.0, 'kind': C.EV_COLLECTED, 'n': 2, 'returned': True},
+    {'t': 760.0, 'kind': C.EV_GOAL_FAILED, 'text': 'Goal failed: Nav2 gave up'},
+]
+rep2.show_report({'world': 'simple_trees', 'elapsed': 860.0, 'total': 3,
+                  'collected': 3, 'found': 3, 'mushrooms': []}, evs, None, [])
+listed = rep2.trouble_list.text()
+check('the problems are listed, not just counted', listed.strip() != '')
+check('with the time each happened', 't+06:44' in listed, listed[:60])
+check('and the section only appears when there are any',
+      rep2.trouble_head.isVisibleTo(rep2))
+check('a mushroom given up on and then collected is marked recovered',
+      'recovered' in listed, listed)
+check('the ones that were not are listed plainly',
+      'boxed in' in listed and 'Nav2 gave up' in listed)
+
+rep3 = MissionReport()
+rep3.show_report({'world': 'simple_trees', 'elapsed': 100.0, 'total': 1,
+                  'collected': 1, 'found': 1, 'mushrooms': []},
+                 [{'t': 10.0, 'kind': C.EV_COLLECTED, 'n': 1}], None, [])
+check('a clean run shows no problems section at all',
+      not rep3.trouble_head.isVisibleTo(rep3) and rep3.trouble_list.text() == '')
+
+
+# ---------------------------------------------------------------------------
+section('a heavy world gets longer to come up')
+
+light = Readiness()
+check('a forest world gives up after the usual stall',
+      light.stall_s == readiness.STALL_S, light.stall_s)
+heavy = Readiness(heavy=True)
+check('a river world waits longer', heavy.stall_s > light.stall_s,
+      (heavy.stall_s, light.stall_s))
+check('and its absolute cap is longer too',
+      heavy.patience_s > light.patience_s)
+
+# The clock runs from the last thing that ARRIVED, so each needs something to
+# arrive first and then a stretch with nothing new.
+arrived = {'clock': True, 'nodes': True, 'rover_cam': True}
+for r in (light, heavy):
+    r.update(arrived, 0.0)
+    check('something arriving resets the stall clock', r.stalled_for() == 0.0)
+heavy.update(arrived, 60.0)
+check('sixty seconds with nothing new is not yet impatient on a river world',
+      not heavy.impatient(), heavy.stalled_for())
+light.update(arrived, 60.0)
+check('but it is on a forest one', light.impatient(), light.stalled_for())
+heavy.update(arrived, 200.0)
+check('it does give up eventually', heavy.impatient(), heavy.stalled_for())
+check('and says the world was given extra time',
+      'heavy world' in heavy.summary(), heavy.summary())
+
+rp = ReadyPage()
+rp.begin({'world': 'simple_trees', 'meta': {}})
+check('the setup page sets the light timeout for simple_trees',
+      not rp.readiness.heavy)
+rp.begin({'world': 'river_moderate_aus', 'meta': {}})
+check('and the heavy one for a river world', rp.readiness.heavy)
+
+
+# ---------------------------------------------------------------------------
+section('a slow simulation is not a dead camera')
+
+slow = CameraPanel('QUADCOPTER', stale_s=2.0)
+check('with no history it keeps the strict window',
+      slow.live_window() == 2.0, slow.live_window())
+# four seconds between frames: a 5 Hz camera at a real-time factor of 0.05
+import time as _t                                                 # noqa: E402
+slow.set_image(fake_camera())
+slow.last_at = _t.monotonic() - 4.0
+slow.set_image(fake_camera())
+for _ in range(6):
+    slow.last_at = _t.monotonic() - 4.0
+    slow.set_image(fake_camera())
+check('it learns how slow the feed is',
+      slow.frame_hz() is not None and slow.frame_hz() < 1.0, slow.frame_hz())
+check('and widens the window to suit',
+      slow.live_window() > 2.0, slow.live_window())
+slow.last_at = _t.monotonic() - 3.0
+check('so a frame three seconds old still counts as live', slow.fresh())
+slow.last_at = _t.monotonic() - 60.0
+check('but one far past even that does not', not slow.fresh())
+
+fast = CameraPanel('SKIDSTEER', stale_s=2.0)
+for _ in range(6):
+    fast.last_at = _t.monotonic() - 0.2
+    fast.set_image(fake_camera())
+check('a healthy feed keeps the strict window',
+      abs(fast.live_window() - 2.0) < 1e-6, fast.live_window())
+
+check('the readiness probe gives cameras longer than odometry',
+      ros_bridge_mod.FRESH_CAM_S > ros_bridge_mod.FRESH_S)
+check('and it is the cameras it gives it to',
+      'quad_cam' in ros_bridge_mod.SLOW_KEYS)
 
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:

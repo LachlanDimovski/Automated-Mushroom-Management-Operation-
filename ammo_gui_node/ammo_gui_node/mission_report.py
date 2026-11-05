@@ -196,7 +196,19 @@ class MissionReport(QWidget):
         self.advice = cards.label('', 'Dim')
         self.advice.setWordWrap(True)
         self.advice.setAlignment(Qt.AlignTop)
-        nlay.addWidget(self.advice, 1)
+        nlay.addWidget(self.advice, 0)
+
+        # The PROBLEMS card counted them and nothing said what they were, so
+        # the only way to find out was to scroll the event feed of a run that
+        # had just ended. They are listed here, with their times, in the
+        # order they happened.
+        self.trouble_head = cards.section('WHAT WENT WRONG')
+        self.trouble_head.hide()
+        nlay.addWidget(self.trouble_head)
+        self.trouble_list = cards.label('', 'Dim')
+        self.trouble_list.setWordWrap(True)
+        self.trouble_list.setAlignment(Qt.AlignTop)
+        nlay.addWidget(self.trouble_list, 1)
         right.addWidget(notes, 2)
         body.addLayout(right, 2)
 
@@ -274,6 +286,23 @@ class MissionReport(QWidget):
 
         self.advice.setText('\n\n'.join(
             f'•  {line}' for line in advice(self.status, self.events)))
+
+        # Every problem, with the time it happened, in order. A mushroom that
+        # was given up on and then collected on a later pass still shows here
+        # - it did happen - but it is marked as recovered, because a run that
+        # lists three problems and collected everything is a different story
+        # from one that lists three and did not.
+        collected = {e.get('n') for e in self.events
+                     if e.get('kind') == C.EV_COLLECTED and e.get('n') is not None}
+        lines = []
+        for ev in trouble:
+            when = format_clock(ev.get('t', 0))
+            text = ev.get('text') or C.MARKER_LABELS.get(ev.get('kind'), ev.get('kind'))
+            if ev.get('kind') == C.EV_ABANDONED and ev.get('n') in collected:
+                text += '  — recovered: it was collected on a later pass'
+            lines.append(f't+{when}   {text}')
+        self.trouble_head.setVisible(bool(lines))
+        self.trouble_list.setText('\n\n'.join(lines) or '')
 
     def _shot_marks_toggled(self, _on):
         """Say what the marks mean, next to them, and only while they are on."""

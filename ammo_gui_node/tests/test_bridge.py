@@ -523,8 +523,8 @@ check('and which side', 'left' in hz[0].get('text', ''), hz[0].get('text'))
 check('and says the rover can still turn',
       'turn' in hz[0].get('text', ''), hz[0].get('text'))
 check('the confidence is carried as a field', hz[0].get('score') == 0.81)
-check('it is a warning, not a failure',
-      C.EVENT_SEVERITY[C.EV_HAZARD] == C.SEV_WARN)
+check('it is not coloured as a failure - the rover stopping is it working',
+      C.EVENT_SEVERITY[C.EV_HAZARD] not in (C.SEV_BAD,))
 
 for _ in range(5):
     h.feed(C.HAZARD_STOP, Bool(data=True))
@@ -564,6 +564,76 @@ check('and never claims a hazard', status(h3).get('hazard') is False)
 check('a malformed info message is ignored rather than fatal',
       (h3.feed(C.HAZARD_INFO, String(data='not json')) or True)
       and h3.hazard_detail == {})
+
+
+# ---------------------------------------------------------------------------
+section('giving up on a mushroom is not the end of it')
+
+# The rover abandons one it cannot reach - a person was in the way - then
+# routes around them and collects it on the next pass. It used to be credited
+# to a mushroom invented on the spot: three mushrooms, four reported sighted,
+# and the one actually collected left showing GAVE UP on every surface.
+r = fresh()
+r.feed(C.CAGE_WAYPOINTS, point(4.0, 4.0))
+r.feed(C.CAGE_WAYPOINTS, point(-5.0, 2.0))
+check('two sighted', len(r.mushrooms) == 2, len(r.mushrooms))
+r.feed(C.CAGE_DONE, point(4.0, 4.0))
+r._resolve_done(False)
+check('one given up on', r.mushrooms[0].status == 'abandoned', r.mushrooms[0].status)
+abandoned = events(r, C.EV_ABANDONED)
+check('and the feed says which', abandoned and abandoned[0].get('n') == 1)
+
+r.feed(C.CAGE_DONE, point(4.0, 4.0))
+r._resolve_done(True)
+check('coming back for it collects THAT one',
+      r.mushrooms[0].status == 'collected', r.mushrooms[0].status)
+check('rather than inventing a new mushroom',
+      len(r.mushrooms) == 2, [m.as_dict() for m in r.mushrooms])
+check('and the other one is untouched', r.mushrooms[1].status == 'found')
+got = events(r, C.EV_COLLECTED)
+check('the collected event names the same number', got[-1].get('n') == 1, got[-1])
+check('and says it came back for it',
+      'came back' in got[-1].get('text', ''), got[-1].get('text'))
+check('which the log and the map both read off that number',
+      got[-1].get('returned') is True)
+st = status(r)
+check('the count is right', st.get('found') == 2, st.get('found'))
+check('and nothing is still marked as given up on',
+      not any(m['status'] == 'abandoned' for m in st['mushrooms']), st['mushrooms'])
+
+# a second failure must NOT re-abandon something already abandoned elsewhere
+r2 = fresh()
+r2.feed(C.CAGE_WAYPOINTS, point(4.0, 4.0))
+r2.feed(C.CAGE_DONE, point(4.0, 4.0))
+r2._resolve_done(False)
+r2.feed(C.CAGE_DONE, point(4.0, 4.0))
+r2._resolve_done(False)
+check('failing again at the same spot does not double-count',
+      len(r2.mushrooms) == 1, len(r2.mushrooms))
+
+# ---------------------------------------------------------------------------
+section('one cap, read as two things')
+
+n2 = MissionBridge()
+n2.feed(C.COMMAND_TOPIC, String(data=json.dumps(
+    {'cmd': 'start', 'world': 'river_moderate_aus', 'total': 2,
+     'people': [[9.0, -9.0]]})))
+n2.feed(C.CAGE_WAYPOINTS, point(3.0, 3.0))
+check('an invasive mushroom is on the books', len(n2.mushrooms) == 1)
+n2._note_native([3.6, 3.4])
+check('a native reported on top of it is not a second mushroom',
+      n2.natives == [], n2.natives)
+check('and the feed says it is the same cap',
+      any('same cap' in e.get('text', '') for e in events(n2, C.EV_NOTE)))
+n2._note_native([-6.0, 1.0])
+check('a native anywhere else still counts', len(n2.natives) == 1, n2.natives)
+n2._note_native([9.3, -9.2])
+check('and one standing where a person is does not',
+      len(n2.natives) == 1, n2.natives)
+
+check('a person in the feed has a level of its own, not shared with warnings',
+      C.EVENT_SEVERITY[C.EV_HAZARD] == C.SEV_HAZARD
+      and C.SEV_HAZARD not in (C.SEV_WARN, C.SEV_BAD, C.SEV_GOOD, C.SEV_INFO))
 
 print(f'\n{len(PASS)} passed, {len(FAIL)} failed')
 if FAIL:

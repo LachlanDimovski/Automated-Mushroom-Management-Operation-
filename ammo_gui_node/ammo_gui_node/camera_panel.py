@@ -63,6 +63,7 @@ class CameraPanel(QWidget):
         self.show_boxes = show_boxes
         self.image = None
         self.last_at = 0.0
+        self.frame_gap = None     # measured seconds between frames
         self.detections = []
         self.det_at = 0.0
         # Marks drawn in the source image's own pixels, scaled with it:
@@ -84,6 +85,11 @@ class CameraPanel(QWidget):
     def set_image(self, image):
         if self.frozen:
             return
+        if self.last_at:
+            gap = time.monotonic() - self.last_at
+            # Smoothed, so one hiccup does not move the threshold far.
+            self.frame_gap = gap if self.frame_gap is None else (
+                0.7 * self.frame_gap + 0.3 * gap)
         self.image = image
         self.last_at = time.monotonic()
         self.update()
@@ -145,8 +151,32 @@ class CameraPanel(QWidget):
         self.expanded = bool(expanded)
         self.update()
 
+    def live_window(self):
+        """How long to wait for the next frame before calling this feed dead.
+
+        A fixed threshold assumes the simulation runs at about real time, and
+        on a big world under software rendering it does not. Gazebo's cameras
+        publish on *simulation* time, so at a real-time factor of 0.1 a 5 Hz
+        camera arrives every two seconds of wall clock, and at 0.05 every
+        four - well past the two seconds this panel allowed. The feed was
+        working; the panel called it NO SIGNAL and drew a dark wash over a
+        perfectly good picture, which is indistinguishable from a camera that
+        never came up at all.
+
+        So the window is the fixed one, or three times however long this feed
+        is actually taking between frames, whichever is longer. A fast feed
+        keeps the old, strict behaviour.
+        """
+        if not self.frame_gap:
+            return self.stale_s
+        return max(self.stale_s, 3.0 * self.frame_gap)
+
+    def frame_hz(self):
+        return None if not self.frame_gap else 1.0 / self.frame_gap
+
     def fresh(self):
-        return self.image is not None and time.monotonic() - self.last_at < self.stale_s
+        return (self.image is not None
+                and time.monotonic() - self.last_at < self.live_window())
 
     # kept: both windows ask this when counting live feeds
     def any_fresh(self):
@@ -193,6 +223,14 @@ class CameraPanel(QWidget):
         p.setPen(QColor(theme.TEXT))
         p.setFont(QFont(theme.SANS_FAMILIES[0], 8, QFont.DemiBold))
         p.drawText(QPointF(26, 19), self.title)
+        # A feed slower than one frame a second is worth saying out loud: it
+        # is the difference between "the simulation is crawling" and "this
+        # camera is broken", and those look identical otherwise.
+        hz = self.frame_hz()
+        if live and hz is not None and hz < 1.0:
+            p.setPen(QColor(theme.AMBER))
+            p.setFont(QFont(theme.MONO_FAMILIES[0], 7))
+            p.drawText(QPointF(30 + 7 * len(self.title), 19), f'{hz:.2f} Hz')
 
         self._tab(p, live)
 
