@@ -2,13 +2,17 @@
 
 41068 Robotics Studio 1, Team 5, Spring 2026.
 
-<img width="300" alt="AMMO logo" src="https://github.com/user-attachments/assets/64d25d77-6fab-4a71-aa8a-e338860c7090" />
+<img width="300" alt="AMMO logo" src="docs/images/logo.png" />
 
 A fleet of Parrot quadcopters searches a simulated Australian river forest for invasive fly agaric
 (*Amanita muscaria*) with YOLO and projects each sighting to a ground point. A coordinator assigns
 each mushroom to a Husky rover, which drives there with Nav2, aligns on its own camera and collects
 it with a front gripper. Native mushrooms are detected, logged and left in place. Everything runs in
 Ignition Gazebo Fortress on ROS 2 Humble, with an operator GUI, a debug window and PS4 teleop.
+
+<img alt="The simulated river forest and the rover camera with YOLO boxes on two mushrooms" src="docs/images/overview.jpg" />
+
+*Left: the simulated river forest. Right: the rover camera classifying a native (blue) and an invasive (red) mushroom.*
 
 ## Start here
 
@@ -18,9 +22,11 @@ Ignition Gazebo Fortress on ROS 2 Humble, with an operator GUI, a debug window a
 | Run the demo | [Running the demo](#running-the-demo), where every line says which terminal it runs in |
 | Fix a problem | [Common problems](#common-problems) |
 | See what each folder holds | [Packages](#packages), then the README in that folder |
+| See how the parts connect | [System overview](#system-overview) |
 | Follow a mushroom through the system | [Mission flow](#mission-flow) |
 | Try other launches | [Running the mission by hand](#running-the-mission-by-hand), [Running the fleet by hand](#running-the-fleet-by-hand) |
 | Understand the limits | [Known limitations](#known-limitations) |
+| Check the test results | [Results](#results), then [`evidence/README.md`](evidence/README.md) for the data behind each one |
 | Work on the operator GUI | `ammo_gui_node/README.md`, with the machine setup guide in `ammo_gui_node/integration/TEAM_SETUP.md` |
 
 `41068_ignition_bringup/README.md` is the course's own starter guide. `ammo_gui_node/integration/NOTES.md` and
@@ -30,10 +36,10 @@ Ignition Gazebo Fortress on ROS 2 Humble, with an operator GUI, a debug window a
 
 | Member | GitHub |
 |---|---|
-| Lachlan Dimovski | `LachlanDimovski` |
-| Darcy Moyes | `Darb05` |
-| Danil Vasiliev | `danilvasiliev` |
-| Henry Salter | `hpdsalter` |
+| Lachlan Dimovski | [LachlanDimovski](https://github.com/LachlanDimovski) |
+| Darcy Moyes | [Darb05](https://github.com/Darb05) |
+| Danil Vasiliev | [danilvasiliev](https://github.com/danilvasiliev) |
+| Henry Salter | [hpdsalter](https://github.com/hpdsalter) |
 
 ## Names used in this project
 
@@ -73,7 +79,7 @@ Which launch to use:
 ## Setup
 
 Tested line by line on a blank Ubuntu 22.04 system with ROS 2 Humble and Ignition Gazebo Fortress 6.x.
-It needs about 8 CPU cores and no GPU. The package downloads take about 12 minutes.
+It needs about 8 CPU cores and no GPU. The package downloads take 10 to 12 minutes.
 
 ```bash
 # Terminal 1
@@ -156,6 +162,10 @@ circled marks and are never collected. The rover crosses the river only at the f
 mushroom is known, every quad except `parrot1` flies home and lands. `parrot1` lands when the mission
 completes.
 
+<img width="760" alt="AMMO Fleet Debug window with camera feeds, minimap, state cards and timeline" src="docs/images/gui_fleet_debug.jpg" />
+
+*AMMO Fleet Debug during a Part 1 run, at 6 of 12 collected.*
+
 All 12 are collected in about 9 to 14 minutes. The simulation ends itself 1 to 2.5 minutes later. The
 window stops updating and Terminal 1 returns to its prompt. Run `bash demo/stop_sim.sh` there and wait
 for `CLEAN`.
@@ -197,12 +207,21 @@ bash demo/part2_gui.sh
    `bash demo/stop_sim.sh` in Terminal 3, because Terminal 1 is still running the GUI. That also closes
    the GUI.
 
+| Setup page | Mission page |
+|---|---|
+| <img alt="Operator GUI setup page" src="docs/images/gui_setup.jpg" /> | <img alt="Operator GUI mission page" src="docs/images/gui_mission.jpg" /> |
+
+<img width="760" alt="Operator map as the mushroom counts rise from the first finds to 12 of 12" src="docs/images/operator_map.gif" />
+
+*The operator map through one Part 2 run, from the first search to 12 of 12, sped up.*
+
 Part 1 logs are in `~/.ros/ammo_demo/` and the operator GUI's log is `~/.ros/ammo_gui_mission.log`.
 `quad_showcase/` holds an extra display of the quad's state machine and depth mapping that runs beside
 a Part 2 mission (see its README).
 
 The system rehearsed for the final demonstration is commit `366d30f`. Later commits on `main` change
-documentation, code comments and two `forest_worlds` helper scripts the demo does not use.
+documentation, images, test evidence, package maintainer details, code comments and two
+`forest_worlds` helper scripts the demo does not use.
 
 ### Common problems
 
@@ -218,6 +237,15 @@ Run these fixes in a free terminal.
 | R1 forward does nothing | The guard is stopping the rover in front of an obstacle. Turn on the spot first |
 | End Mission and Abort off screen | The window needs 1548 px of width. Use 1920 x 1080 or more |
 | No progress for about 10 minutes | A stalled run. Run `bash demo/stop_sim.sh` and restart |
+
+## System overview
+
+Gazebo simulates the world and the robots, and ROS bridges carry their sensors and commands. In a fleet
+run, one YOLO process reads every camera. Each quad searches its own sector and reports sightings to
+the coordinator, which assigns each mushroom to one rover. The rover drives with Nav2 through the
+collision guard. `mission_bridge` feeds the operator GUI, and PS4 teleop can take over either robot.
+
+<img width="620" alt="System architecture: operator interface, fleet nodes, and Gazebo with its ROS bridges" src="docs/images/system_architecture.png" />
 
 ## Packages
 
@@ -323,6 +351,10 @@ detector could not tell them apart.
   (`forest_worlds/demo_river.sh` already does). The default one-class model sees no natives.
 
 ## Mission flow
+
+The diagram shows a fleet run, and the steps below follow it from left to right.
+
+<img width="620" alt="Decision loops: quad loop, fleet coordinator and rover loop, with the messages between them" src="docs/images/decision_loops.png" />
 
 1. **Search.** Each quad flies its own sector with passes 3 m apart. One quad flies square loops
    outward from the spawn point, two fly nested U loops, one in each half of the world, and three or
@@ -443,6 +475,30 @@ Then open `http://<pc>:8000/` on the iPad.
 - **Detector training**: `skidsteer_perception/scripts/` captures labelled
   images in Gazebo and trains YOLO11n (`TRAINING_PC.md`).
 
+## Results
+
+All results come from the simulation. [`evidence/README.md`](evidence/README.md) lists the data behind
+each one, with the scripts that recompute the tables.
+
+| Test | Result |
+|---|---|
+| Part 1, 10 runs on 4 November | 12 of 12 collected in all 10 runs, in 9.2 to 13.3 minutes (median 10.9) |
+| Fleet sizes, 7 sizes, one run each | 12 of 12 at six sizes, in 414 to 609 sim seconds. 1 quad and 1 rover reached 11 of 12 at the 1500 s cap. No native was sent to a rover |
+| Quad position error, 120 reports | Mean 0.075 m, 95th percentile 0.27 m, 98% within 0.5 m |
+| Rover camera position error, 761 live sightings | Mean 0.17 m, 95th percentile 0.65 m, 90% within 0.5 m |
+| Rover detection range, 240 placements | Clear-view recall 100% to 2 m, 97% at 3 m, 68% at 4 m |
+| Collision guard, 24 runs | No contact. Closest approach 0.91 m, and 1.07 m or more in the other 23 runs |
+| Look-alike decoys, 6 red decoys, 1 run | All 6 reported as mushrooms, and the run stalled at 6 of 12 |
+
+<img width="680" alt="Bar chart of the 10 Part 1 run times" src="docs/images/results_runs.png" />
+
+<img width="680" alt="Bar charts of sim time and wall time by fleet size" src="docs/images/results_fleet.png" />
+
+*The 1 quad and 1 rover run hit its cap, so it is left out of the fleet size charts.*
+
+The final report scores 12 requirements: nine met, two partial (R1 rover detection at 4 m, R12 collision
+guard) and one not met (R3 SLAM, dropped by agreement with the stakeholder on 8 September).
+
 ## Known limitations
 
 - Localisation is Gazebo ground truth (`truth_localizer`), a documented
@@ -459,8 +515,9 @@ Then open `http://<pc>:8000/` on the iPad.
   The training data and `train_v6.sh` are on the capture PC and are not in this repo. They were
   captured with `skidsteer_perception/scripts/run_capture.sh --hover 1.0 [--spots banks.json]`.
 - The rover's camera steers the final alignment when it has a fresh sighting, and an empty grab sends
-  the rover back once to where its camera saw the mushroom, but the camera cannot veto a target: a
-  look-alike that passes the quad's checks gets collected.
+  the rover back once to where its camera saw the mushroom, but the camera cannot veto a target. In a
+  6 November test all 6 plain red look-alikes passed the quad's checks, and the run stalled at 6 of 12. In the
+  sim a look-alike only leaves an empty grab; a real gripper would pick it up.
 - Pause does not fully hold a quad: the heartbeat runs on sim time, and a quad crept up to about
   0.5 m over 25 s on test runs.
 - A report with no rover-camera sighting, missed after the quad covering that half has stood down, is

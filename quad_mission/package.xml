@@ -4,7 +4,7 @@
   <name>quad_mission</name>
   <version>0.0.1</version>
   <description>Quadcopter mission state machine: liftoff, boustrophedon search, return, land</description>
-  <maintainer email="you@example.com">Darcy Moyes</maintainer>
+  <maintainer email="darcymoyes23@gmail.com">Darcy Moyes</maintainer>
   <license>Apache 2.0</license>
  
   <buildtool_depend>ament_cmake</buildtool_depend>

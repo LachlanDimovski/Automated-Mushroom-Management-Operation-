@@ -18,7 +18,7 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='Danil',
+    maintainer='Danil Vasiliev',
     maintainer_email='danil.vasiliev@gmail.com',
     description='AMMO operator GUI and Debug UI (PySide6).',
     license='MIT',

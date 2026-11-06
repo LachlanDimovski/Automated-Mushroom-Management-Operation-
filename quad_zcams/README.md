@@ -17,3 +17,7 @@ camera (the `z` cameras). Names follow the glossary in the top-level README: qua
 | `ps4_teleop.py` | PS4 controller teleop for both robots (hold R1 for the rover, L1 for the quad) |
 | `obstacle_map.py`, `shared_map.py`, `husky_projection.py` | The quad's planning grid, the map it shares with the rover, and rover camera projection |
 | `models/` | YOLO weights exported to OpenVINO for the pool |
+
+The quad's search phases in the demo:
+
+<img width="620" alt="Quad phases: climbing, searching, approaching, holding, handing over, and return and land" src="../docs/images/quad_phases.png" />

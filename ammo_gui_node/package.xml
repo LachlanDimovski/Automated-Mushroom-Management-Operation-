@@ -8,7 +8,7 @@
     a small bridge node that turns what the mission nodes already publish and
     log into one status feed both windows read.
   </description>
-  <maintainer email="danil.vasiliev@gmail.com">Danil</maintainer>
+  <maintainer email="danil.vasiliev@gmail.com">Danil Vasiliev</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
