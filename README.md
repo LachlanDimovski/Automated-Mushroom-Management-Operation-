@@ -52,19 +52,29 @@ Which launch to use:
 | The operator GUI (Part 2) | `bash demo/part2_gui.sh` (its Prepare button runs `ammo_mission_control cage_mission.launch.py`) |
 | One quad and one rover without the GUI | `ros2 launch ammo_mission_control ammo_main.launch.py` (same as `cage_mission.launch.py`) |
 | A chosen fleet size | `ros2 launch quad_zcams fleet_mission.launch.py quads:=N rovers:=M` (up to 4 quads and 5 rovers; `fleet_bench.launch.py` takes up to 6 quads) |
-| The course starter simulation | `41068_ignition_bringup/launch/41068_*.launch.py` (see that package's README) |
+| The course starter simulation | `ros2 launch 41068_ignition_bringup 41068_ignition_husky.launch.py` (see that package's README). Its autonomy and dynamic world demos start no simulation, so run them in a second terminal with one already running |
 
 ## Setup
 
-Tested on Ubuntu 22.04 with ROS 2 Humble and Ignition Gazebo Fortress 6.x. It needs about 8 CPU cores
-and no GPU. Set up the ROS 2 apt source first.
+Tested line by line on a blank Ubuntu 22.04 system with ROS 2 Humble and Ignition Gazebo Fortress 6.x.
+It needs about 8 CPU cores and no GPU. The package downloads take about 12 minutes.
 
 ```bash
+# Terminal 1
+sudo apt update && sudo apt install -y curl software-properties-common
+sudo add-apt-repository -y universe
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    -o /usr/share/keyrings/ros-archive-keyring.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+http://packages.ros.org/ros2/ubuntu jammy main" | sudo tee /etc/apt/sources.list.d/ros2.list
+sudo apt update
 sudo apt install -y ros-humble-desktop ignition-fortress python3-colcon-common-extensions \
     python3-pip gh git-lfs libxcb-cursor0 ros-humble-navigation2 ros-humble-nav2-bringup \
-    ros-humble-ros-gz ros-humble-robot-localization ros-humble-xacro ros-humble-joy \
-    ros-humble-vision-msgs ros-humble-cv-bridge
-pip3 install ultralytics==8.4.66 openvino==2024.6.0 PySide6==6.10.2 scipy "numpy<2"
+    ros-humble-ros-gz ros-humble-ros-ign-bridge ros-humble-ros-ign-gazebo \
+    ros-humble-ros-ign-interfaces ros-humble-robot-localization ros-humble-xacro \
+    ros-humble-joy ros-humble-vision-msgs ros-humble-cv-bridge
+pip3 install torch==2.12.0 torchvision==0.27.0 ultralytics==8.4.66 openvino==2024.6.0 \
+    PySide6==6.10.2 scipy "numpy<2"
 
 gh auth login                  # the repository is private
 gh auth setup-git              # lets git use that login
@@ -75,19 +85,22 @@ git clone https://github.com/LachlanDimovski/AMMO-Mushroom-Fleet.git
 cd ~/41068_ws && colcon build --symlink-install && source install/setup.bash
 cd src/AMMO-Mushroom-Fleet
 bash demo/get_world.sh         # river worlds, about 130 MB
+python3 ammo_gui_node/tests/check_env.py
+python3 ammo_gui_node/tests/run_tests.py
 ```
 
 - **Git LFS is required.** Meshes and textures are stored in LFS. Without it the clone holds
-  130-byte pointer files and the mushrooms spawn with no geometry. Run `git lfs pull` and rebuild if
+  130-byte pointer files and the mushrooms spawn with no geometry. Run `git lfs pull`, then
+  `cd ~/41068_ws && colcon build --symlink-install`, if
   `41068_ignition_bringup/models/mushroom_amanita/meshes/amanita_muscaria.glb` is not about 9 MB.
 - **The river worlds are not in git.** `demo/get_world.sh` downloads them from the v1.0 release.
   Without the GitHub CLI, clone with a personal access token as the password, download
   `ammo_river_worlds.tar.gz` from the Releases page and run `bash demo/get_world.sh FILE.tar.gz`.
-  The worlds can also be built from source with `forest_worlds/setup.sh` (internet and Blender 4.2
-  or later).
+  The worlds can also be built from source with `bash forest_worlds/setup.sh`, which needs internet,
+  Blender 4.2 or later, about 2 GB and about 10 minutes, and replaces the files in `forest_worlds/`.
 - Tested Python versions: ultralytics 8.4.66, openvino 2024.6.0, PySide6 6.10.2, numpy 1.26.4.
 - `python3 ammo_gui_node/tests/check_env.py` checks the environment and prints the fix for anything
-  missing. Its `QT_QPA_PLATFORM` and `LIBGL_ALWAYS_SOFTWARE` warnings can be ignored: both demo
+  missing. In a new terminal, run `source demo/env.sh` first or it reports ROS as missing. Its `QT_QPA_PLATFORM` and `LIBGL_ALWAYS_SOFTWARE` warnings can be ignored: both demo
   parts ran without them.
 - Build with or without `--symlink-install`, but do not switch between the two in one workspace.
 - Headless GUI and bridge checks, with no ROS or Gazebo (521 pass):
@@ -95,15 +108,29 @@ bash demo/get_world.sh         # river worlds, about 130 MB
 
 ## Running the demo
 
-Run these from the repository folder. There are two parts. Run `bash demo/stop_sim.sh` between them
-and wait for `CLEAN`: two simulations at once starve the CPU and the robots stall. Before a timed
-run, set `powerprofilesctl set performance` and let the CPU cool below 70 °C.
+### Terminals
+
+Start every new terminal in the repository folder:
+
+```bash
+cd ~/41068_ws/src/AMMO-Mushroom-Fleet
+```
+
+The `demo/` scripts set up their own environment. Any terminal that runs `ros2`, `ign` or
+`check_env.py` directly needs `source demo/env.sh` first, and that is also what defines `$F`.
+
+There are two parts. Run `bash demo/stop_sim.sh` between them and wait for `CLEAN`: two simulations at
+once starve the CPU and the robots stall. Before a timed run, let the CPU cool below 70 °C.
 
 **Part 1: fleet run (2 quads, 1 rover, 12 invasive and 6 native mushrooms).**
 
 ```bash
+# Terminal 1
+powerprofilesctl set performance
 bash demo/part1_fleet.sh      # headless Gazebo and the AMMO Fleet Debug window
-bash demo/part1_timer.sh      # optional, second terminal: wall time to 12 of 12
+
+# Terminal 2, optional
+bash demo/part1_timer.sh      # wall time to 12 of 12
 ```
 
 One window opens, AMMO Fleet Debug, and the sim clock starts after about 20 s. The quads search and
@@ -113,14 +140,18 @@ circled marks and are never collected. The rover crosses the river only at the f
 mushroom is known, the quads go home and land.
 
 All 12 are collected in about 9 to 14 minutes. The simulation ends itself 1 to 2.5 minutes later, and
-the window stops updating. Run `bash demo/stop_sim.sh` and wait for `CLEAN`.
+the window stops updating, and Terminal 1 returns to its prompt. Run `bash demo/stop_sim.sh` there and
+wait for `CLEAN`.
 
 Set environment variables in front of the script and add launch arguments after it:
 
 ```bash
+# Terminal 1, one at a time
 QUADS=3 bash demo/part1_fleet.sh row_spacing:=4.0
 WORLD=river_moderate_aus_m1 bash demo/part1_fleet.sh
 ```
+
+To stop a run early, use `bash demo/stop_sim.sh` in Terminal 2.
 
 | Setting | Default | Effect |
 |---|---|---|
@@ -131,13 +162,14 @@ WORLD=river_moderate_aus_m1 bash demo/part1_fleet.sh
 **Part 2: operator GUI and PS4 controller (1 quad, 1 rover).**
 
 ```bash
+# Terminal 1
 bash demo/part2_gui.sh
 ```
 
 1. On the setup page, pick `river_moderate_aus` and "World's own 12 mushrooms".
 2. Untick **Show the Gazebo window**, then press **PREPARE TO LAUNCH**. The robots stay held while the
    checklist fills in, and READY takes about 20 s.
-3. Optional 3D view, in a second terminal: `source demo/env.sh && ign gazebo -g`. Do not press its
+3. Optional 3D view, in Terminal 2: `source demo/env.sh && ign gazebo -g`. Do not press its
    play or pause button.
 4. Press **LAUNCH MISSION**. The mission page opens and the clock starts.
 5. Press **PAUSE**, wait 20 s, then **RESUME**. Pause early: the first find comes 5 to 9 minutes after
@@ -145,7 +177,8 @@ bash demo/part2_gui.sh
 6. With a PS4 controller plugged in, hold **R1** to drive the rover or **L1** to fly the quad (see
    [PS4 teleop](#ps4-teleop)). Release to hand it back.
 7. Press **END MISSION**. The simulation closes and the setup page returns. Then run
-   `bash demo/stop_sim.sh`.
+   `bash demo/stop_sim.sh` in Terminal 3, because Terminal 1 is still running the GUI. That also closes
+   the GUI.
 
 Part 1 logs are in `~/.ros/ammo_demo/` and the operator GUI's log is `~/.ros/ammo_gui_mission.log`.
 `quad_showcase/` holds an extra display of the quad's state machine and depth mapping that runs beside
@@ -155,6 +188,8 @@ The system rehearsed for the final demonstration is commit `366d30f`. Later comm
 documentation only.
 
 ### Common problems
+
+Run these fixes in a free terminal.
 
 | Symptom | Cause and fix |
 |---|---|
@@ -189,14 +224,17 @@ Grouped by role. "Demo" marks what the two-part demo runs.
 
 ## Running the mission by hand
 
-The demo scripts wrap these launches. Source the workspace first; for a `forest_worlds` world, also
-put its models on Gazebo's path (`source demo/env.sh` does both), or Gazebo cannot find them
+The demo scripts wrap these launches. Run `source demo/env.sh` in the terminal first. It sets up the
+workspace and puts the `forest_worlds` models on Gazebo's path. Without it Gazebo cannot find them
 (`Unable to find uri[model://gum_05]`), the robots never spawn and the sim looks frozen.
 
-    ros2 launch ammo_mission_control cage_mission.launch.py world:=simple_trees headless:=true \
-        mushrooms:=6,-5,-5,-5.5,-2,6.5          # demo mushrooms; the quad has to find them
-    ros2 launch ammo_mission_control cage_mission.launch.py parrot:=false count:=4   # rover-only test
-    ros2 launch ammo_mission_control cage_mission.launch.py hazard:=true              # + person stop on the rover
+```bash
+# Terminal 1, one at a time; stop each with `bash demo/stop_sim.sh` in Terminal 2
+ros2 launch ammo_mission_control cage_mission.launch.py world:=simple_trees headless:=true \
+    mushrooms:=6,-5,-5,-5.5,-2,6.5          # demo mushrooms; the quad has to find them
+ros2 launch ammo_mission_control cage_mission.launch.py parrot:=false count:=4   # rover-only test
+ros2 launch ammo_mission_control cage_mission.launch.py hazard:=true              # + person stop on the rover
+```
 
 Launch arguments:
 
@@ -217,16 +255,23 @@ Launch arguments:
 
 ## Running the fleet by hand
 
-`demo/part1_fleet.sh` is the tested configuration. By hand, with `source demo/env.sh` done:
+`demo/part1_fleet.sh` is the tested configuration. By hand:
 
-    ros2 launch quad_zcams fleet_mission.launch.py world:=$F/worlds/river_moderate_aus \
-        meta_goals:=false quads:=2 rovers:=1 headless:=true rviz:=false
-    ros2 launch ammo_gui_node fleet_debug.launch.py     # second terminal
+```bash
+# Terminal 1
+source demo/env.sh
+ros2 launch quad_zcams fleet_mission.launch.py world:=$F/worlds/river_moderate_aus \
+    meta_goals:=false quads:=2 rovers:=1 headless:=true rviz:=false
+
+# Terminal 2
+source demo/env.sh
+ros2 launch ammo_gui_node fleet_debug.launch.py
+```
 
 - `fleet_debug.launch.py` also starts `mission_bridge`, which publishes the
   `ammo/mission/status` and `ammo/mission/events` topics the timeline and state cards read.
   Running `ros2 run ammo_gui_node fleet_debug` on its own shows the cameras and map, but the
-  timeline stays empty. Do not run it alongside the operator GUI, which starts its own bridge.
+  timeline stays empty, and Ctrl-C does not close it: use `bash demo/stop_sim.sh`. Do not run it alongside the operator GUI, which starts its own bridge.
 - Drop `headless:=true` to also open the Gazebo window. It costs about 60% of a core; the
   Fleet Debug UI already shows every camera and the map.
 - The fleet loads the two-class detector (`amanita_river_v6_yolo11n`, invasive + native) by
@@ -330,10 +375,24 @@ when a person fills more than 120 px of the rover camera (about 3 m).
 
 ## Viewing
 
-Cheap, no Gazebo GUI: `ros2 run ammo_dashboard dashboard` - one OpenCV HUD with
-both YOLO feeds, speed/altitude and a minimap (`-p window:=false` to publish it
-for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
-`python3 tools/ipad_teleop/ipad_teleop_server.py`, then `http://<pc>:8000/` (see `tools/ipad_teleop/ipad_teleop.html`).
+With a mission running, in a second terminal after `source demo/env.sh`:
+`ros2 run ammo_dashboard dashboard` opens one OpenCV HUD with both YOLO feeds, speed, altitude and a
+minimap, with no Gazebo GUI. Add `--ros-args -p window:=false` to publish it for the iPad only.
+
+The iPad page needs two more packages and three more terminals beside the mission:
+
+```bash
+sudo apt install -y ros-humble-rosbridge-server ros-humble-web-video-server
+
+# Terminal 2, after source demo/env.sh
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+# Terminal 3, after source demo/env.sh
+ros2 run web_video_server web_video_server
+# Terminal 4
+python3 tools/ipad_teleop/ipad_teleop_server.py
+```
+
+Then open `http://<pc>:8000/` on the iPad.
 
 ## Other pieces
 
