@@ -398,10 +398,20 @@ Then open `http://<pc>:8000/` on the iPad.
 
 ## Other pieces
 
-- **Quad state machine** (`quad_mission`): `ros2 run quad_mission quad_mission_node` exposes
-  `/parrot1/mission/*` services (liftoff, start search with a path shape,
-  return home, land, abort). It publishes `parrot1/cmd_vel`, so run it with
-  `parrot:=false` or not alongside `quad_search_node`.
+- **Quad state machine** (`quad_mission`): a standalone node, not part of the demo. It exposes
+  `/parrot1/mission/*` services (liftoff, start search with a path shape, return home, land, abort)
+  and publishes `parrot1/cmd_vel`, so never run it alongside the mission nodes. After
+  `source demo/env.sh` in each terminal:
+
+  ```bash
+  # Terminal 1
+  ros2 launch 41068_ignition_bringup 41068_ignition_parrot.launch.py
+  # Terminal 2
+  ros2 run quad_mission quad_mission_node
+  # Terminal 3
+  ros2 service call /parrot1/mission/liftoff std_srvs/srv/Trigger
+  ```
+
 - **Operator GUI**: `ros2 launch ammo_gui_node gui.launch.py` (PySide6 GUI with `mission_bridge`,
   `ammo_gui_node/`). A run starts in two stages: **Prepare** starts `cage_mission.launch.py`
   (one quad, one rover, PS4 teleop) and holds both robots while a checklist fills in and the
@@ -421,9 +431,9 @@ Then open `http://<pc>:8000/` on the iPad.
 
 - Localisation is Gazebo ground truth (`truth_localizer`), a documented
   simplification that does not transfer to hardware.
-- The quad projects a sighting with its depth image when it has a fresh frame,
-  and otherwise assumes flat ground at the spawn clearing's height, so uneven
-  terrain (`forest_random`) can add metres of error.
+- The quad projects a sighting by marching the camera ray to the terrain heightmap, so it needs a
+  known terrain model. The older `quad:=stock` node uses its depth image and falls back to flat
+  ground, which can add metres of error on uneven terrain (`forest_random`).
 - Detection is reliable to about 3.5 m, hence the 3 m reporting range and 3 m rows.
 - Native detection is trained on the sim's blue caps only (`river_v6`: blue caps at 1-5 m,
   river banks included). With the second-sighting rule, fleet runs on `river_moderate_aus`
