@@ -1,7 +1,7 @@
 # Quadcopter Showcase
 
 This is the display for the Quadcopter's occupancy maps and depth cameras to show off the mapping done. It will also show the complete quadcopter path and identified objects.
-To run it, have the GUI up. This is done with:
+To run it, have the GUI up. This is done with the following code, or any suitable code that brings the GUI up:
 
 ```bash
 cd ~/41068_ws && source /opt/ros/humble/setup.bash && source install/setup.bash \
