@@ -98,7 +98,7 @@ python3 ammo_gui_node/tests/run_tests.py
   `ammo_river_worlds.tar.gz` from the Releases page and run `bash demo/get_world.sh FILE.tar.gz`.
   The worlds can also be built from source with `bash forest_worlds/setup.sh`, which needs internet,
   Blender 4.2 or later, about 2 GB and about 10 minutes, and replaces the files in `forest_worlds/`.
-- Tested Python versions: ultralytics 8.4.66, openvino 2024.6.0, PySide6 6.10.2, numpy 1.26.4.
+- Tested Python versions: torch 2.12.0, torchvision 0.27.0, ultralytics 8.4.66, openvino 2024.6.0, PySide6 6.10.2, numpy 1.26.4.
 - `python3 ammo_gui_node/tests/check_env.py` checks the environment and prints the fix for anything
   missing. In a new terminal, run `source demo/env.sh` first or it reports ROS as missing. Its `QT_QPA_PLATFORM` and `LIBGL_ALWAYS_SOFTWARE` warnings can be ignored: both demo
   parts ran without them.
@@ -119,7 +119,7 @@ cd ~/41068_ws/src/AMMO-Mushroom-Fleet
 The `demo/` scripts set up their own environment. Any terminal that runs `ros2`, `ign` or
 `check_env.py` directly needs `source demo/env.sh` first, and that is also what defines `$F`.
 
-There are two parts. Run `bash demo/stop_sim.sh` between them and wait for `CLEAN`: two simulations at
+There are two parts, called Scenario 1 and Scenario 2 in the report. Run `bash demo/stop_sim.sh` between them and wait for `CLEAN`: two simulations at
 once starve the CPU and the robots stall. Before a timed run, let the CPU cool below 70 °C.
 
 **Part 1: fleet run (2 quads, 1 rover, 12 invasive and 6 native mushrooms).**
@@ -137,11 +137,12 @@ One window opens, AMMO Fleet Debug, and the sim clock starts after about 20 s. T
 hold over each find, and red marks appear on the minimap as they report. The coordinator sends each
 mushroom to the rover, and green crosses replace the red marks as it collects. Natives appear as teal
 circled marks and are never collected. The rover crosses the river only at the fords. Once every
-mushroom is known, the quads go home and land.
+mushroom is known, every quad except `parrot1` flies home and lands. `parrot1` lands when the mission
+completes.
 
-All 12 are collected in about 9 to 14 minutes. The simulation ends itself 1 to 2.5 minutes later, and
-the window stops updating, and Terminal 1 returns to its prompt. Run `bash demo/stop_sim.sh` there and
-wait for `CLEAN`.
+All 12 are collected in about 9 to 14 minutes. The simulation ends itself 1 to 2.5 minutes later. The
+window stops updating and Terminal 1 returns to its prompt. Run `bash demo/stop_sim.sh` there and wait
+for `CLEAN`.
 
 Set environment variables in front of the script and add launch arguments after it:
 
@@ -194,7 +195,7 @@ Run these fixes in a free terminal.
 | Symptom | Cause and fix |
 |---|---|
 | Sim appears frozen; robots never spawn | Gazebo cannot find the forest models. Use the `demo/` scripts, or run `source demo/env.sh` first |
-| Mushrooms invisible; every count stays 0 | Git LFS pointer files. Run `git lfs pull` and rebuild |
+| Mushrooms invisible; every count stays 0 | Git LFS pointer files. Run `git lfs pull`, then `cd ~/41068_ws && colcon build --symlink-install` |
 | Robots stall or drift to a crawl | Two simulations are running, or the CPU is hot. Run `bash demo/stop_sim.sh` and wait for `CLEAN` |
 | After 60 s, telemetry and camera rows stay empty | The Gazebo window hang. Press **BACK TO SETUP**, untick the box, then Prepare again |
 | Every row ticked except Nav2 | Wait: the rover starts Nav2 itself after 60 s |
@@ -328,7 +329,8 @@ detector could not tell them apart.
    During ALIGN the rover steers on its own camera's sighting (projected with the pose at that frame)
    when it is under 2.5 s old and within 15 deg of the odometry heading; otherwise on odometry. Native
    boxes are never a target.
-5. **Finish.** Once every mushroom is known the quads go home and land. Once all are collected and
+5. **Finish.** Once every mushroom is known, every quad except `parrot1` goes home and lands, and
+   `parrot1` lands when the mission completes. Once all are collected and
    every robot is home, a Part 1 run ends the simulation.
 
 ## Topic ownership
