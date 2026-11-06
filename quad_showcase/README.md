@@ -9,7 +9,7 @@ cd ~/41068_ws && source /opt/ros/humble/setup.bash && source install/setup.bash 
 && ros2 launch ammo_gui_node gui.launch.py
 ```
 
-Then in a separate terminal:
+Then in a separate _sourced_ terminal:
 
 ```bash
 ros2 launch ~/41068_ws/src/AMMO-Mushroom-Fleet/quad_showcase/quad_showcase.launch.py
