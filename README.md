@@ -1,8 +1,12 @@
+<div align="center">
+
 # AMMO: Automated Mushroom Management Operations
 
 41068 Robotics Studio 1, Team 5, Spring 2026.
 
 <img width="300" alt="AMMO logo" src="docs/images/logo.png" />
+
+</div>
 
 A fleet of Parrot quadcopters searches a simulated Australian river forest for invasive fly agaric
 (*Amanita muscaria*) with YOLO and projects each sighting to a ground point. A coordinator assigns
@@ -10,9 +14,13 @@ each mushroom to a Husky rover, which drives there with Nav2, aligns on its own 
 it with a front gripper. Native mushrooms are detected, logged and left in place. Everything runs in
 Ignition Gazebo Fortress on ROS 2 Humble, with an operator GUI, a debug window and PS4 teleop.
 
-<img alt="The simulated river forest and the rover camera with YOLO boxes on two mushrooms" src="docs/images/overview.jpg" />
+<div align="center">
+
+<img width="90%" alt="The simulated river forest and the rover camera with YOLO boxes on two mushrooms" src="docs/images/overview.jpg" />
 
 *Left: the simulated river forest. Right: the rover camera classifying a native (blue) and an invasive (red) mushroom.*
+
+</div>
 
 ## Start here
 
@@ -162,9 +170,13 @@ circled marks and are never collected. The rover crosses the river only at the f
 mushroom is known, every quad except `parrot1` flies home and lands. `parrot1` lands when the mission
 completes.
 
-<img width="760" alt="AMMO Fleet Debug window with camera feeds, minimap, state cards and timeline" src="docs/images/gui_fleet_debug.jpg" />
+<div align="center">
+
+<img width="90%" alt="AMMO Fleet Debug window with camera feeds, minimap, state cards and timeline" src="docs/images/gui_fleet_debug.jpg" />
 
 *AMMO Fleet Debug during a Part 1 run, at 6 of 12 collected.*
+
+</div>
 
 All 12 are collected in about 9 to 14 minutes. The simulation ends itself 1 to 2.5 minutes later. The
 window stops updating and Terminal 1 returns to its prompt. Run `bash demo/stop_sim.sh` there and wait
@@ -207,13 +219,17 @@ bash demo/part2_gui.sh
    `bash demo/stop_sim.sh` in Terminal 3, because Terminal 1 is still running the GUI. That also closes
    the GUI.
 
-| Setup page | Mission page |
-|---|---|
-| <img alt="Operator GUI setup page" src="docs/images/gui_setup.jpg" /> | <img alt="Operator GUI mission page" src="docs/images/gui_mission.jpg" /> |
+<div align="center">
 
-<img width="760" alt="Operator map as the mushroom counts rise from the first finds to 12 of 12" src="docs/images/operator_map.gif" />
+<img width="44.5%" alt="Operator GUI setup page" src="docs/images/gui_setup.jpg" /> <img width="44.5%" alt="Operator GUI mission page" src="docs/images/gui_mission.jpg" />
+
+*The setup page (left) and the mission page (right).*
+
+<img width="90%" alt="Operator map as the mushroom counts rise from the first finds to 12 of 12" src="docs/images/operator_map.gif" />
 
 *The operator map through one Part 2 run, from the first search to 12 of 12, sped up.*
+
+</div>
 
 Part 1 logs are in `~/.ros/ammo_demo/` and the operator GUI's log is `~/.ros/ammo_gui_mission.log`.
 `quad_showcase/` holds an extra display of the quad's state machine and depth mapping that runs beside
@@ -245,7 +261,11 @@ run, one YOLO process reads every camera. Each quad searches its own sector and 
 the coordinator, which assigns each mushroom to one rover. The rover drives with Nav2 through the
 collision guard. `mission_bridge` feeds the operator GUI, and PS4 teleop can take over either robot.
 
-<img width="620" alt="System architecture: operator interface, fleet nodes, and Gazebo with its ROS bridges" src="docs/images/system_architecture.png" />
+<div align="center">
+
+<img width="70%" alt="System architecture: operator interface, fleet nodes, and Gazebo with its ROS bridges" src="docs/images/system_architecture.png" />
+
+</div>
 
 ## Packages
 
@@ -354,7 +374,11 @@ detector could not tell them apart.
 
 The diagram shows a fleet run, and the steps below follow it from left to right.
 
-<img width="620" alt="Decision loops: quad loop, fleet coordinator and rover loop, with the messages between them" src="docs/images/decision_loops.png" />
+<div align="center">
+
+<img width="70%" alt="Decision loops: quad loop, fleet coordinator and rover loop, with the messages between them" src="docs/images/decision_loops.png" />
+
+</div>
 
 1. **Search.** Each quad flies its own sector with passes 3 m apart. One quad flies square loops
    outward from the spawn point, two fly nested U loops, one in each half of the world, and three or
@@ -490,11 +514,15 @@ each one, with the scripts that recompute the tables.
 | Collision guard, 24 runs | No contact. Closest approach 0.91 m, and 1.07 m or more in the other 23 runs |
 | Look-alike decoys, 6 red decoys, 1 run | All 6 reported as mushrooms, and the run stalled at 6 of 12 |
 
-<img width="680" alt="Bar chart of the 10 Part 1 run times" src="docs/images/results_runs.png" />
+<div align="center">
 
-<img width="680" alt="Bar charts of sim time and wall time by fleet size" src="docs/images/results_fleet.png" />
+<img width="90%" alt="Bar chart of the 10 Part 1 run times" src="docs/images/results_runs.png" />
+
+<img width="90%" alt="Bar charts of sim time and wall time by fleet size" src="docs/images/results_fleet.png" />
 
 *The 1 quad and 1 rover run hit its cap, so it is left out of the fleet size charts.*
+
+</div>
 
 The final report scores 12 requirements: nine met, two partial (R1 rover detection at 4 m, R12 collision
 guard) and one not met (R3 SLAM, dropped by agreement with the stakeholder on 8 September).

@@ -17,7 +17,11 @@ ros2 launch ~/41068_ws/src/AMMO-Mushroom-Fleet/quad_showcase/quad_showcase.launc
 
 There should be a 2nd window that opens showing the full outputs of the camera views. A snippet is shown below to demonstrate this:
 
-<img alt="Down and up depth views, the quad occupancy grid and the rover costmap" src="../docs/images/showcase_views.jpg" />
+<div align="center">
+
+<img width="90%" alt="Down and up depth views, the quad occupancy grid and the rover costmap" src="../docs/images/showcase_views.jpg" />
+
+</div>
 
 
 Thank you for using my Showcase :)

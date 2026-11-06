@@ -4,13 +4,17 @@ Danil's operator GUI and Debug UI. Two PySide6 windows plus a small bridge
 node, all in this package. Separate from `ammo_dashboard` (Lachlan's OpenCV
 HUD) - nothing here touches it, and both can run at the same time.
 
-| Setup page | Ready page |
-|---|---|
-| <img alt="Operator GUI setup page" src="../docs/images/gui_setup.jpg" /> | <img alt="Operator GUI ready page" src="../docs/images/gui_ready.jpg" /> |
+<div align="center">
 
-| Mission page | Fleet Debug window |
-|---|---|
-| <img alt="Operator GUI mission page" src="../docs/images/gui_mission.jpg" /> | <img alt="AMMO Fleet Debug window" src="../docs/images/gui_fleet_debug.jpg" /> |
+<img width="44.5%" alt="Operator GUI setup page" src="../docs/images/gui_setup.jpg" /> <img width="44.5%" alt="Operator GUI ready page" src="../docs/images/gui_ready.jpg" />
+
+*The setup page (left) and the ready page (right).*
+
+<img width="49.5%" alt="Operator GUI mission page" src="../docs/images/gui_mission.jpg" /> <img width="40%" alt="AMMO Fleet Debug window" src="../docs/images/gui_fleet_debug.jpg" />
+
+*The mission page (left) and the Fleet Debug window (right).*
+
+</div>
 
 ## One-time setup, per machine
 

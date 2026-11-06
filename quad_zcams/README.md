@@ -20,4 +20,8 @@ camera (the `z` cameras). Names follow the glossary in the top-level README: qua
 
 The quad's search phases in the demo:
 
-<img width="620" alt="Quad phases: climbing, searching, approaching, holding, handing over, and return and land" src="../docs/images/quad_phases.png" />
+<div align="center">
+
+<img width="70%" alt="Quad phases: climbing, searching, approaching, holding, handing over, and return and land" src="../docs/images/quad_phases.png" />
+
+</div>

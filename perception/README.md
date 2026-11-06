@@ -12,4 +12,8 @@ Detection for both robots.
 
 How each sensor feeds the mission:
 
-<img width="700" alt="Perception pipeline from the RGB camera, depth cameras and lidar to their mission uses" src="../docs/images/perception_pipeline.png" />
+<div align="center">
+
+<img width="90%" alt="Perception pipeline from the RGB camera, depth cameras and lidar to their mission uses" src="../docs/images/perception_pipeline.png" />
+
+</div>

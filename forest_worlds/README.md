@@ -4,7 +4,11 @@ Realistic forest worlds for Ignition Gazebo Fortress: terrain from Forest3D's re
 three rocky crossings, a hedge round the map edge, Poly Haven CC0 trees, shrubs, rocks and grass. Built to run on
 integrated graphics (about 2 M triangles, all physics in one static link).
 
-<img width="480" alt="The river forest world seen from above in Gazebo" src="../docs/images/river_world.jpg" />
+<div align="center">
+
+<img width="55%" alt="The river forest world seen from above in Gazebo" src="../docs/images/river_world.jpg" />
+
+</div>
 
 ## Run it on any laptop
 
