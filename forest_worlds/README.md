@@ -22,14 +22,11 @@ You need about 2.5 GB of free disk and an internet connection for the first buil
    sudo apt install -y python3-numpy python3-pil
    ```
 
-3. Get the code and build the worlds (about 5 minutes; downloads about 1.2 GB of free CC0 assets):
+3. Build the worlds (about 10 minutes; downloads about 1.2 GB of free CC0 assets). The demo does not need
+   this: `bash demo/get_world.sh` already installs `river_moderate_aus` and its layouts.
 
    ```bash
-   cd ~/41068_ws/src/AMMO-Mushroom-Fleet        # wherever the repo is cloned
-   git fetch
-   git checkout mushroom-cage
-   git pull
-   cd forest_worlds
+   cd ~/41068_ws/src/AMMO-Mushroom-Fleet/forest_worlds        # wherever the repo is cloned
    bash setup.sh
    ```
 
@@ -49,7 +46,10 @@ Nothing the build creates is committed (see `.gitignore`), so re-run `bash setup
 
 ```bash
 ./view.sh moderate     # sparse | moderate | dense | hilly; closes any Gazebo already running
+./view.sh moderate_aus # the demo world, which works without setup.sh
 ```
+
+`view.sh` prints nothing and hides Gazebo's output. If no window appears, check that the world file exists.
 
 To use one in your own launch, add `forest_worlds/models/*` and `forest_worlds/world_assets` to
 `IGN_GAZEBO_RESOURCE_PATH` and load `forest_worlds/worlds/river_<preset>.sdf`.

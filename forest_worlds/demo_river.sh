@@ -2,6 +2,7 @@
 # Full mission on the river world with the Gazebo window and the AMMO dashboard: ./demo_river.sh
 F=$(cd "$(dirname "$0")" && pwd)
 source /opt/ros/humble/setup.bash; source ~/41068_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1 IGN_IP=127.0.0.1
 export IGN_GAZEBO_RESOURCE_PATH="$(ls -d "$F"/models/* "$F"/world_assets | tr '\n' ':')${IGN_GAZEBO_RESOURCE_PATH:-}"
 (sleep 40; exec ros2 launch ammo_dashboard dashboard.launch.py map_range_m:=16.0) &
 exec ros2 launch ammo_mission_control cage_mission.launch.py world:="$F/worlds/river_moderate_aus" \

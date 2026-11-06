@@ -5,8 +5,8 @@ camera (the `z` cameras). Names follow the glossary in the top-level README: qua
 
 | File | Role |
 |---|---|
-| `launch/fleet_mission.launch.py` | Any number of quads and rovers with the coordinator (`quads:=N rovers:=M`) |
-| `launch/fleet_bench.launch.py` | `fleet_mission` with lighter sim options; what `demo/part1_fleet.sh` runs |
+| `launch/fleet_mission.launch.py` | Up to 4 quads and 5 rovers with the coordinator (`quads:=N rovers:=M`) |
+| `launch/fleet_bench.launch.py` | `fleet_mission` with lighter sim options and up to 6 quads; what `demo/part1_fleet.sh` runs |
 | `launch/zcam_mission.launch.py` | One zcam quad and one rover; included by `cage_mission.launch.py` (`quad:=zcam`, the default) |
 | `zcam_quad_node.py` | Quad search: plans round every obstacle at cruise height, confirms each sighting, hands it to a rover |
 | `fleet_quad_node.py` | `zcam_quad_node` for one quad of several: searches its own sector |

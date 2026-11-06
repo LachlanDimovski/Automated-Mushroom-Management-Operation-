@@ -103,7 +103,7 @@ python3 ammo_gui_node/tests/run_tests.py
   missing. In a new terminal, run `source demo/env.sh` first or it reports ROS as missing. Its `QT_QPA_PLATFORM` and `LIBGL_ALWAYS_SOFTWARE` warnings can be ignored: both demo
   parts ran without them.
 - Build with or without `--symlink-install`, but do not switch between the two in one workspace.
-- Headless GUI and bridge checks, with no ROS or Gazebo (521 pass):
+- Headless GUI and bridge checks, with no ROS or Gazebo (663 pass):
   `python3 ammo_gui_node/tests/run_tests.py`.
 
 ## Running the demo
@@ -186,7 +186,7 @@ Part 1 logs are in `~/.ros/ammo_demo/` and the operator GUI's log is `~/.ros/amm
 a Part 2 mission (see its README).
 
 The system rehearsed for the final demonstration is commit `366d30f`. Later commits on `main` change
-documentation only.
+documentation and two `forest_worlds` helper scripts the demo does not use.
 
 ### Common problems
 
