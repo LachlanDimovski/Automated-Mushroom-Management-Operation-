@@ -10,6 +10,22 @@ each mushroom to a Husky rover, which drives there with Nav2, aligns on its own 
 it with a front gripper. Native mushrooms are detected, logged and left in place. Everything runs in
 Ignition Gazebo Fortress on ROS 2 Humble, with an operator GUI, a debug window and PS4 teleop.
 
+## Start here
+
+| To | Read |
+|---|---|
+| Install it | [Setup](#setup) |
+| Run the demo | [Running the demo](#running-the-demo), where every line says which terminal it runs in |
+| Fix a problem | [Common problems](#common-problems) |
+| See what each folder holds | [Packages](#packages), then the README in that folder |
+| Follow a mushroom through the system | [Mission flow](#mission-flow) |
+| Try other launches | [Running the mission by hand](#running-the-mission-by-hand), [Running the fleet by hand](#running-the-fleet-by-hand) |
+| Understand the limits | [Known limitations](#known-limitations) |
+| Work on the operator GUI | `ammo_gui_node/README.md`, with the machine setup guide in `ammo_gui_node/integration/TEAM_SETUP.md` |
+
+`41068_ignition_bringup/README.md` is the course's own starter guide. `ammo_gui_node/integration/NOTES.md` and
+`FOR_THE_TEAM.md` are working notes kept for the record.
+
 ## Team
 
 | Member | GitHub |
@@ -186,7 +202,7 @@ Part 1 logs are in `~/.ros/ammo_demo/` and the operator GUI's log is `~/.ros/amm
 a Part 2 mission (see its README).
 
 The system rehearsed for the final demonstration is commit `366d30f`. Later commits on `main` change
-documentation and two `forest_worlds` helper scripts the demo does not use.
+documentation, code comments and two `forest_worlds` helper scripts the demo does not use.
 
 ### Common problems
 
@@ -440,7 +456,7 @@ Then open `http://<pc>:8000/` on the iPad.
   logged 4 to 6 of the 6 natives, because a run ends before the search covers everything, sent no
   native to the rover, and collected 12/12. One false native recurs at the water's edge near
   (17.7, -12.2). The cause is unconfirmed; it is logged only, never collected.
-  The training data and scripts are in `~/mushroom_river` (`train_v6.sh`) on the capture PC,
+  The training data and `train_v6.sh` are on the capture PC and are not in this repo. They were
   captured with `skidsteer_perception/scripts/run_capture.sh --hover 1.0 [--spots banks.json]`.
 - The rover's camera steers the final alignment when it has a fresh sighting, and an empty grab sends
   the rover back once to where its camera saw the mushroom, but the camera cannot veto a target: a

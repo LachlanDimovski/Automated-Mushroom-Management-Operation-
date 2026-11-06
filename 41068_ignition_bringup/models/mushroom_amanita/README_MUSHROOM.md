@@ -97,21 +97,11 @@ untextured on someone else's machine.
 
 ## 5. Wire it into the sim
 
-Edit `SCATTER_MODELS` in
-`41068_ignition_bringup/launch/cage_mission.launch.py (ammo_mission_control)`:
+Worlds place the mushrooms themselves: `forest_worlds/build_world.py` writes them into the river worlds, and
+`mushrooms:=x,y,x,y` on `cage_mission.launch.py` spawns them in any other world. With the origin at the mushroom's
+base, it sits on the ground.
 
-```python
-SCATTER_MODELS = [
-    ('mushroom_amanita', 4, True),
-    ('decoy_box', 3, False),
-    ('decoy_cylinder', 3, False),
-]
-```
-
-The scatter code spawns at `-z 0.3`, which suits a ball. With the origin at the
-mushroom's base, change that to `-z 0` so it sits on the ground.
-
-Then rebuild — models are read from `install/share`, not `src`:
+Then rebuild, because models are read from `install/share`, not `src`:
 
 ```bash
 cd ~/41068_ws && colcon build --packages-select 41068_ignition_bringup
@@ -120,7 +110,8 @@ cd ~/41068_ws && colcon build --packages-select 41068_ignition_bringup
 ## 6. Check it before trusting it
 
 ```bash
-ros2 launch 41068_ignition_bringup cage_mission.launch.py (ammo_mission_control)
+source ~/41068_ws/src/AMMO-Mushroom-Fleet/demo/env.sh
+ros2 launch ammo_mission_control cage_mission.launch.py mushrooms:=6,-5
 ```
 
 Watch `husky1/detections/image` in RViz. Two separate questions:
@@ -147,11 +138,10 @@ visible white spots is worth more than any amount of retraining.
 | Sunk into ground | Origin not at base, or spawn `-z` too low |
 | Works for you, not teammates | Textures not committed, or absolute paths |
 
-If `model://` URIs fail to resolve at all, add the workspace to the resource
-path — the launch files do not currently set it:
+If `model://` URIs fail to resolve outside the launch files, add the models to the resource path:
 
 ```bash
-export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:~/41068_ws/install/41068_ignition_bringup/share/41068_ignition_bringup/models
+export IGN_GAZEBO_RESOURCE_PATH=$IGN_GAZEBO_RESOURCE_PATH:~/41068_ws/install/41068_ignition_bringup/share/41068_ignition_bringup/models
 ```
 
 ## Attribution

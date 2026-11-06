@@ -1,5 +1,7 @@
 # Integration notes - for the team
 
+> Working notes from integration, kept for the record. Some details have since changed. For current instructions see the top-level README.
+
 This package used to change nothing outside itself. That is no longer true:
 there are now **three small additions in two other packages**, all of them
 additive, all of them listed below with the reason. Everything else the GUI

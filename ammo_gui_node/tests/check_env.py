@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check this machine can actually run the simulation, and say what to fix.
 
-    python3 src/RS1_Team5_/ammo_gui_node/tests/check_env.py
+    python3 ammo_gui_node/tests/check_env.py
 
 Nothing in this repo declares what the detector needs - `perception`'s
 package.xml lists rclpy, sensor_msgs, vision_msgs and cv_bridge, while

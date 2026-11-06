@@ -1,24 +1,23 @@
-# Interchangeable detector weights
+# Detector weights
 
-Two YOLO11n models for the same single class, `amanita_muscaria_red`. They are
-drop-in replacements for each other: identical architecture, identical class
-list, identical input size. Only the training data differs.
+The demo uses `amanita_river_v6_yolo11n.pt`, which has two classes: `amanita_muscaria_red` and
+`native_mushroom`. The other files record how the model developed. All are YOLO11n with the same input size, so they
+swap without code changes, but a one-class model detects no natives.
 
-`../amanita_muscaria_yolo11n.pt` is the one the node loads by default, and is a
-copy of `amanita_sim_yolo11n.pt`.
+`../amanita_muscaria_yolo11n.pt` is what `yolo_node` loads with no `model_path`. It is a one-class copy of
+`amanita_sim_yolo11n.pt`. The demo launches pass `amanita_river_v6_yolo11n.pt` instead.
 
-| | `amanita_realphoto_yolo11n.pt` | `amanita_sim_yolo11n.pt` |
-|---|---|---|
-| Trained on | 876 iNaturalist photographs | 400 Gazebo frames |
-| Labels | machine-generated (YOLO-World + colour filter) | exact, projected from known 3D poses |
-| mAP50 (own val set) | 0.876 | 0.972 |
-| mAP50-95 | 0.720 | 0.736 |
-| Precision / recall | 0.765 / 0.839 | 0.990 / 0.950 |
-| Mean confidence on sim frames | ~0.16 | ~0.83 |
-| Best for | real mushrooms, photographs | this simulation |
+Metrics are stored in each checkpoint and come from that model's own validation set, so they do not compare across rows.
 
-The sim model is a fine-tune *of* the real-photo model, not a separate training
-run - it starts from those weights and adapts them to rendered imagery.
+| Model | Trained on | Classes | mAP50 | mAP50-95 | Why it was replaced |
+|---|---|---|---|---|---|
+| `amanita_realphoto` | iNaturalist photographs, machine-labelled | 1 | 0.858 | 0.723 | Mean confidence about 0.16 on rendered frames |
+| `amanita_sim` | Gazebo frames with projected labels | 1 | 0.971 | 0.768 | Short range; poor at quad viewing angles |
+| `amanita_sim_v2` | Ground and aerial capture, merged | 1 | 0.960 | 0.851 | Superseded by a larger capture |
+| `amanita_sim_v3` | Enlarged capture, ground and aerial | 1 | 0.973 | 0.895 | Overfitted to a green background |
+| `amanita_sim_v3_closeup` | Close-up frames at grasping range | 1 | 0.970 | 0.903 | One class; the river world needed natives |
+| `amanita_river_v4` | River dataset with brown native caps | 2 | 0.717 | 0.520 | Brown caps matched the leaf litter |
+| `amanita_river_v6` | Blue native caps at 1 to 5 m, river banks included | 2 | 0.985 | 0.799 | Final model |
 
 ## Switching without rebuilding
 
@@ -30,12 +29,8 @@ The node takes the weights path as a ROS parameter:
 Or make one the default by copying it over `../amanita_muscaria_yolo11n.pt` and
 running `colcon build --packages-select perception`.
 
-## Why both are kept
+## Why the real-photo model is kept
 
-The real-photo model scores 0.876 on photographs but collapses to ~0.16 on
-Gazebo renders - it fires on grass and tree trunks at any threshold low enough
-to detect a mushroom at all. That gap is the reason the sim model exists, and
-the pair is the evidence for it: same architecture, same class, same code path,
-an order of magnitude apart on sim imagery purely because of training data.
-
-Keep the real-photo weights if the detector is ever pointed at a real camera.
+It scores 0.858 on photographs but collapses to about 0.16 confidence on Gazebo renders, firing on grass and tree
+trunks. That gap is the reason the simulated training data exists. Keep these weights if the detector is ever pointed
+at a real camera.

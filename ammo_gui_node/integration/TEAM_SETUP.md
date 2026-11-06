@@ -35,11 +35,8 @@ About **1.3 MB** is right. **130 bytes** means LFS has not run.
 
 ```bash
 sudo apt install -y libxcb-cursor0 python3-scipy python3-pil
-pip3 install PySide6
-pip3 install ultralytics
-pip3 install "opencv-python<5" "numpy<2"   # see below - LAST, and both together
-pip3 install torch --index-url https://download.pytorch.org/whl/cpu
-pip3 install openvino                  # only needed to run a fleet
+pip3 install torch==2.12.0 torchvision==0.27.0 ultralytics==8.4.66 openvino==2024.6.0 \
+    PySide6==6.10.2 scipy "numpy<2"
 ```
 
 **Pin numpy below 2, and do it after anything that might pull numpy in.**
@@ -99,7 +96,7 @@ build again.
 **Run this first, and run it any time something behaves oddly:**
 
 ```bash
-python3 src/RS1_Team5_/ammo_gui_node/tests/check_env.py
+python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/check_env.py
 ```
 
 It checks every one of the above - python, numpy's version against what

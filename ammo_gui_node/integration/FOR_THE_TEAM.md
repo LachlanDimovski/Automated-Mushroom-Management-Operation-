@@ -1,5 +1,7 @@
 # Four small things in your nodes, and one bug I fixed in one
 
+> Working requests to teammates during integration, kept for the record. Some details have since changed. For current instructions see the top-level README.
+
 Everything the operator GUI needs it already takes off the wire. These four
 would each remove a workaround on my side, and the first one is a bug.
 

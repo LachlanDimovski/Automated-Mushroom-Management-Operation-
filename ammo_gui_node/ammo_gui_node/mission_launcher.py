@@ -4,15 +4,13 @@ A run has two stages now.
 
 **Prepare** starts the team's own `cage_mission.launch.py` - Gazebo, Nav2,
 both robots, perception and the mission nodes - and then, once everything is
-actually up, freezes the two mission node processes. The simulation keeps
-running; nothing is searching or driving. Mushrooms are spawned after that
-freeze, so the quadcopter cannot have seen any of them before you look.
+actually up, holds the two mission nodes. The simulation keeps running;
+nothing is searching or driving. Mushrooms are spawned after that hold, so
+the quadcopter cannot have seen any of them before you look.
 
-**Launch** thaws those two processes and starts the clock.
+**Launch** releases those two nodes and starts the clock.
 
-Ending a mission freezes them again and removes the mushrooms, but leaves
-Gazebo up, so the next run costs nothing. Only changing the world tears the
-simulation down.
+Ending a mission closes the simulation and returns to the setup page.
 
 That split needs no change to anyone else's launch file, which matters: the
 alternative was a second launch path that would drift from theirs the first

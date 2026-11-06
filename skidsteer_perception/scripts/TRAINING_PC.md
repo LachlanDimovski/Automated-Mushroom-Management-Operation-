@@ -1,5 +1,7 @@
 # Training the mushroom detector on the GPU box
 
+> This needs a GPU PC and a dataset bundle made with `package_dataset.sh`. The datasets are not in this repo, and the demo does not need this. The trained models are already in `perception/models/`.
+
 Unpack, set up once, train. Everything below runs on the PC (Ubuntu 26,
 2x RTX 3060) — nothing here needs ROS.
 

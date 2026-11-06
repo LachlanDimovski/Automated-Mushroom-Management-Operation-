@@ -8,7 +8,7 @@ A run starts in two stages, and the split is the point of this file.
 **Prepare** runs the team's own `cage_mission.launch.py` - Gazebo, Nav2, both
 robots, both detectors - and then watches until every one of those is
 genuinely up, which takes about thirty seconds and sometimes much longer.
-Only then does it freeze the two mission node processes, spawn the mushrooms
+Only then does it hold the two mission nodes, spawn the mushrooms
 and photograph the result from above. Nothing has searched, driven or been
 timed at that point.
 
@@ -28,8 +28,7 @@ It does not stop a robot on its own, though. Gazebo's VelocityControl keeps
 the last command it was given forever, so whoever holds the heartbeat also
 publishes the zeros.
 
-Ending a mission freezes them again and takes the mushrooms out, but leaves
-the simulation up: preparing the same world a second time is instant.
+Ending a mission closes the simulation and returns to the setup page.
 
 This window is the only thing that pauses the mission nodes and the only
 thing that hand-drives either robot. The Debug UI is read-only and can be

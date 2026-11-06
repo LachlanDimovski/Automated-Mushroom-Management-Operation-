@@ -8,13 +8,12 @@ HUD) - nothing here touches it, and both can run at the same time.
 
 ```bash
 sudo apt install -y git-lfs libxcb-cursor0 python3-scipy python3-pil
-pip3 install PySide6 ultralytics
-pip3 install torch --index-url https://download.pytorch.org/whl/cpu
-pip3 install "opencv-python<5" "numpy<2"   # last, and both at once
+pip3 install torch==2.12.0 torchvision==0.27.0 ultralytics==8.4.66 openvino==2024.6.0 \
+    PySide6==6.10.2 scipy "numpy<2"
 
 cd ~/41068_ws/src/AMMO-Mushroom-Fleet
 git lfs install && git lfs pull                 # see below - this is not optional
-cd ~/41068_ws && colcon build                   # AFTER the lfs pull, not before
+cd ~/41068_ws && colcon build --symlink-install   # AFTER the lfs pull, not before
 ```
 
 `libxcb-cursor0` is what Qt 6.5+ needs for the xcb platform plugin. This
@@ -73,7 +72,7 @@ ros2 launch ammo_gui_node gui.launch.py
 ros2 launch ammo_gui_node debug.launch.py
 ```
 
-River worlds need `bash forest_worlds/setup.sh` once; they only appear in the
+River worlds need `bash demo/get_world.sh` once; they only appear in the
 world list after that.
 
 > On WSL, if Gazebo dies a few seconds after Prepare with an Ogre or
@@ -112,7 +111,7 @@ Three things follow from the split, and they are the reason for it:
 - The mission clock starts when the mission does. It used to start when the
   launch command returned and spend its first minute on Gazebo's start-up.
 - The quadcopter has never seen the mushrooms when the run begins, because
-  they are spawned after it is frozen. So you can look at where they landed,
+  they are spawned after it is held. So you can look at where they landed,
   shuffle them, and look again, without giving anything away.
 - A run that will not work says so before you have watched it for a minute.
   The checklist names what has not arrived, and Nav2 or a detector that never
@@ -234,7 +233,7 @@ will be missing. Patience is measured from the last thing that arrived rather
 than from the start - a river world takes far longer to come up, but in both
 cases pieces keep arriving until the last one does, so forty-five seconds
 with nothing new is a stall whatever the world. Launching anyway still
-freezes the nodes and spawns the mushrooms; it just does not wait for the
+holds the nodes and spawns the mushrooms; it just does not wait for the
 photo.
 
 **Gazebo, the mission nodes and at least one camera are the checks it will
@@ -432,11 +431,10 @@ driving.
   feed, the timeline, coverage, both teleop panels and map goals are all
   wired to live data and work as described.
 - **Pause** cancels the Nav2 goal, publishes zero velocity to both robots at
-  20 Hz, and suspends the mission nodes. That order matters: both robots use
-  Gazebo's `VelocityControl` plugin, which holds its last command forever, so
-  stopping the nodes alone would leave them coasting. On resume the rover
-  re-plans, and because its own timers were frozen, a long pause can make it
-  give up on the waypoint it was on and re-queue it.
+  20 Hz, and holds the mission nodes with the `teleop_active` heartbeat. That
+  order matters: both robots use Gazebo's `VelocityControl` plugin, which
+  holds its last command forever, so holding the nodes alone would leave them
+  coasting. On resume the rover re-plans from where it was left.
 - **Ending a mission takes the simulation with it.** It stands both robots
   down, removes the mushrooms the GUI spawned and stops Gazebo, Nav2 and the
   perception stack. It used to keep them up so a second run was instant; see
@@ -489,7 +487,7 @@ Nothing in the repo set it, which is why loading the river world by hand dies
 with `Unable to find uri[model://mushroom_amanita]` before it finishes.
 
 **Mushrooms are spawned by the GUI**, not by `mushrooms:=`, and they are
-  spawned after the mission nodes are frozen. Spawn height is estimated from
+  spawned after the mission nodes are held. Spawn height is estimated from
   the world file's own objects, because `forest_random` rises over three
   metres and a mushroom spawned at z = 0 there is underground.
 - **A world's own mushrooms can be taken out** - the generators name them
@@ -538,7 +536,7 @@ python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py
 python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py --render
 ```
 
-638 checks, a few seconds, no ROS, no simulation, no display and no built
+663 checks, a few seconds, no ROS, no simulation, no display and no built
 workspace - `tests/stubs/` stands in for rclpy and the message types. The
 `--render` flag also writes pictures of the setup page, the ready page
 part-way through and finished, both windows, the Debug UI's held state and
