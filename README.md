@@ -507,6 +507,7 @@ each one, with the scripts that recompute the tables.
 | Test | Result |
 |---|---|
 | Part 1, 10 runs on 4 November | 12 of 12 collected in all 10 runs, in 9.2 to 13.3 minutes (median 10.9) |
+| Shuffled layouts `m1` to `m3`, one 2 quad, 1 rover run each | 12 of 12 on all three, in 15.0 to 17.7 minutes on those worlds' finer physics step. No native was sent to a rover |
 | Fleet sizes, 7 sizes, one run each | 12 of 12 at six sizes, in 414 to 609 sim seconds. 1 quad and 1 rover reached 11 of 12 at the 1500 s cap. No native was sent to a rover |
 | Quad position error, 120 reports | Mean 0.075 m, 95th percentile 0.27 m, 98% within 0.5 m |
 | Rover camera position error, 761 live sightings | Mean 0.17 m, 95th percentile 0.65 m, 90% within 0.5 m |

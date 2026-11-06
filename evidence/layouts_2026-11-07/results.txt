@@ -1,0 +1,6 @@
+start 2026-11-07 01:26:23 commit 717a5f8
+m1 result=complete collected=12 start_temp=61 timer=All 12 mushrooms collected after 1061 s from sim start, sim 782 s (driver stopped by the end-of-mission SIGINT to its process group; run itself finished, Mission complete logged)
+resume 2026-11-07 01:45:31 commit 717a5f8
+m2 result=complete collected=12 wall_since_launch=1083 start_temp=61 peak_temp=100 timer=All 12 mushrooms collected after 1028 s from sim start, sim 746 s
+m3 result=complete collected=12 wall_since_launch=954 start_temp=67 peak_temp=98 timer=All 12 mushrooms collected after 898 s from sim start, sim 662 s
+end 2026-11-07 02:20:34

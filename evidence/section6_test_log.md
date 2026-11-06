@@ -78,5 +78,5 @@ Two first attempts were discarded and rerun: R1 fed RGB frames to YOLO, which ne
 
 ## Still untested
 - A real PS4 controller (R11).
-- The Table 32 failures, which were not provoked.
+- The Table 33 failures, which were not provoked.
 - A non-root user on a real Ubuntu desktop.
