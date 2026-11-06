@@ -17,7 +17,7 @@ Ignition Gazebo Fortress on ROS 2 Humble, with an operator GUI, a debug window a
 | Lachlan Dimovski | `LachlanDimovski` |
 | Darcy Moyes | `Darb05` |
 | Danil Vasiliev | `danilvasiliev` |
-| `hpdsalter` | `hpdsalter` |
+| Henry Salter | `hpdsalter` |
 
 ## Names used in this project
 
@@ -51,54 +51,82 @@ Which launch to use:
 | The fleet demo (Part 1) | `bash demo/part1_fleet.sh` (runs `quad_zcams fleet_bench.launch.py`, the fleet launch with lighter sim options) |
 | The operator GUI (Part 2) | `bash demo/part2_gui.sh` (its Prepare button runs `ammo_mission_control cage_mission.launch.py`) |
 | One quad and one rover without the GUI | `ros2 launch ammo_mission_control ammo_main.launch.py` (same as `cage_mission.launch.py`) |
-| Any number of quads and rovers | `ros2 launch quad_zcams fleet_mission.launch.py quads:=N rovers:=M` |
+| A chosen fleet size | `ros2 launch quad_zcams fleet_mission.launch.py quads:=N rovers:=M` (up to 4 quads and 5 rovers; `fleet_bench.launch.py` takes up to 6 quads) |
 | The course starter simulation | `41068_ignition_bringup/launch/41068_*.launch.py` (see that package's README) |
 
 ## Setup
 
-Tested on Ubuntu 22.04 with ROS 2 Humble and Ignition Gazebo Fortress.
+Tested on Ubuntu 22.04 with ROS 2 Humble and Ignition Gazebo Fortress 6.x. It needs about 8 CPU cores
+and no GPU. Set up the ROS 2 apt source first.
 
 ```bash
-sudo apt install -y git-lfs libxcb-cursor0 ros-humble-navigation2 ros-humble-nav2-bringup \
+sudo apt install -y ros-humble-desktop ignition-fortress python3-colcon-common-extensions \
+    python3-pip gh git-lfs libxcb-cursor0 ros-humble-navigation2 ros-humble-nav2-bringup \
     ros-humble-ros-gz ros-humble-robot-localization ros-humble-xacro ros-humble-joy \
     ros-humble-vision-msgs ros-humble-cv-bridge
-pip3 install ultralytics openvino PySide6 scipy "numpy<2"
+pip3 install ultralytics==8.4.66 openvino==2024.6.0 PySide6==6.10.2 scipy "numpy<2"
 
+gh auth login                  # the repository is private
+gh auth setup-git              # lets git use that login
+source /opt/ros/humble/setup.bash
 mkdir -p ~/41068_ws/src && cd ~/41068_ws/src
 git lfs install
 git clone https://github.com/LachlanDimovski/AMMO-Mushroom-Fleet.git
 cd ~/41068_ws && colcon build --symlink-install && source install/setup.bash
-bash src/AMMO-Mushroom-Fleet/demo/get_world.sh      # demo river worlds, about 130 MB (needs `gh auth login`)
+cd src/AMMO-Mushroom-Fleet
+bash demo/get_world.sh         # river worlds, about 130 MB
 ```
 
 - **Git LFS is required.** Meshes and textures are stored in LFS. Without it the clone holds
   130-byte pointer files and the mushrooms spawn with no geometry. Run `git lfs pull` and rebuild if
   `41068_ignition_bringup/models/mushroom_amanita/meshes/amanita_muscaria.glb` is not about 9 MB.
-- **The river worlds are not in git.** `demo/get_world.sh` downloads them from the v1.0 release
-  (or pass it a copy of `ammo_river_worlds.tar.gz` downloaded from the Releases page). They can
-  also be built from source with `forest_worlds/setup.sh` (internet and Blender 4.2 or later).
+- **The river worlds are not in git.** `demo/get_world.sh` downloads them from the v1.0 release.
+  Without the GitHub CLI, clone with a personal access token as the password, download
+  `ammo_river_worlds.tar.gz` from the Releases page and run `bash demo/get_world.sh FILE.tar.gz`.
+  The worlds can also be built from source with `forest_worlds/setup.sh` (internet and Blender 4.2
+  or later).
 - Tested Python versions: ultralytics 8.4.66, openvino 2024.6.0, PySide6 6.10.2, numpy 1.26.4.
+- `python3 ammo_gui_node/tests/check_env.py` checks the environment and prints the fix for anything
+  missing. Its `QT_QPA_PLATFORM` and `LIBGL_ALWAYS_SOFTWARE` warnings can be ignored: both demo
+  parts ran without them.
 - Build with or without `--symlink-install`, but do not switch between the two in one workspace.
-- Headless GUI and bridge checks (no ROS or Gazebo needed):
-  `python3 src/AMMO-Mushroom-Fleet/ammo_gui_node/tests/run_tests.py`.
+- Headless GUI and bridge checks, with no ROS or Gazebo (521 pass):
+  `python3 ammo_gui_node/tests/run_tests.py`.
 
 ## Running the demo
 
-Two parts. Run `bash demo/stop_sim.sh` between them and wait for `CLEAN`: two simulations at once
-starve the CPU and the robots stall. Set `powerprofilesctl set performance` first, and start with the
-CPU below 70 °C.
+Run these from the repository folder. There are two parts. Run `bash demo/stop_sim.sh` between them
+and wait for `CLEAN`: two simulations at once starve the CPU and the robots stall. Before a timed
+run, set `powerprofilesctl set performance` and let the CPU cool below 70 °C.
 
 **Part 1: fleet run (2 quads, 1 rover, 12 invasive and 6 native mushrooms).**
 
 ```bash
-bash demo/part1_fleet.sh      # headless Gazebo + the AMMO Fleet Debug window
-bash demo/part1_timer.sh      # optional, second terminal: wall time to 12/12
+bash demo/part1_fleet.sh      # headless Gazebo and the AMMO Fleet Debug window
+bash demo/part1_timer.sh      # optional, second terminal: wall time to 12 of 12
 ```
 
-All 12 are collected in about 9 to 12 minutes from sim start. The quads search in square loops and
-hold over each find, the coordinator sends each mushroom to the rover, natives appear as blue N markers
-and are never collected, and the rover crosses the river only at the fords. Once every mushroom is
-known the second quad stands down and lands. `HEADLESS=false` adds the Gazebo window (much slower).
+One window opens, AMMO Fleet Debug, and the sim clock starts after about 20 s. The quads search and
+hold over each find, and red marks appear on the minimap as they report. The coordinator sends each
+mushroom to the rover, and green crosses replace the red marks as it collects. Natives appear as teal
+circled marks and are never collected. The rover crosses the river only at the fords. Once every
+mushroom is known, the quads go home and land.
+
+All 12 are collected in about 9 to 14 minutes. The simulation ends itself 1 to 2.5 minutes later, and
+the window stops updating. Run `bash demo/stop_sim.sh` and wait for `CLEAN`.
+
+Set environment variables in front of the script and add launch arguments after it:
+
+```bash
+QUADS=3 bash demo/part1_fleet.sh row_spacing:=4.0
+WORLD=river_moderate_aus_m1 bash demo/part1_fleet.sh
+```
+
+| Setting | Default | Effect |
+|---|---|---|
+| `QUADS`, `ROVERS` | 2, 1 | Fleet size, up to 6 quads |
+| `WORLD` | `river_moderate_aus_dt2` | World file. `_m1` to `_m3` are shuffled layouts, also with 12 invasive and 6 native mushrooms |
+| `HEADLESS` | `true` | `false` opens the Gazebo window, which slows the run |
 
 **Part 2: operator GUI and PS4 controller (1 quad, 1 rover).**
 
@@ -106,13 +134,38 @@ known the second quad stands down and lands. `HEADLESS=false` adds the Gazebo wi
 bash demo/part2_gui.sh
 ```
 
-Pick `river_moderate_aus` on the setup page and press **Prepare**; the robots stay frozen while the
-checklist fills in. Press **Launch** when it shows READY. Pause and Resume, then hold **R1** to drive the
-rover or **L1** to fly the quad (see [PS4 teleop](#ps4-teleop)); release and the robot resumes its
-mission. End the mission from the GUI, then run `bash demo/stop_sim.sh`.
+1. On the setup page, pick `river_moderate_aus` and "World's own 12 mushrooms".
+2. Untick **Show the Gazebo window**, then press **PREPARE TO LAUNCH**. The robots stay held while the
+   checklist fills in, and READY takes about 20 s.
+3. Optional 3D view, in a second terminal: `source demo/env.sh && ign gazebo -g`. Do not press its
+   play or pause button.
+4. Press **LAUNCH MISSION**. The mission page opens and the clock starts.
+5. Press **PAUSE**, wait 20 s, then **RESUME**. Pause early: the first find comes 5 to 9 minutes after
+   Launch in this world.
+6. With a PS4 controller plugged in, hold **R1** to drive the rover or **L1** to fly the quad (see
+   [PS4 teleop](#ps4-teleop)). Release to hand it back.
+7. Press **END MISSION**. The simulation closes and the setup page returns. Then run
+   `bash demo/stop_sim.sh`.
 
-Logs from both parts are in `~/.ros/ammo_demo/`. `quad_showcase/` holds an extra display of the quad's
-state machine and depth mapping that runs beside a Part 2 mission (see its README).
+Part 1 logs are in `~/.ros/ammo_demo/` and the operator GUI's log is `~/.ros/ammo_gui_mission.log`.
+`quad_showcase/` holds an extra display of the quad's state machine and depth mapping that runs beside
+a Part 2 mission (see its README).
+
+The system rehearsed for the final demonstration is commit `366d30f`. Later commits on `main` change
+documentation only.
+
+### Common problems
+
+| Symptom | Cause and fix |
+|---|---|
+| Sim appears frozen; robots never spawn | Gazebo cannot find the forest models. Use the `demo/` scripts, or run `source demo/env.sh` first |
+| Mushrooms invisible; every count stays 0 | Git LFS pointer files. Run `git lfs pull` and rebuild |
+| Robots stall or drift to a crawl | Two simulations are running, or the CPU is hot. Run `bash demo/stop_sim.sh` and wait for `CLEAN` |
+| After 60 s, telemetry and camera rows stay empty | The Gazebo window hang. Press **BACK TO SETUP**, untick the box, then Prepare again |
+| Every row ticked except Nav2 | Wait: the rover starts Nav2 itself after 60 s |
+| R1 forward does nothing | The guard is stopping the rover in front of an obstacle. Turn on the spot first |
+| End Mission and Abort off screen | The window needs 1548 px of width. Use 1920 x 1080 or more |
+| No progress for about 10 minutes | A stalled run. Run `bash demo/stop_sim.sh` and restart |
 
 ## Packages
 
@@ -125,9 +178,9 @@ Grouped by role. "Demo" marks what the two-part demo runs.
 | Simulation | `forest_worlds` | River world generators (`setup.sh`, `build_world.py`, `make_demo_world.py`, `shuffle_mushrooms.py`); the generated worlds come from the release | yes |
 | Fleet and robots | `quad_zcams` | The zcam quad (`zcam_quad_node`, `fleet_quad_node`), the fleet (`fleet_mission.launch.py`, `fleet_coordinator`, `fleet_yolo_pool`, `quad_standdown`), the rover's capture node (`rover_capture_node`) and PS4 teleop (`ps4_teleop`) | yes |
 | Fleet and robots | `ammo_mission_control` | The one-quad, one-rover launch (`cage_mission.launch.py`, alias `ammo_main.launch.py`), `truth_localizer`, `ground_projection`, and the earlier `quad_search_node` / `cage_capture_node` (`quad:=stock`) | yes |
-| Perception | `perception` | `yolo_node` (one per camera), `hazard_brake` (stops the rover for a person), `combined_view`, trained YOLO weights in `models/` | yes |
+| Perception | `perception` | `yolo_node` (one per camera in the operator mission), `hazard_brake` (stops the rover for a person), `combined_view`, trained YOLO weights in `models/` | yes |
 | Perception | `skidsteer_perception` | Dataset capture in Gazebo and YOLO training scripts (`scripts/`, see `TRAINING_PC.md`) | no |
-| Rover safety | `skidsteer_controller` | `collision_guard_node` (C++): lidar and depth safety gate on every rover velocity command | yes |
+| Rover safety | `skidsteer_controller` | `collision_guard_node` (C++): lidar and depth safety gate on normal rover driving (see [Topic ownership](#topic-ownership)) | yes |
 | Operator interface | `ammo_gui_node` | PySide6 operator GUI, Debug UI and Fleet Debug UI, `mission_bridge`, headless tests | yes |
 | Operator interface | `quad_showcase` | Display of the quad's state machine and depth mapping (run by path, not a ROS package) | optional |
 | Operator interface | `ammo_dashboard` | OpenCV HUD: both YOLO feeds, speed, altitude, minimap | no |
@@ -152,7 +205,7 @@ Launch arguments:
 | `world` | `simple_trees` | World name, or a path to a generated `.sdf` |
 | `headless` / `rviz` | `false` / `true` | No Gazebo GUI / RViz |
 | `parrot` | `true` | Spawn the quad |
-| `quad` | `zcam` | `zcam`: the z-camera quad (`quad_zcams`), plans round every obstacle at 1 m and never climbs over canopies. `stock`: `quad_search_node` |
+| `quad` | `zcam` | `zcam`: the z-camera quad (`quad_zcams`), plans round every obstacle with 0.6 m clearance and never climbs over canopies. `stock`: `quad_search_node` |
 | `imgsz`, `center_out`, `det_range`, `quad_routes`, ... | see `quad_zcams/launch/zcam_mission.launch.py` | Quad search and rover routing options for `quad:=zcam`. The defaults are the configuration that collected 24/24 in a 40 m leaf-mesh forest (three runs, 23-26 min each) |
 | `mushrooms` | empty | `x,y,x,y,...` mushrooms spawned for the quad to find |
 | `count` | `0` | Random test mushrooms queued straight to the rover |
@@ -209,37 +262,41 @@ detector could not tell them apart.
 
 ## Mission flow
 
-1. **Search.** The quad cruises under the canopy at 1 m and flies a lawnmower
-   over the world (square loops 3 m apart out to 2 m inside the playable area) or the given
-   legs, on an A* path round everything in the world file and what the lidar sees.
-   It never climbs over canopies: a sweep point it cannot reach is skipped.
-2. **Confirm.** On a YOLO hit it moves to a canopy-clear point facing the
-   mushroom, drops to 1.2 m and holds still. A waypoint is published only when
-   the quad has been still for 2 s, confidence is at least 0.5, two
-   consecutive projections agree within 1 m, and the point is not within 2 m of
-   the rover. Up to three viewpoints are tried before giving up.
-3. **Hand over.** After three consistent waypoints on `husky1/cage/waypoints`
-   the quad resumes searching; the rover works in parallel.
-4. **Collect.** The rover queues the point, drives with Nav2 to a standoff
-   1.7 m from it on the clearest side, turns to face it (ALIGN), creeps in, lowers and closes
-   the gripper, and publishes `husky1/cage/done` (or `husky1/cage/missed` if
-   nothing was there, so the quad can find and dispatch it again). A point Nav2 cannot reach is
-   tried from up to five directions, then deferred to the back of the queue.
-   During ALIGN the rover steers on its own camera's sighting (projected with the pose at that
-   frame) when it is under 2.5 s old and within 15 deg of the odometry heading; otherwise on
-   odometry. Native boxes are never a target.
+1. **Search.** Each quad flies its own sector with passes 3 m apart. One quad flies square loops
+   outward from the spawn point, two fly nested U loops, one in each half of the world, and three or
+   more each fly an equal strip. Quads cruise 1 m above the local ground, on an A* path round
+   everything in the world file and what the lidar sees, with 0.6 m clearance. They never climb over
+   canopies: a sweep point a quad cannot reach is skipped.
+2. **Confirm.** On a YOLO hit the quad closes to about 1.6 m from the projected point, faces it and
+   holds still. It reports only when confidence is at least 0.5, the point is within 3 m of the quad
+   and more than 2 m from the rover, the box is no taller than 1.35 times its width, the quad has been
+   still for 1 s, and two projections agree within 1 m. With no report after 12 s it moves to a new
+   viewpoint, up to three.
+3. **Hand over.** After two waypoints 1 s apart the quad resumes searching. In a fleet run the report
+   goes on `fleet/reports`, and the coordinator merges it with any known mushroom within 1.5 m and
+   assigns it to a rover on `husky1/cage/waypoints`. With one quad it goes straight to that topic.
+   The rover works in parallel.
+4. **Collect.** The rover drives with Nav2 to a standoff 1.7 m from the mushroom on the clearest side,
+   turns to face it (ALIGN), creeps in, lowers and closes the gripper, and publishes `husky1/cage/done`
+   (or `husky1/cage/missed` if nothing was there, so the quad can find and dispatch it again). A point
+   Nav2 cannot reach is tried from up to five directions, then moved to the back of the queue.
+   During ALIGN the rover steers on its own camera's sighting (projected with the pose at that frame)
+   when it is under 2.5 s old and within 15 deg of the odometry heading; otherwise on odometry. Native
+   boxes are never a target.
+5. **Finish.** Once every mushroom is known the quads go home and land. Once all are collected and
+   every robot is home, a Part 1 run ends the simulation.
 
 ## Topic ownership
 
 Never run two publishers of the same velocity topic.
 
-- `husky1/cmd_vel` is written only by `collision_guard_node`, except for the
-  final creep onto the mushroom, which `cage_capture_node` writes directly
-  because the guard's 1 m stop would veto it.
-- `husky1/cmd_vel_raw` -> guard: `cage_capture_node` (transit), teleop
+- `husky1/cmd_vel` is written by `collision_guard_node`, except for four slow moves that bypass it on
+  purpose, because its 1 m stop would otherwise keep the rover from reaching a mushroom: the final
+  ALIGN creep, the PS4 L2 creep (at most 0.2 m/s), the river crossing lanes and the UNWEDGE reverse.
+- `husky1/cmd_vel_raw` -> guard, with the full check: `rover_capture_node` (transit), teleop
   (`ps4_teleop`, `ipad_teleop.html`, keyboard).
-- `husky1/cmd_vel_nav_guarded` -> guard: Nav2 (its `cmd_vel_smoothed`,
-  remapped in `cage_mission.launch.py`).
+- `husky1/cmd_vel_nav_guarded` -> guard, with the depth stop, rear stop and flank check only: Nav2
+  (its `cmd_vel_smoothed`, remapped in `cage_mission.launch.py`). Nav2's costmap covers the rest.
 - `parrot1/cmd_vel`: `quad_search_node` / `zcam_quad_node` (autonomous), `quad_mission`,
   `ps4_teleop` or `ps4_drone_test.py` (manual). Only one at a time.
 - `husky1/teleop_active`, `parrot1/teleop_active` (`ps4_teleop`): heartbeats while a
@@ -286,15 +343,16 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
   `parrot:=false` or not alongside `quad_search_node`.
 - **Operator GUI**: `ros2 launch ammo_gui_node gui.launch.py` (PySide6 GUI with `mission_bridge`,
   `ammo_gui_node/`). A run starts in two stages: **Prepare** starts `cage_mission.launch.py`
-  (one quad, one rover, PS4 teleop) and freezes both mission nodes while a checklist fills in and
-  the mushrooms are spawned; **Launch** releases them and starts the clock. End Mission keeps
-  Gazebo up for the next run. See `ammo_gui_node/README.md`. Pause freezes the mission
-  nodes; they get `ammo_gui_node/config/fastdds_udp_only.xml` (1 h discovery lease, loopback
-  UDP) so the other processes keep them through a long pause. Without it, a pause over 20 s
-  could leave the rover without `/clock` or Nav2 after Resume.
+  (one quad, one rover, PS4 teleop) and holds both robots while a checklist fills in and the
+  mushrooms are spawned; **Launch** releases them and starts the clock. End Mission closes the
+  simulation and returns to the setup page. See `ammo_gui_node/README.md`. Pause cancels the Nav2
+  goal and holds both robots with zero velocity and `teleop_active` heartbeats. Freezing the node
+  processes is a last resort; they get `ammo_gui_node/config/fastdds_udp_only.xml` (1 h discovery
+  lease, loopback UDP) so the other processes keep them through a long freeze.
 - **World generator**: `python3 41068_ignition_bringup/scripts/generate_forest_world.py --seed 7 --preset dense`
   writes a seeded forest `.sdf`, its terrain, and a `.meta.json` with the
-  ground truth of every tree, mushroom and decoy. See `worlds/README_forest_random.md`.
+  ground truth of every tree, mushroom and decoy, replacing the tracked `forest_random` files. See
+  `worlds/README_forest_random.md`.
 - **Detector training**: `skidsteer_perception/scripts/` captures labelled
   images in Gazebo and trains YOLO11n (`TRAINING_PC.md`).
 
@@ -305,16 +363,20 @@ for the iPad only). iPad: `rosbridge_websocket`, `web_video_server`,
 - The quad projects a sighting with its depth image when it has a fresh frame,
   and otherwise assumes flat ground at the spawn clearing's height, so uneven
   terrain (`forest_random`) can add metres of error.
-- Detection is reliable to about 3.5 m, hence the 2 m cruise and 3 m rows.
+- Detection is reliable to about 3.5 m, hence the 3 m reporting range and 3 m rows.
 - Native detection is trained on the sim's blue caps only (`river_v6`: blue caps at 1-5 m,
   river banks included). With the second-sighting rule, fleet runs on `river_moderate_aus`
-  logged 6/6 real natives with 0-1 false ones, sent no native to the rover, and collected 12/12.
-  The false one that recurs is at the water's edge near (17.7, -12.2), likely the blue water
-  read as a cap; it is logged only, never collected.
+  logged 4 to 6 of the 6 natives, because a run ends before the search covers everything, sent no
+  native to the rover, and collected 12/12. One false native recurs at the water's edge near
+  (17.7, -12.2). The cause is unconfirmed; it is logged only, never collected.
   The training data and scripts are in `~/mushroom_river` (`train_v6.sh`) on the capture PC,
   captured with `skidsteer_perception/scripts/run_capture.sh --hover 1.0 [--spots banks.json]`.
 - The rover's camera steers the final alignment when it has a fresh sighting, and an empty grab sends
   the rover back once to where its camera saw the mushroom, but the camera cannot veto a target: a
   look-alike that passes the quad's checks gets collected.
+- Pause does not fully hold a quad: the heartbeat runs on sim time, and a quad crept up to about
+  0.5 m over 25 s on test runs.
+- A report with no rover-camera sighting, missed after the quad covering that half has stood down, is
+  never searched again, and the run stalls short of 12.
 - "Collected" is a sim stand-in: any mushroom within 0.6 m of the gripper
   centre is removed from Gazebo.

@@ -12,4 +12,4 @@ The scripts for the two-part demo. Run them from the repo folder; the top-level 
 | `get_world.sh` | Downloads the river worlds from the v1.0 release into `forest_worlds/` |
 | `pack_world.sh` | Maintainer: builds that release file |
 
-Logs go to `~/.ros/ammo_demo/`.
+Part 1 logs go to `~/.ros/ammo_demo/`. The operator GUI's log is `~/.ros/ammo_gui_mission.log`.
