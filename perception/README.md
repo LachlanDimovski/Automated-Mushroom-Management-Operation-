@@ -2,6 +2,10 @@
 
 Detection for both robots.
 
+In quad_zcams simulation, fleet_yolo_pool.py node (quad_zcams/quad_zcams/fleet_yolo_pool.py) is used, which optimises Yolo detections for use with a 
+fleet of platforms. This is achieved using OpenVino and threading to create a seperate process for each Yolo detection stream, with priority management
+for each stream to ensure its updated reguarly.
+
 | File | Role |
 |---|---|
 | `yolo_node.py` | YOLO detector, one copy per camera. Publishes `<robot>/detections` and `<robot>/detections/image` |
